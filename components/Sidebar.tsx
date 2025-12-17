@@ -1,0 +1,62 @@
+import React from 'react';
+import { Package, LogOut, LayoutDashboard, Database, Settings } from 'lucide-react';
+import { UILanguage } from '../types';
+import { useTranslation } from '../lib/i18n';
+import { LanguageSwitcher } from './LanguageSwitcher';
+
+interface SidebarProps {
+  onLogout: () => void;
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
+  lang: UILanguage;
+  onLanguageChange: (lang: UILanguage) => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ onLogout, activeTab, setActiveTab, lang, onLanguageChange }) => {
+  const t = useTranslation(lang);
+  const menuItems = [
+    { id: 'dashboard', label: t('dashboard'), icon: <LayoutDashboard size={20} /> },
+    { id: 'listings', label: t('listings'), icon: <Database size={20} /> },
+    { id: 'settings', label: t('settings'), icon: <Settings size={20} /> },
+  ];
+
+  return (
+    <div className="w-64 bg-slate-900 text-white h-screen flex flex-col fixed left-0 top-0 z-50">
+      <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+        <h1 className="text-xl font-black flex items-center gap-2">
+          <span className="bg-blue-600 px-2 py-0.5 rounded text-sm">ERP</span> AMZBot
+        </h1>
+      </div>
+
+      <nav className="flex-1 p-4 space-y-2">
+        {menuItems.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setActiveTab(item.id)}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+              activeTab === item.id 
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 scale-105' 
+                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+            }`}
+          >
+            {item.icon}
+            <span className="font-bold text-sm">{item.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="p-6 border-t border-slate-800 space-y-4">
+        <div className="flex justify-center">
+          <LanguageSwitcher currentLang={lang} onLanguageChange={onLanguageChange} isDark />
+        </div>
+        <button 
+          onClick={onLogout}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all font-bold text-sm"
+        >
+          <LogOut size={18} />
+          <span>{t('signOut')}</span>
+        </button>
+      </div>
+    </div>
+  );
+};
