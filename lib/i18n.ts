@@ -42,6 +42,14 @@ const translations: Record<UILanguage, Record<string, string>> = {
     pricingTitle: 'Simple, Transparent Pricing',
     pricingSub: 'Free to start, affordable to scale.',
     signIn: 'Sign In',
+    step1Title: 'Capture',
+    step1Desc: 'Collect products instantly via browser extension.',
+    step2Title: 'Optimize',
+    step2Desc: 'Generate conversion-focused content with Gemini or GPT-4o.',
+    step3Title: 'Sourcing',
+    step3Desc: 'Find direct factory sources on 1688 via image search.',
+    step4Title: 'Launch',
+    step4Desc: 'Export localized templates to global marketplaces.'
   },
   zh: {
     heroTitle: '让跨境电商更智能、更高效',
@@ -54,7 +62,7 @@ const translations: Record<UILanguage, Record<string, string>> = {
     pricing: '价格方案',
     dashboard: '控制面板',
     listings: '铺货管理',
-    settings: '设置',
+    settings: '系统设置',
     signOut: '退出登录',
     totalListings: '总采集数',
     optimized: '已优化',
@@ -75,6 +83,14 @@ const translations: Record<UILanguage, Record<string, string>> = {
     pricingTitle: '简单透明的价格',
     pricingSub: '免费开始，灵活扩展。',
     signIn: '登录',
+    step1Title: '快速采集',
+    step1Desc: '使用浏览器插件一键抓取亚马逊产品数据。',
+    step2Title: 'AI 优化',
+    step2Desc: '使用 Gemini 或 GPT-4o 生成高转化率标题和详情。',
+    step3Title: '以图搜图',
+    step3Desc: '深度对接1688，快速匹配优质货源厂家。',
+    step4Title: '多站刊登',
+    step4Desc: '一键生成多语言模板，快速铺货至全球站点。'
   },
   ja: {
     heroTitle: '越境ECをスマートに、効率的に',
@@ -108,6 +124,14 @@ const translations: Record<UILanguage, Record<string, string>> = {
     pricingTitle: 'シンプルで透明な料金',
     pricingSub: '無料で開始でき、拡張も手頃です。',
     signIn: 'ログイン',
+    step1Title: '収集',
+    step1Desc: 'ブラウザ拡張機能で瞬時に製品を収集。',
+    step2Title: '最適化',
+    step2Desc: 'AIを活用して売れるコンテンツを生成。',
+    step3Title: '仕入れ',
+    step3Desc: '1688で直接工場ソースを見つける。',
+    step4Title: '公開',
+    step4Desc: 'グローバルマーケットプレイスに輸出。'
   },
   de: {
     heroTitle: 'Automatisieren Sie Ihr grenzüberschreitendes Imperium',
@@ -141,6 +165,14 @@ const translations: Record<UILanguage, Record<string, string>> = {
     pricingTitle: 'Einfache, transparente Preise',
     pricingSub: 'Kostenlos starten, erschwinglich skalieren.',
     signIn: 'Anmelden',
+    step1Title: 'Erfassen',
+    step1Desc: 'Produkte sofort über Browser-Erweiterung sammeln.',
+    step2Title: 'Optimieren',
+    step2Desc: 'KI-gestützte Inhalte erstellen.',
+    step3Title: 'Beschaffung',
+    step3Desc: 'Fabrikquellen auf 1688 finden.',
+    step4Title: 'Starten',
+    step4Desc: 'In globale Marktplätze exportieren.'
   },
   fr: {
     heroTitle: 'Automatisez votre empire transfrontalier',
@@ -174,6 +206,14 @@ const translations: Record<UILanguage, Record<string, string>> = {
     pricingTitle: 'Tarification simple et transparente',
     pricingSub: 'Commencez gratuitement, évoluez à moindre coût.',
     signIn: 'Connexion',
+    step1Title: 'Capturer',
+    step1Desc: 'Collecter des produits via l\'extension.',
+    step2Title: 'Optimiser',
+    step2Desc: 'Générer du contenu optimisé par IA.',
+    step3Title: 'Sourcing',
+    step3Desc: 'Trouver des usines sur 1688 par image.',
+    step4Title: 'Lancer',
+    step4Desc: 'Exporter vers les marchés mondiaux.'
   },
   es: {
     heroTitle: 'Automatice su imperio transfronterizo',
@@ -207,6 +247,14 @@ const translations: Record<UILanguage, Record<string, string>> = {
     pricingTitle: 'Precios simples y transparentes',
     pricingSub: 'Gratis para empezar, económico para escalar.',
     signIn: 'Iniciar sesión',
+    step1Title: 'Capturar',
+    step1Desc: 'Coleccionar productos vía extensión.',
+    step2Title: 'Optimizar',
+    step2Desc: 'Contenido optimizado por IA.',
+    step3Title: 'Sourcing',
+    step3Desc: 'Encontrar fábricas en 1688.',
+    step4Title: 'Lanzar',
+    step4Desc: 'Exportar a mercados globales.'
   }
 };
 
