@@ -1,14 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 
-// In a real Vercel environment, these are set in the project settings.
-// These variables must be prefixed with NEXT_PUBLIC_ for the browser to see them in Next.js,
-// but since we are in a plain Vite/ESM environment, we check both common patterns.
+/**
+ * 支持多种环境变量命名方式：
+ * 1. process.env (Vercel/Node 标准)
+ * 2. import.meta.env (Vite 标准)
+ */
+const getEnv = (key: string) => {
+  // @ts-ignore
+  return process.env[key] || process.env[`NEXT_PUBLIC_${key}`] || (import.meta as any).env?.[`VITE_${key}`] || '';
+};
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseUrl = getEnv('SUPABASE_URL');
+const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
 
-// If the URL is missing or is the placeholder, we should avoid making calls that cause "Failed to fetch"
-const isConfigured = supabaseUrl && supabaseUrl !== 'https://placeholder-url.supabase.co';
+// 检查是否配置了有效的 URL
+const isConfigured = supabaseUrl && supabaseUrl !== 'https://placeholder-url.supabase.co' && supabaseUrl !== '';
 
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder-url.supabase.co', 

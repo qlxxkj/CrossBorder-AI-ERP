@@ -1,11 +1,13 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+// Always initialize GoogleGenAI inside functions using process.env.API_KEY directly 
+// to ensure the most up-to-date key is used and to follow SDK best practices.
 
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
-  if (!apiKey) throw new Error("API Key is missing.");
+  // Fix: Directly use process.env.API_KEY for initialization as required by guidelines
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
     You are an expert Amazon Listing Optimizer.
@@ -38,7 +40,9 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
       }
     });
 
-    return JSON.parse(response.text) as OptimizedData;
+    // Fix: Access response.text property directly (not as a method) and trim before parsing
+    const text = response.text || "{}";
+    return JSON.parse(text.trim()) as OptimizedData;
   } catch (error) {
     console.error("AI Optimization failed:", error);
     throw error;
@@ -46,7 +50,8 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 };
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLang: string): Promise<OptimizedData> => {
-  if (!apiKey) throw new Error("API Key is missing.");
+  // Fix: Create fresh instance with direct process.env.API_KEY reference
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
     Translate the following Amazon listing content into ${targetLang}. 
@@ -76,7 +81,9 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
       }
     });
 
-    return JSON.parse(response.text) as OptimizedData;
+    // Fix: Access response.text property directly and trim
+    const text = response.text || "{}";
+    return JSON.parse(text.trim()) as OptimizedData;
   } catch (error) {
     console.error(`Translation to ${targetLang} failed:`, error);
     throw error;
@@ -84,7 +91,8 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
 };
 
 export const editImageWithAI = async (imageBase64: string, instruction: string): Promise<string> => {
-  if (!apiKey) throw new Error("API Key is missing.");
+  // Fix: Create fresh instance with direct process.env.API_KEY reference
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
@@ -95,10 +103,15 @@ export const editImageWithAI = async (imageBase64: string, instruction: string):
         ]
       }
     });
-    const parts = response.candidates?.[0]?.content?.parts;
-    if (parts) {
+    
+    // Fix: Correctly iterate through response parts to find image data as per guidelines
+    const candidates = response.candidates;
+    if (candidates && candidates.length > 0) {
+      const parts = candidates[0].content.parts;
       for (const part of parts) {
-        if (part.inlineData && part.inlineData.data) return part.inlineData.data;
+        if (part.inlineData && part.inlineData.data) {
+          return part.inlineData.data;
+        }
       }
     }
     throw new Error("No image generated.");
