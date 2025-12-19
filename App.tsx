@@ -15,16 +15,20 @@ const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [lang, setLang] = useState<UILanguage>('en');
+  const [listings, setListings] = useState<Listing[]>([]);
 
-  const [listings, setListings] = useState<Listing[]>([
-    {
-      id: 'demo-1',
-      asin: 'B004AG7XSM',
-      created_at: new Date().toISOString(),
-      status: 'collected',
-      cleaned: MOCK_CLEANED_DATA
+  // 从数据库拉取数据
+  const fetchListings = async () => {
+    if (!isSupabaseConfigured()) return;
+    const { data, error } = await supabase
+      .from('listings')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (!error && data) {
+      setListings(data);
     }
-  ]);
+  };
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -34,8 +38,9 @@ const App: React.FC = () => {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session && view === AppView.LANDING) {
+      if (session) {
         setView(AppView.DASHBOARD);
+        fetchListings();
       }
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -44,8 +49,10 @@ const App: React.FC = () => {
       setSession(session);
       if (session) {
         setView(AppView.DASHBOARD);
+        fetchListings();
       } else {
         setView(AppView.LANDING);
+        setListings([]);
       }
     });
 
@@ -94,13 +101,14 @@ const App: React.FC = () => {
             listings={listings}
             setListings={setListings}
             lang={lang}
+            refreshListings={fetchListings}
           />
         )}
 
         {view === AppView.LISTING_DETAIL && selectedListing && (
           <ListingDetail 
             listing={selectedListing} 
-            onBack={() => setView(AppView.DASHBOARD)}
+            onBack={() => { setView(AppView.DASHBOARD); fetchListings(); }}
             onUpdate={(updated) => {
               setListings(prev => prev.map(l => l.id === updated.id ? updated : l));
               setSelectedListing(updated);

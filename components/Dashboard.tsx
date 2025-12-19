@@ -1,29 +1,56 @@
+
 import React, { useState } from 'react';
-import { Plus, Search, Bot, ExternalLink, CheckCircle } from 'lucide-react';
+import { Plus, Search, Bot, CheckCircle, Trash2, Loader2 } from 'lucide-react';
 import { Listing, UILanguage } from '../types';
 import { MOCK_CLEANED_DATA } from '../constants';
 import { useTranslation } from '../lib/i18n';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface DashboardProps {
   onSelectListing: (listing: Listing) => void;
   listings: Listing[];
   setListings: React.Dispatch<React.SetStateAction<Listing[]>>;
   lang: UILanguage;
+  refreshListings: () => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings, setListings, lang }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings, setListings, lang, refreshListings }) => {
   const t = useTranslation(lang);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
 
-  const handleSimulateImport = () => {
-    const newListing: Listing = {
-      id: Math.random().toString(36).substr(2, 9),
-      asin: MOCK_CLEANED_DATA.asin,
+  const handleSimulateImport = async () => {
+    if (!isSupabaseConfigured()) return;
+    setIsImporting(true);
+    
+    const newListing = {
+      asin: MOCK_CLEANED_DATA.asin + Math.floor(Math.random() * 1000),
       created_at: new Date().toISOString(),
       status: 'collected',
       cleaned: { ...MOCK_CLEANED_DATA, title: `${MOCK_CLEANED_DATA.title} (${listings.length + 1})` }
     };
-    setListings([newListing, ...listings]);
+
+    const { error } = await supabase.from('listings').insert([newListing]);
+    
+    if (error) {
+      alert(`Import failed: ${error.message}`);
+    } else {
+      refreshListings();
+    }
+    setIsImporting(false);
+  };
+
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this listing?")) return;
+    
+    if (isSupabaseConfigured()) {
+      const { error } = await supabase.from('listings').delete().eq('id', id);
+      if (error) alert(error.message);
+      else refreshListings();
+    } else {
+      setListings(prev => prev.filter(l => l.id !== id));
+    }
   };
 
   const filteredListings = listings.filter(l => 
@@ -67,9 +94,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
         <div className="flex gap-3 w-full sm:w-auto">
            <button 
              onClick={handleSimulateImport}
-             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold text-sm transition-all"
+             disabled={isImporting}
+             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold text-sm transition-all disabled:opacity-50"
            >
-            <Bot size={18} /> {t('simulateImport')}
+            {isImporting ? <Loader2 size={18} className="animate-spin" /> : <Bot size={18} />}
+            {t('simulateImport')}
            </button>
            <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800 font-bold text-sm shadow-xl transition-all">
             <Plus size={18} /> {t('manualAdd')}
@@ -99,7 +128,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
                 </tr>
               ) : (
                 filteredListings.map((listing) => (
-                  <tr key={listing.id} className="hover:bg-slate-50 transition-colors">
+                  <tr key={listing.id} className="hover:bg-slate-50 transition-colors group">
                     <td className="p-6">
                       <div className="w-14 h-14 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shadow-sm">
                         <img src={listing.cleaned.main_image} alt="" className="w-full h-full object-contain" />
@@ -127,12 +156,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
                       )}
                     </td>
                     <td className="p-6 text-right">
-                      <button 
-                        onClick={() => onSelectListing(listing)}
-                        className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all font-bold text-xs"
-                      >
-                        {t('edit')}
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button 
+                          onClick={() => onSelectListing(listing)}
+                          className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all font-bold text-xs"
+                        >
+                          {t('edit')}
+                        </button>
+                        <button 
+                          onClick={(e) => handleDelete(listing.id, e)}
+                          className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

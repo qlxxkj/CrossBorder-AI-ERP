@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+
+import React, { useState, useRef } from 'react';
 import { 
   ArrowLeft, Sparkles, Copy, ShoppingCart, Search, 
-  Image as ImageIcon, Edit2, Trash2, Plus, 
-  Link as LinkIcon, Trash, BrainCircuit, Globe, Languages, Download, Loader2
+  Image as ImageIcon, Edit2, Trash2, Plus, X,
+  Link as LinkIcon, Trash, BrainCircuit, Globe, Languages, Download, Loader2,
+  Upload
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -11,6 +13,10 @@ import { ImageEditor } from './ImageEditor';
 import { SourcingModal } from './SourcingModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { useTranslation } from '../lib/i18n';
+
+// 图床基础配置
+const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
+const IMAGE_HOSTING_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 
 interface ListingDetailProps {
   listing: Listing;
@@ -32,14 +38,19 @@ const MARKETPLACES = [
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, uiLang }) => {
   const t = useTranslation(uiLang);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isTranslating, setIsTranslating] = useState<string | null>(null);
+  const [isUploadingLocal, setIsUploadingLocal] = useState(false);
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [selectedImage, setSelectedImage] = useState<string>(listing.cleaned.main_image);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isSourcingOpen, setIsSourcingOpen] = useState(false);
   const [activeMarketplace, setActiveMarketplace] = useState<string>('en');
+  const [newImageUrl, setNewImageUrl] = useState('');
+  const [showAddImage, setShowAddImage] = useState(false);
 
   const currentContent = activeMarketplace === 'en' 
     ? (localListing.optimized || null)
@@ -48,14 +59,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const syncToSupabase = async (updatedListing: Listing) => {
     if (!isSupabaseConfigured()) return;
     try {
-      await supabase.from('listings').update({
+      const { error } = await supabase.from('listings').update({
         cleaned: updatedListing.cleaned,
         optimized: updatedListing.optimized,
         translations: updatedListing.translations,
         status: updatedListing.status
       }).eq('id', updatedListing.id);
+      
+      if (error) throw error;
     } catch (e) {
-      console.error("Sync failed:", e);
+      console.error("Sync to Supabase failed:", e);
     }
   };
 
@@ -63,6 +76,84 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setLocalListing(updated);
     onUpdate(updated);
     syncToSupabase(updated);
+  };
+
+  const handleAddImage = () => {
+    if (!newImageUrl) return;
+    const updated = { ...localListing };
+    if (!updated.cleaned.other_images) updated.cleaned.other_images = [];
+    updated.cleaned.other_images.push(newImageUrl);
+    updateAndSync(updated);
+    setNewImageUrl('');
+    setShowAddImage(false);
+  };
+
+  const handleLocalFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingLocal(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch(IMAGE_HOSTING_API, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Upload failed');
+      
+      const data = await response.json();
+      
+      // 根据 API 定义解析：[ { "src": "/file/..." } ]
+      let uploadedUrl = '';
+      if (Array.isArray(data) && data[0]?.src) {
+        uploadedUrl = `${IMAGE_HOST_DOMAIN}${data[0].src}`;
+      } else if (data.url || data.link) {
+        uploadedUrl = data.url || data.link;
+      }
+      
+      if (uploadedUrl) {
+        const updated = { ...localListing };
+        if (!updated.cleaned.other_images) updated.cleaned.other_images = [];
+        updated.cleaned.other_images.push(uploadedUrl);
+        
+        // 更新本地状态并同步到数据库
+        updateAndSync(updated);
+        // 上传后自动预览新图片
+        setSelectedImage(uploadedUrl);
+      } else {
+        throw new Error('Invalid response format from image server');
+      }
+    } catch (error: any) {
+      console.error("Local upload error:", error);
+      alert(`Upload failed: ${error.message}`);
+    } finally {
+      setIsUploadingLocal(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteImage = (img: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Delete this image?")) return;
+    
+    const updated = { ...localListing };
+    if (img === updated.cleaned.main_image) {
+      if (updated.cleaned.other_images && updated.cleaned.other_images.length > 0) {
+        updated.cleaned.main_image = updated.cleaned.other_images[0];
+        updated.cleaned.other_images = updated.cleaned.other_images.slice(1);
+      } else {
+        alert("Cannot delete the only image.");
+        return;
+      }
+    } else {
+      updated.cleaned.other_images = updated.cleaned.other_images?.filter(i => i !== img);
+    }
+    
+    if (selectedImage === img) setSelectedImage(updated.cleaned.main_image);
+    updateAndSync(updated);
   };
 
   const handleOptimize = async () => {
@@ -149,6 +240,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        className="hidden" 
+        accept="image/*" 
+        onChange={handleLocalFileSelect}
+      />
+
       {isEditorOpen && (
         <ImageEditor 
           imageUrl={selectedImage} 
@@ -160,7 +259,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             const updated = { ...localListing };
             updated.cleaned.main_image = current[0];
             updated.cleaned.other_images = current.slice(1);
-            setSelectedImage(current[0]);
+            setSelectedImage(current[idx]);
             updateAndSync(updated);
             setIsEditorOpen(false);
           }}
@@ -205,22 +304,58 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <ImageIcon size={18} className="text-blue-500" /> Gallery
+            <h3 className="font-bold text-slate-800 mb-4 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2"><ImageIcon size={18} className="text-blue-500" /> Gallery</span>
+              <div className="flex gap-3">
+                 <button onClick={() => setShowAddImage(!showAddImage)} className="text-xs text-blue-600 font-bold hover:underline flex items-center gap-1">
+                   <LinkIcon size={12} /> URL
+                 </button>
+                 <button onClick={() => fileInputRef.current?.click()} className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1">
+                   <Plus size={12} /> Local
+                 </button>
+              </div>
             </h3>
+            
+            {showAddImage && (
+              <div className="mb-4 flex gap-2 animate-in fade-in slide-in-from-top-2">
+                <input 
+                  type="text" 
+                  placeholder="Paste image URL..." 
+                  value={newImageUrl}
+                  onChange={(e) => setNewImageUrl(e.target.value)}
+                  className="flex-1 p-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <button onClick={handleAddImage} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold">Add</button>
+              </div>
+            )}
+
             <div className="relative aspect-square rounded-xl bg-slate-50 border border-slate-100 overflow-hidden mb-4 group shadow-inner">
               <img src={selectedImage} className="w-full h-full object-contain" />
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                 <button onClick={() => setIsEditorOpen(true)} className="px-4 py-2 bg-white text-slate-900 rounded-lg font-bold text-xs shadow-xl flex items-center gap-2"><Edit2 size={14} /> AI Tools</button>
               </div>
             </div>
-            {/* Multi-image thumbnail list */}
+            
             <div className="grid grid-cols-4 gap-2">
               {[localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].map((img, i) => (
-                <div key={i} className={`relative aspect-square rounded-lg border-2 cursor-pointer ${selectedImage === img ? 'border-blue-500' : 'border-slate-100 hover:border-slate-300'}`}>
+                <div key={i} className={`relative aspect-square rounded-lg border-2 group/item cursor-pointer transition-all ${selectedImage === img ? 'border-blue-500 scale-95 shadow-inner' : 'border-slate-100 hover:border-slate-300'}`}>
                   <img src={img} onClick={() => setSelectedImage(img)} className="w-full h-full object-cover rounded" />
+                  <button 
+                    onClick={(e) => handleDeleteImage(img, e)}
+                    className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity z-10"
+                  >
+                    <X size={10} />
+                  </button>
                 </div>
               ))}
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingLocal}
+                className="aspect-square rounded-lg border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 hover:border-blue-400 hover:text-blue-500 transition-all bg-slate-50 group/upload"
+              >
+                {isUploadingLocal ? <Loader2 className="animate-spin" size={16} /> : <Plus size={20} className="group-hover/upload:scale-125 transition-transform" />}
+                <span className="text-[8px] font-black uppercase mt-1">Upload</span>
+              </button>
             </div>
           </div>
 

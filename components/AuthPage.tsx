@@ -23,6 +23,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
         const { error } = await supabase.auth.signUp({
           email,
           password,
+          options: {
+            // Fix: Ensure confirmation email redirects back to the current origin for improved UX
+            emailRedirectTo: window.location.origin,
+          }
         });
         if (error) throw error;
         setMessage({ type: 'success', text: 'Check your email for the confirmation link!' });
