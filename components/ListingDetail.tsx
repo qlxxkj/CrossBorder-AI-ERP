@@ -16,7 +16,10 @@ import { useTranslation } from '../lib/i18n';
 
 // 图床基础配置
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
-const IMAGE_HOSTING_API = `${IMAGE_HOST_DOMAIN}/upload`; 
+const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
+// 使用 CORS Proxy 解决浏览器直接请求图床报 CORS 错误的问题
+const CORS_PROXY = 'https://corsproxy.io/?';
+const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 interface ListingDetailProps {
   listing: Listing;
@@ -97,15 +100,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     formData.append('file', file);
 
     try {
-      // 极简 Fetch 请求，不包含任何可能触发 Preflight 的自定义 Header
+      // 通过 CORS 代理发送请求，绕过浏览器的同源策略限制
       const response = await fetch(IMAGE_HOSTING_API, {
         method: 'POST',
         body: formData,
-        // 移除所有可能导致跨域失败的策略，仅保留最基本请求
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new Error(`Upload failed with status: ${response.status}`);
       }
       
       const data = await response.json();
@@ -125,12 +127,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         updateAndSync(updated);
         setSelectedImage(uploadedUrl); 
       } else {
-        throw new Error('No URL found in API response.');
+        throw new Error('No image URL found in server response.');
       }
     } catch (error: any) {
       console.error("Upload Error:", error);
       alert(
-        `图片上传失败: ${error.message}\n\n原因可能是该图床接口不支持跨域请求 (CORS)。\n建议：\n1. 检查图床服务端是否允许来自当前域名的访问。\n2. 使用图片 URL 直接添加方式。\n3. 使用 Chrome 的 CORS 绕过插件进行测试。`
+        `上传失败: ${error.message}\n\n已尝试使用 CORS 代理，若仍失败，可能是由于代理服务器限制或图床接口变动。建议检查网络连接或尝试使用图片 URL 添加方式。`
       );
     } finally {
       setIsUploadingLocal(false);
@@ -393,7 +395,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 </h4>
              </div>
 
-             {/* 核心规格编辑区：价格、运费 */}
+             {/* 价格与运费编辑区 */}
              <div className="p-6 border-b border-slate-100 bg-white">
                 <div className="flex items-center gap-2 mb-4">
                   <Settings2 size={14} className="text-blue-500" />
@@ -402,16 +404,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
-                      <DollarSign size={10} /> Product Price (USD)
+                      <DollarSign size={10} /> Selling Price (USD)
                     </label>
-                    <div className="relative">
+                    <div className="relative group">
                       <input 
                         type="number"
                         step="0.01"
                         value={localListing.cleaned.price}
                         onChange={(e) => handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)}
                         onBlur={handleBlur}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-inner"
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xl font-black text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-inner"
                       />
                     </div>
                   </div>
@@ -419,14 +421,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
                       <Truck size={10} /> Shipping Fee (USD)
                     </label>
-                    <div className="relative">
+                    <div className="relative group">
                       <input 
                         type="number"
                         step="0.01"
                         value={localListing.cleaned.shipping || 0}
                         onChange={(e) => handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)}
                         onBlur={handleBlur}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-inner"
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xl font-black text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-inner"
                       />
                     </div>
                   </div>
@@ -462,7 +464,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-3">
-                       <label className="text-[10px] font-bold text-indigo-400 uppercase">Bullet Points</label>
+                       <label className="text-[10px] font-bold text-indigo-400 uppercase">Feature Bullet Points</label>
                        {currentContent.optimized_features.map((f, i) => (
                          <div key={i} className="flex gap-2 group/bullet">
                            <span className="flex-none w-6 h-8 flex items-center justify-center text-[10px] font-bold text-slate-300">{i+1}</span>
@@ -499,8 +501,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                   <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-200">
                     <BrainCircuit size={32} />
                   </div>
-                  <p className="text-slate-400 font-medium italic">
-                    Run "AI Optimize" to generate content<br/>or select a marketplace.
+                  <p className="text-slate-400 font-medium italic text-center leading-relaxed">
+                    Run "AI Optimize" to generate high-converting content<br/>or select a marketplace to start editing.
                   </p>
                </div>
              )}

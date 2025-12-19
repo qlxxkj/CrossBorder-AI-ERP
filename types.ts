@@ -1,3 +1,4 @@
+
 export interface CleanedData {
   asin: string;
   title: string;
