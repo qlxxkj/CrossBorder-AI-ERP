@@ -16,6 +16,13 @@ interface ImageEditorProps {
 
 type Tool = 'select-fill' | 'brush' | 'ai-erase' | 'crop' | 'none';
 
+interface SelectionBox {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
 export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onSave }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -29,41 +36,54 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   
   // Interaction state
   const [isDrawing, setIsDrawing] = useState(false);
+  const [selection, setSelection] = useState<SelectionBox | null>(null);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [currentPos, setCurrentPos] = useState({ x: 0, y: 0 });
 
-  // 1. 初始化及修复图片载入
+  // 1. 强化图片初始化：确保图片能载入并居中，同时处理可能的渲染延迟
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const initCanvas = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
 
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = imageUrl;
-    img.onload = () => {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = imageUrl;
       
-      // 初始缩放：自动适应屏幕
-      if (containerRef.current) {
-        const padding = 80;
-        const availableW = containerRef.current.clientWidth - padding;
-        const availableH = containerRef.current.clientHeight - padding;
-        const scale = Math.min(availableW / img.width, availableH / img.height, 1);
-        setZoom(scale);
-      }
-      
-      saveToHistory();
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        
+        // 自动缩放以适应屏幕
+        if (containerRef.current) {
+          const padding = 120;
+          const availableW = containerRef.current.clientWidth - padding;
+          const availableH = containerRef.current.clientHeight - padding;
+          const scale = Math.min(availableW / img.width, availableH / img.height, 1);
+          setZoom(scale || 1);
+        }
+        
+        saveToHistory();
+      };
+
+      img.onerror = () => {
+        console.error("Failed to load image into editor:", imageUrl);
+      };
     };
+
+    // 稍微延迟确保 DOM 和 Ref 稳定
+    const timer = setTimeout(initCanvas, 100);
+    return () => clearTimeout(timer);
   }, [imageUrl]);
 
   const saveToHistory = () => {
     const canvas = canvasRef.current;
     if (canvas) {
-      setHistory(prev => [...prev.slice(-20), canvas.toDataURL()]);
+      setHistory(prev => [...prev.slice(-20), canvas.toDataURL('image/png')]);
     }
   };
 
@@ -88,7 +108,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   };
 
-  // 2. 1600*1600 标准化 (白底居中)
+  // 2. 1600*1600 标准化工具
   const standardize = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -115,44 +135,43 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       ctx.drawImage(tempImg, x, y, drawW, drawH);
       saveToHistory();
       
-      // 操作完自动调整缩放以看全
       if (containerRef.current) {
-        setZoom(Math.min((containerRef.current.clientHeight - 100) / 1600, 1));
+        setZoom(Math.min((containerRef.current.clientHeight - 120) / 1600, 1));
       }
     };
   };
 
-  // 3. 填色及裁剪逻辑
+  // 3. 填色及裁剪逻辑：保持工具状态，优化选框逻辑
   const handleFill = useCallback(() => {
-    if (currentTool !== 'select-fill') return;
+    if (currentTool !== 'select-fill' || !selection) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx) return;
 
-    const x = Math.min(startPos.x, currentPos.x);
-    const y = Math.min(startPos.y, currentPos.y);
-    const w = Math.abs(startPos.x - currentPos.x);
-    const h = Math.abs(startPos.y - currentPos.y);
+    const x = Math.min(selection.x1, selection.x2);
+    const y = Math.min(selection.y1, selection.y2);
+    const w = Math.abs(selection.x1 - selection.x2);
+    const h = Math.abs(selection.y1 - selection.y2);
 
     if (w < 1 || h < 1) return;
 
     ctx.fillStyle = brushColor;
     ctx.fillRect(x, y, w, h);
     saveToHistory();
-    // 保持工具选中状态，重置当前绘制位置
-    setIsDrawing(false);
-  }, [currentTool, startPos, currentPos, brushColor]);
+    setSelection(null); // 清除选框，但保留工具
+  }, [currentTool, selection, brushColor]);
 
   const handleCrop = () => {
+    if (!selection) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const x = Math.min(startPos.x, currentPos.x);
-    const y = Math.min(startPos.y, currentPos.y);
-    const w = Math.abs(startPos.x - currentPos.x);
-    const h = Math.abs(startPos.y - currentPos.y);
+    const x = Math.min(selection.x1, selection.x2);
+    const y = Math.min(selection.y1, selection.y2);
+    const w = Math.abs(selection.x1 - selection.x2);
+    const h = Math.abs(selection.y1 - selection.y2);
 
     if (w < 5 || h < 5) return;
 
@@ -161,28 +180,27 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     canvas.height = h;
     ctx.putImageData(imageData, 0, 0);
     saveToHistory();
-    setIsDrawing(false);
-    // 裁剪后调整缩放
+    setSelection(null);
     setZoom(1);
+    // 操作完依然保持 'crop' 工具选中状态
   };
 
-  // 4. Delete 键监听
+  // 4. Delete 键快捷填充
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && currentTool === 'select-fill') {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && currentTool === 'select-fill' && selection) {
         handleFill();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTool, handleFill]);
+  }, [currentTool, selection, handleFill]);
 
   const getMousePos = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     
-    // 因为有缩放，需要正确计算坐标
     let clientX, clientY;
     if ('touches' in e) {
       clientX = e.touches[0].clientX;
@@ -205,6 +223,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setCurrentPos(pos);
     setIsDrawing(true);
 
+    if (currentTool === 'select-fill' || currentTool === 'crop') {
+      setSelection({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y });
+    }
+
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
       const ctx = canvasRef.current?.getContext('2d');
       if (ctx) {
@@ -223,13 +245,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const pos = getMousePos(e);
     setCurrentPos(pos);
 
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!ctx) return;
+    if (currentTool === 'select-fill' || currentTool === 'crop') {
+      setSelection(prev => prev ? { ...prev, x2: pos.x, y2: pos.y } : null);
+    }
 
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
-      ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
+      const ctx = canvasRef.current?.getContext('2d');
+      if (ctx) {
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+      }
     }
   };
 
@@ -246,8 +271,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     try {
       const canvas = canvasRef.current;
       if (!canvas) return;
+      // 提交带擦除标记的图
       const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
-      const result = await editImageWithAI(base64, "Remove the objects, text, or logos highlighted in the red markings naturally, preserving the background texture and lighting.");
+      const result = await editImageWithAI(base64, "Please erase the red highlighted areas cleanly and regenerate the background naturally.");
       
       const img = new Image();
       img.src = `data:image/jpeg;base64,${result}`;
@@ -278,7 +304,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
         <div className="flex items-center gap-4">
           <div className="flex bg-slate-800 p-1 rounded-xl">
-            <button onClick={() => setZoom(prev => Math.max(0.1, prev - 0.1))} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400"><ZoomOut size={16} /></button>
+            <button onClick={() => setZoom(prev => Math.max(0.05, prev - 0.1))} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400"><ZoomOut size={16} /></button>
             <span className="px-3 flex items-center text-[10px] font-black text-slate-300 w-16 justify-center">{(zoom * 100).toFixed(0)}%</span>
             <button onClick={() => setZoom(prev => Math.min(5, prev + 0.1))} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400"><ZoomIn size={16} /></button>
           </div>
@@ -303,10 +329,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar Tools */}
         <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-8 gap-8 z-20">
-          <ToolIcon active={currentTool === 'brush'} onClick={() => setCurrentTool('brush')} icon={<Palette size={24} />} label="画笔" />
-          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => setCurrentTool('ai-erase')} icon={<Eraser size={24} />} label="AI 擦除" />
-          <ToolIcon active={currentTool === 'select-fill'} onClick={() => setCurrentTool('select-fill')} icon={<Square size={24} />} label="选择填充" />
-          <ToolIcon active={currentTool === 'crop'} onClick={() => setCurrentTool('crop')} icon={<Crop size={24} />} label="自定义裁剪" />
+          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelection(null); }} icon={<Palette size={24} />} label="画笔" />
+          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelection(null); }} icon={<Eraser size={24} />} label="AI 擦除" />
+          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelection(null); }} icon={<Square size={24} />} label="选择填充" />
+          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelection(null); }} icon={<Crop size={24} />} label="自定义裁剪" />
           
           <div className="mt-auto flex flex-col items-center gap-6 pb-4">
              <div className="relative group">
@@ -327,7 +353,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           className="flex-1 bg-slate-950 overflow-auto flex items-center justify-center p-20 relative selection:bg-transparent"
           onWheel={(e) => {
             if (e.ctrlKey) {
-              setZoom(z => Math.max(0.1, Math.min(5, z - e.deltaY * 0.001)));
+              setZoom(z => Math.max(0.05, Math.min(5, z - e.deltaY * 0.001)));
               e.preventDefault();
             }
           }}
@@ -336,7 +362,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             className="relative shadow-[0_0_100px_rgba(0,0,0,0.5)] transition-transform duration-75 origin-center"
             style={{ transform: `scale(${zoom})` }}
           >
-            {/* Checkerboard style bg */}
+            {/* 背景层 */}
             <div className="absolute inset-0 bg-white shadow-2xl"></div>
             
             <canvas
@@ -352,23 +378,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               style={{ cursor: currentTool === 'none' ? 'default' : 'crosshair' }}
             />
 
-            {/* Selection Overlay with Animated Marching Ants */}
-            {(isDrawing || currentTool === 'select-fill' || currentTool === 'crop') && (
+            {/* 选择填充和裁剪的持久化选框 - 仅在对应工具激活时显示 */}
+            {selection && (currentTool === 'select-fill' || currentTool === 'crop') && (
                <div 
-                 className={`absolute pointer-events-none ${
-                    currentTool === 'crop' ? 'border-blue-500' : 'border-white'
-                 }`}
+                 className={`absolute pointer-events-none border-2 border-white`}
                  style={{
-                   left: Math.min(startPos.x, currentPos.x),
-                   top: Math.min(startPos.y, currentPos.y),
-                   width: Math.abs(startPos.x - currentPos.x),
-                   height: Math.abs(startPos.y - currentPos.y),
-                   display: (startPos.x === currentPos.x && startPos.y === currentPos.y) ? 'none' : 'block'
+                   left: Math.min(selection.x1, selection.x2),
+                   top: Math.min(selection.y1, selection.y2),
+                   width: Math.abs(selection.x1 - selection.x2),
+                   height: Math.abs(selection.y1 - selection.y2),
+                   display: (Math.abs(selection.x1 - selection.x2) < 1 && Math.abs(selection.y1 - selection.y2) < 1) ? 'none' : 'block'
                  }}
                >
                  <div className="absolute inset-0 border-2 border-dashed animate-marching-ants"></div>
-                 {/* 蒙层提示 */}
-                 <div className="absolute inset-0 bg-indigo-500/10 backdrop-blur-[1px]"></div>
+                 <div className={`absolute inset-0 ${currentTool === 'crop' ? 'bg-blue-500/10' : 'bg-indigo-500/10'} backdrop-blur-[1px]`}></div>
                </div>
             )}
           </div>
@@ -406,7 +429,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                    <span className="text-xs font-black text-white uppercase tracking-tighter">框选区域</span>
                    <span className="text-[10px] text-slate-500 font-bold">按下 Delete 键或点击按钮填充颜色</span>
                  </div>
-                 <button onClick={handleFill} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-2 transition-all active:scale-95">
+                 <button onClick={handleFill} disabled={!selection} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50">
                    <PaintBucket size={16} /> 填充选区
                  </button>
                </div>
@@ -416,7 +439,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                    <span className="text-xs font-black text-white uppercase tracking-tighter">裁剪工具</span>
                    <span className="text-[10px] text-slate-500 font-bold">拖拽选择要保留的区域</span>
                  </div>
-                 <button onClick={handleCrop} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-2 transition-all active:scale-95">
+                 <button onClick={handleCrop} disabled={!selection} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50">
                    <Scissors size={16} /> 确认裁剪
                  </button>
                </div>
@@ -445,9 +468,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       </div>
 
       <style>{`
-        @keyframes marching-ants {
-          0% { stroke-dashoffset: 0; outline: 2px dashed #fff; outline-offset: -2px; }
-          100% { stroke-dashoffset: 10; outline: 2px dashed #000; outline-offset: -2px; }
+        @keyframes marching-ants-animation {
+          0% { background-position: 0 0, 0 100%, 0 0, 100% 0; }
+          100% { background-position: 15px 0, -15px 100%, 0 -15px, 100% 15px; }
         }
         .animate-marching-ants {
           background-image: linear-gradient(90deg, #fff 50%, transparent 50%), 
@@ -458,10 +481,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           background-size: 15px 2px, 15px 2px, 2px 15px, 2px 15px;
           background-position: 0 0, 0 100%, 0 0, 100% 0;
           animation: marching-ants-animation 0.5s infinite linear;
-        }
-        @keyframes marching-ants-animation {
-          0% { background-position: 0 0, 0 100%, 0 0, 100% 0; }
-          100% { background-position: 15px 0, -15px 100%, 0 -15px, 100% 15px; }
         }
       `}</style>
     </div>
