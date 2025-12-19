@@ -3,6 +3,7 @@ export interface CleanedData {
   title: string;
   brand: string;
   price: number;
+  shipping?: number;
   features: string[];
   description: string;
   main_image: string;

@@ -1,10 +1,9 @@
-
 import React, { useState, useRef } from 'react';
 import { 
   ArrowLeft, Sparkles, Copy, ShoppingCart, Search, 
   Image as ImageIcon, Edit2, Trash2, Plus, X,
   Link as LinkIcon, Trash, BrainCircuit, Globe, Languages, Download, Loader2,
-  Upload, DollarSign, Truck
+  Upload, DollarSign, Truck, Info
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -97,27 +96,23 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     formData.append('file', file);
 
     try {
-      // 注意：这里不设置 headers，fetch 会自动设置包含 boundary 的 multipart/form-data
+      // 优化上传：移除了手动设置的 Header，添加 no-referrer 策略
       const response = await fetch(IMAGE_HOSTING_API, {
         method: 'POST',
         body: formData,
-        // 如果遇到 Failed to fetch，通常是 CORS 或者是 HTTPS/HTTP 混合问题
-        // 这里尝试明确请求模式
-        mode: 'cors'
+        referrerPolicy: "no-referrer"
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Upload failed: ${response.status} ${errorText}`);
+        throw new Error(`Server responded with ${response.status}`);
       }
       
       const data = await response.json();
       
-      // 根据 API 定义解析：[ { "src": "/file/..." } ]
       let uploadedUrl = '';
       if (Array.isArray(data) && data[0]?.src) {
         uploadedUrl = `${IMAGE_HOST_DOMAIN}${data[0].src}`;
-      } else if (data.url || data.link || (data.data && data.data.url)) {
+      } else if (data.url || data.link || data.data?.url) {
         uploadedUrl = data.url || data.link || data.data?.url;
       }
       
@@ -125,19 +120,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const updated = { ...localListing };
         if (!updated.cleaned.other_images) updated.cleaned.other_images = [];
         updated.cleaned.other_images.push(uploadedUrl);
-        
         updateAndSync(updated);
         setSelectedImage(uploadedUrl); 
       } else {
-        throw new Error('Invalid response from server. No image URL found.');
+        throw new Error('Could not find image URL in response.');
       }
     } catch (error: any) {
-      console.error("Image Upload Error:", error);
-      // 如果是 Failed to fetch，可能是图床服务器没有配置 CORS 允许当前域名
-      const msg = error.message.includes('fetch') 
-        ? "Upload failed (Network/CORS error). Please ensure your image server allows cross-origin requests."
-        : error.message;
-      alert(msg);
+      console.error("Upload Error:", error);
+      alert(`Upload failed: ${error.message}. This might be a CORS restriction on the image server. Please ensure the server allows cross-origin requests.`);
     } finally {
       setIsUploadingLocal(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -248,7 +238,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const handleBlur = () => updateAndSync(localListing);
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900">
       <input 
         type="file" 
         ref={fileInputRef} 
@@ -292,11 +282,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       )}
 
       <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-40">
-        <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-800 font-medium">
+        <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-800 font-medium transition-colors">
           <ArrowLeft size={20} className="mr-2" /> {t('back')}
         </button>
         <div className="flex gap-3 items-center">
-          <button onClick={exportAmazonTemplate} className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50">
+          <button onClick={exportAmazonTemplate} className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
             <Download size={16} /> {t('exportAmazon')}
           </button>
           <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
@@ -311,6 +301,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Left Column: Images & Translations */}
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-4 flex items-center justify-between gap-2">
@@ -339,19 +330,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             )}
 
             <div className="relative aspect-square rounded-xl bg-slate-50 border border-slate-100 overflow-hidden mb-4 group shadow-inner">
-              <img src={selectedImage} className="w-full h-full object-contain" />
+              <img src={selectedImage} className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105" alt="Main" />
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <button onClick={() => setIsEditorOpen(true)} className="px-4 py-2 bg-white text-slate-900 rounded-lg font-bold text-xs shadow-xl flex items-center gap-2"><Edit2 size={14} /> AI Tools</button>
+                <button onClick={() => setIsEditorOpen(true)} className="px-4 py-2 bg-white text-slate-900 rounded-lg font-bold text-xs shadow-xl flex items-center gap-2 hover:bg-slate-50"><Edit2 size={14} /> AI Media Studio</button>
               </div>
             </div>
             
             <div className="grid grid-cols-4 gap-2">
               {[localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].map((img, i) => (
                 <div key={i} className={`relative aspect-square rounded-lg border-2 group/item cursor-pointer transition-all ${selectedImage === img ? 'border-blue-500 scale-95 shadow-inner' : 'border-slate-100 hover:border-slate-300'}`}>
-                  <img src={img} onClick={() => setSelectedImage(img)} className="w-full h-full object-cover rounded" />
+                  <img src={img} onClick={() => setSelectedImage(img)} className="w-full h-full object-cover rounded" alt={`Thumbnail ${i}`} />
                   <button 
                     onClick={(e) => handleDeleteImage(img, e)}
-                    className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity z-10"
+                    className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity z-10 shadow-sm"
                   >
                     <X size={10} />
                   </button>
@@ -391,41 +382,59 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
         </div>
 
+        {/* Right Column: Main Editor */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Listing Editor ({MARKETPLACES.find(m => m.code === activeMarketplace)?.name})</h4>
-                <div className="flex gap-4 items-center">
-                  <div className="flex items-center gap-2">
-                    <DollarSign size={14} className="text-slate-400" />
-                    <input 
-                      type="number"
-                      step="0.01"
-                      value={localListing.cleaned.price}
-                      onChange={(e) => handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)}
-                      onBlur={handleBlur}
-                      placeholder="Price"
-                      className="w-20 bg-transparent border-b border-slate-200 text-xs font-bold outline-none focus:border-blue-500"
-                    />
+                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Edit2 size={12} /> Listing Editor ({MARKETPLACES.find(m => m.code === activeMarketplace)?.name})
+                </h4>
+             </div>
+
+             {/* Basic Information Section (Price & Shipping) */}
+             <div className="p-6 border-b border-slate-100 bg-white">
+                <div className="flex items-center gap-2 mb-4">
+                  <Info size={14} className="text-indigo-500" />
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Basic Pricing Info</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                      <DollarSign size={10} /> Selling Price ($)
+                    </label>
+                    <div className="relative group">
+                      <input 
+                        type="number"
+                        step="0.01"
+                        value={localListing.cleaned.price}
+                        onChange={(e) => handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)}
+                        onBlur={handleBlur}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                      />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Truck size={14} className="text-slate-400" />
-                    <input 
-                      type="number"
-                      step="0.01"
-                      value={localListing.cleaned.shipping || 0}
-                      onChange={(e) => handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)}
-                      onBlur={handleBlur}
-                      placeholder="Shipping"
-                      className="w-20 bg-transparent border-b border-slate-200 text-xs font-bold outline-none focus:border-blue-500"
-                    />
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                      <Truck size={10} /> Shipping Fee ($)
+                    </label>
+                    <div className="relative group">
+                      <input 
+                        type="number"
+                        step="0.01"
+                        value={localListing.cleaned.shipping || 0}
+                        onChange={(e) => handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)}
+                        onBlur={handleBlur}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                      />
+                    </div>
                   </div>
                 </div>
              </div>
+
              {currentContent ? (
-               <div className="p-6 space-y-6">
+               <div className="p-6 space-y-6 flex-1 overflow-y-auto">
                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-indigo-400 uppercase">Title</label>
+                    <label className="text-[10px] font-bold text-indigo-400 uppercase">Optimized Title</label>
                     <textarea 
                       value={currentContent.optimized_title}
                       onChange={(e) => {
@@ -433,11 +442,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         else handleFieldChange(`translations.${activeMarketplace}.optimized_title`, e.target.value);
                       }}
                       onBlur={handleBlur}
-                      className="w-full p-3 bg-indigo-50/10 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none min-h-[60px]"
+                      className="w-full p-3 bg-indigo-50/10 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none min-h-[80px] leading-relaxed"
                     />
                  </div>
                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-amber-500 uppercase">Keywords</label>
+                    <label className="text-[10px] font-bold text-amber-500 uppercase">Backend Search Keywords</label>
                     <input 
                       value={currentContent.search_keywords}
                       onChange={(e) => {
@@ -445,29 +454,32 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         else handleFieldChange(`translations.${activeMarketplace}.search_keywords`, e.target.value);
                       }}
                       onBlur={handleBlur}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                      placeholder="comma, separated, keywords..."
                     />
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-bold text-indigo-400 uppercase">Bullet Points</label>
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-bold text-indigo-400 uppercase">Feature Bullet Points</label>
                        {currentContent.optimized_features.map((f, i) => (
-                         <input 
-                           key={i}
-                           value={f}
-                           onChange={(e) => {
-                              const next = [...currentContent.optimized_features];
-                              next[i] = e.target.value;
-                              if (activeMarketplace === 'en') handleFieldChange('optimized.optimized_features', next);
-                              else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next);
-                           }}
-                           onBlur={handleBlur}
-                           className="w-full p-2 bg-slate-50 border border-slate-100 rounded text-xs"
-                         />
+                         <div key={i} className="flex gap-2 group/bullet">
+                           <span className="flex-none w-6 h-8 flex items-center justify-center text-[10px] font-bold text-slate-300">{i+1}</span>
+                           <input 
+                             value={f}
+                             onChange={(e) => {
+                                const next = [...currentContent.optimized_features];
+                                next[i] = e.target.value;
+                                if (activeMarketplace === 'en') handleFieldChange('optimized.optimized_features', next);
+                                else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next);
+                             }}
+                             onBlur={handleBlur}
+                             className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs group-hover/bullet:border-indigo-200 outline-none transition-colors"
+                           />
+                         </div>
                        ))}
                     </div>
                     <div className="space-y-1">
-                       <label className="text-[10px] font-bold text-indigo-400 uppercase">Description</label>
+                       <label className="text-[10px] font-bold text-indigo-400 uppercase">Detailed Description</label>
                        <textarea 
                          value={currentContent.optimized_description}
                          onChange={(e) => {
@@ -475,14 +487,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            else handleFieldChange(`translations.${activeMarketplace}.optimized_description`, e.target.value);
                          }}
                          onBlur={handleBlur}
-                         className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs min-h-[220px]"
+                         className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs min-h-[300px] leading-relaxed"
                        />
                     </div>
                  </div>
                </div>
              ) : (
-               <div className="p-20 text-center text-slate-400">
-                  Select a marketplace or run AI Optimization to view content.
+               <div className="p-20 text-center flex flex-col items-center justify-center gap-4 flex-1">
+                  <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-200">
+                    <BrainCircuit size={32} />
+                  </div>
+                  <p className="text-slate-400 font-medium italic">
+                    Run "AI Optimize" to generate high-converting content<br/>or select a translated marketplace.
+                  </p>
                </div>
              )}
           </div>
