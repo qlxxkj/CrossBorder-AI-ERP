@@ -81,6 +81,39 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     syncToSupabase(updated);
   };
 
+  // 上传图片工具函数：支持 Base64
+  const uploadToHost = async (source: File | string): Promise<string> => {
+    let fileToUpload: File;
+
+    if (typeof source === 'string') {
+      // 如果是 Base64，转换为 File
+      const res = await fetch(source);
+      const blob = await res.blob();
+      fileToUpload = new File([blob], `edited_${Date.now()}.jpg`, { type: 'image/jpeg' });
+    } else {
+      fileToUpload = source;
+    }
+
+    const formData = new FormData();
+    formData.append('file', fileToUpload);
+
+    const response = await fetch(IMAGE_HOSTING_API, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) throw new Error(`Upload failed with status: ${response.status}`);
+    
+    const data = await response.json();
+    if (Array.isArray(data) && data[0]?.src) {
+      return `${IMAGE_HOST_DOMAIN}${data[0].src}`;
+    } else if (data.url || data.link || data.data?.url) {
+      return data.url || data.link || data.data?.url;
+    }
+    
+    throw new Error('No image URL found in server response.');
+  };
+
   const handleAddImage = () => {
     if (!newImageUrl) return;
     const updated = { ...localListing };
@@ -96,44 +129,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!file) return;
 
     setIsUploadingLocal(true);
-    const formData = new FormData();
-    formData.append('file', file);
-
     try {
-      // 通过 CORS 代理发送请求，绕过浏览器的同源策略限制
-      const response = await fetch(IMAGE_HOSTING_API, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Upload failed with status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      let uploadedUrl = '';
-      // 解析返回格式：[ { "src": "/file/..." } ]
-      if (Array.isArray(data) && data[0]?.src) {
-        uploadedUrl = `${IMAGE_HOST_DOMAIN}${data[0].src}`;
-      } else if (data.url || data.link || data.data?.url) {
-        uploadedUrl = data.url || data.link || data.data?.url;
-      }
-      
-      if (uploadedUrl) {
-        const updated = { ...localListing };
-        if (!updated.cleaned.other_images) updated.cleaned.other_images = [];
-        updated.cleaned.other_images.push(uploadedUrl);
-        updateAndSync(updated);
-        setSelectedImage(uploadedUrl); 
-      } else {
-        throw new Error('No image URL found in server response.');
-      }
+      const uploadedUrl = await uploadToHost(file);
+      const updated = { ...localListing };
+      if (!updated.cleaned.other_images) updated.cleaned.other_images = [];
+      updated.cleaned.other_images.push(uploadedUrl);
+      updateAndSync(updated);
+      setSelectedImage(uploadedUrl); 
     } catch (error: any) {
       console.error("Upload Error:", error);
-      alert(
-        `上传失败: ${error.message}\n\n已尝试使用 CORS 代理，若仍失败，可能是由于代理服务器限制或图床接口变动。建议检查网络连接或尝试使用图片 URL 添加方式。`
-      );
+      alert(`上传失败: ${error.message}`);
     } finally {
       setIsUploadingLocal(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -257,16 +262,29 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         <ImageEditor 
           imageUrl={selectedImage} 
           onClose={() => setIsEditorOpen(false)} 
-          onSave={(newUrl) => {
-            const current = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])];
-            const idx = current.indexOf(selectedImage);
-            if (idx !== -1) current[idx] = newUrl;
-            const updated = { ...localListing };
-            updated.cleaned.main_image = current[0];
-            updated.cleaned.other_images = current.slice(1);
-            setSelectedImage(current[idx]);
-            updateAndSync(updated);
-            setIsEditorOpen(false);
+          onSave={async (base64) => {
+            try {
+              // 步骤1：上传 Base64 到图床获取真实 URL
+              const uploadedUrl = await uploadToHost(base64);
+
+              // 步骤2：更新本地数据结构
+              const currentImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])];
+              const idx = currentImages.indexOf(selectedImage);
+              
+              if (idx !== -1) {
+                currentImages[idx] = uploadedUrl;
+              }
+
+              const updated = { ...localListing };
+              updated.cleaned.main_image = currentImages[0];
+              updated.cleaned.other_images = currentImages.slice(1);
+              
+              setSelectedImage(uploadedUrl);
+              updateAndSync(updated);
+              setIsEditorOpen(false);
+            } catch (err: any) {
+              alert("保存编辑并上传失败：" + err.message);
+            }
           }}
         />
       )}
@@ -455,7 +473,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       value={currentContent.search_keywords}
                       onChange={(e) => {
                         if (activeMarketplace === 'en') handleFieldChange('optimized.search_keywords', e.target.value);
-                        else handleFieldChange(`translations.${activeMarketplace}.search_keywords`, e.target.value);
+                        else handleFieldChange(`translations.${activeMarketplace}.optimized_keywords`, e.target.value);
                       }}
                       onBlur={handleBlur}
                       className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"

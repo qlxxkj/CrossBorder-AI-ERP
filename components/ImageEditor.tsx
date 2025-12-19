@@ -23,12 +23,16 @@ interface SelectionBox {
   y2: number;
 }
 
+// 代理配置，用于绕过跨域限制加载图片
+const CORS_PROXY = 'https://corsproxy.io/?';
+
 export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onSave }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [currentTool, setCurrentTool] = useState<Tool>('none');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [brushColor, setBrushColor] = useState('#ffffff');
   const [brushSize, setBrushSize] = useState(20);
   const [history, setHistory] = useState<string[]>([]);
@@ -40,44 +44,63 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [currentPos, setCurrentPos] = useState({ x: 0, y: 0 });
 
-  // 1. 强化图片初始化：确保图片能载入并居中，同时处理可能的渲染延迟
+  // 1. 深度修复：使用 Proxy 加载图片以避免 Canvas Taint (污染)
   useEffect(() => {
-    const initCanvas = () => {
+    const initCanvas = async () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      // Fix: cast to CanvasRenderingContext2D and fix typo in context options
+      const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
       if (!ctx) return;
 
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = imageUrl;
-      
-      img.onload = () => {
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
-        
-        // 自动缩放以适应屏幕
-        if (containerRef.current) {
-          const padding = 120;
-          const availableW = containerRef.current.clientWidth - padding;
-          const availableH = containerRef.current.clientHeight - padding;
-          const scale = Math.min(availableW / img.width, availableH / img.height, 1);
-          setZoom(scale || 1);
-        }
-        
-        saveToHistory();
-      };
+      setIsProcessing(true);
+      try {
+        // 使用代理获取 Blob
+        const proxyUrl = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
+        const response = await fetch(proxyUrl);
+        if (!response.ok) throw new Error("Failed to fetch image through proxy");
+        const blob = await response.blob();
+        const localUrl = URL.createObjectURL(blob);
 
-      img.onerror = () => {
-        console.error("Failed to load image into editor:", imageUrl);
-      };
+        const img = new Image();
+        img.src = localUrl;
+        img.onload = () => {
+          canvas.width = img.width;
+          canvas.height = img.height;
+          // Fix: ctx is now correctly typed as CanvasRenderingContext2D
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          
+          if (containerRef.current) {
+            const padding = 120;
+            const availableW = containerRef.current.clientWidth - padding;
+            const availableH = containerRef.current.clientHeight - padding;
+            const scale = Math.min(availableW / img.width, availableH / img.height, 1);
+            setZoom(scale || 1);
+          }
+          
+          saveToHistory();
+          setIsProcessing(false);
+          URL.revokeObjectURL(localUrl); // 释放内存
+        };
+      } catch (err) {
+        console.warn("Proxy load failed, falling back to direct load:", err);
+        // 回退到直接加载（可能会导致保存失败，但能看到图）
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = imageUrl;
+        img.onload = () => {
+          canvas.width = img.width;
+          canvas.height = img.height;
+          // Fix: cast to CanvasRenderingContext2D
+          (ctx as CanvasRenderingContext2D).drawImage(img, 0, 0);
+          saveToHistory();
+          setIsProcessing(false);
+        };
+      }
     };
 
-    // 稍微延迟确保 DOM 和 Ref 稳定
-    const timer = setTimeout(initCanvas, 100);
-    return () => clearTimeout(timer);
+    initCanvas();
   }, [imageUrl]);
 
   const saveToHistory = () => {
@@ -94,7 +117,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const last = newHistory[newHistory.length - 1];
     
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
+    // Fix: cast to CanvasRenderingContext2D
+    const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
     if (canvas && ctx && last) {
       const img = new Image();
       img.src = last;
@@ -108,7 +132,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   };
 
-  // 2. 1600*1600 标准化工具
   const standardize = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -121,7 +144,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const safeArea = 1500;
       canvas.width = targetSize;
       canvas.height = targetSize;
-      const ctx = canvas.getContext('2d')!;
+      // Fix: cast to CanvasRenderingContext2D
+      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
       
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, targetSize, targetSize);
@@ -141,11 +165,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     };
   };
 
-  // 3. 填色及裁剪逻辑：保持工具状态，优化选框逻辑
   const handleFill = useCallback(() => {
     if (currentTool !== 'select-fill' || !selection) return;
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
+    // Fix: cast to CanvasRenderingContext2D
+    const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
     if (!ctx) return;
 
     const x = Math.min(selection.x1, selection.x2);
@@ -158,14 +182,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     ctx.fillStyle = brushColor;
     ctx.fillRect(x, y, w, h);
     saveToHistory();
-    setSelection(null); // 清除选框，但保留工具
+    setSelection(null); 
   }, [currentTool, selection, brushColor]);
 
   const handleCrop = () => {
     if (!selection) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    // Fix: cast to CanvasRenderingContext2D
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
     if (!ctx) return;
 
     const x = Math.min(selection.x1, selection.x2);
@@ -182,10 +207,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     saveToHistory();
     setSelection(null);
     setZoom(1);
-    // 操作完依然保持 'crop' 工具选中状态
   };
 
-  // 4. Delete 键快捷填充
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.key === 'Delete' || e.key === 'Backspace') && currentTool === 'select-fill' && selection) {
@@ -223,12 +246,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setCurrentPos(pos);
     setIsDrawing(true);
 
+    // 修复：只有在特定工具下才创建选框，防止画笔干扰
     if (currentTool === 'select-fill' || currentTool === 'crop') {
       setSelection({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y });
     }
 
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
-      const ctx = canvasRef.current?.getContext('2d');
+      // Fix: cast to CanvasRenderingContext2D
+      const ctx = canvasRef.current?.getContext('2d') as CanvasRenderingContext2D | null;
       if (ctx) {
         ctx.beginPath();
         ctx.moveTo(pos.x, pos.y);
@@ -245,12 +270,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const pos = getMousePos(e);
     setCurrentPos(pos);
 
+    // 修复：画笔模式下不更新选框
     if (currentTool === 'select-fill' || currentTool === 'crop') {
       setSelection(prev => prev ? { ...prev, x2: pos.x, y2: pos.y } : null);
     }
 
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
-      const ctx = canvasRef.current?.getContext('2d');
+      // Fix: cast to CanvasRenderingContext2D
+      const ctx = canvasRef.current?.getContext('2d') as CanvasRenderingContext2D | null;
       if (ctx) {
         ctx.lineTo(pos.x, pos.y);
         ctx.stroke();
@@ -266,19 +293,35 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setIsDrawing(false);
   };
 
+  const handleSave = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    setIsUploading(true);
+    try {
+      // 导出 JPEG 提高上传兼容性
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      onSave(dataUrl);
+    } catch (e) {
+      alert("保存失败：可能是由于跨域限制导致画布无法读取。已尝试使用代理修复，请刷新重试。");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const runAIErase = async () => {
     setIsProcessing(true);
     try {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      // 提交带擦除标记的图
       const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
       const result = await editImageWithAI(base64, "Please erase the red highlighted areas cleanly and regenerate the background naturally.");
       
       const img = new Image();
       img.src = `data:image/jpeg;base64,${result}`;
       img.onload = () => {
-        const ctx = canvas.getContext('2d')!;
+        // Fix: cast to CanvasRenderingContext2D
+        const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
         saveToHistory();
@@ -299,7 +342,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             <X size={20} />
           </button>
           <div className="h-6 w-px bg-slate-800"></div>
-          <h2 className="font-black tracking-tighter text-xl bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">AI MEDIA PRO</h2>
+          <h2 className="font-black tracking-tighter text-xl bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent uppercase">AI Media Lab</h2>
         </div>
 
         <div className="flex items-center gap-4">
@@ -314,14 +357,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </button>
           
           <button onClick={standardize} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-black flex items-center gap-2 border border-slate-700">
-            <Maximize size={16} /> 1600*1600 (居中)
+            <Maximize size={16} /> 1600*1600
           </button>
           
           <button 
-            onClick={() => onSave(canvasRef.current?.toDataURL('image/jpeg', 0.95) || imageUrl)}
-            className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg shadow-indigo-900/40 flex items-center gap-2 transform active:scale-95 transition-all"
+            onClick={handleSave}
+            disabled={isUploading}
+            className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg shadow-indigo-900/40 flex items-center gap-2 transform active:scale-95 transition-all disabled:opacity-50"
           >
-            <Save size={16} /> 保存所有更改
+            {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+            保存并应用到 Listing
           </button>
         </div>
       </div>
@@ -342,7 +387,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                 onChange={(e) => setBrushColor(e.target.value)}
                 className="w-12 h-12 rounded-2xl cursor-pointer bg-slate-800 p-1 border border-slate-700 shadow-xl"
                />
-               <div className="absolute left-full ml-4 px-3 py-1 bg-white text-slate-900 text-[10px] font-black rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none uppercase">颜色选择</div>
+               <div className="absolute left-full ml-4 px-3 py-1 bg-white text-slate-900 text-[10px] font-black rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none uppercase">颜色</div>
              </div>
           </div>
         </div>
@@ -362,7 +407,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             className="relative shadow-[0_0_100px_rgba(0,0,0,0.5)] transition-transform duration-75 origin-center"
             style={{ transform: `scale(${zoom})` }}
           >
-            {/* 背景层 */}
             <div className="absolute inset-0 bg-white shadow-2xl"></div>
             
             <canvas
@@ -378,7 +422,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               style={{ cursor: currentTool === 'none' ? 'default' : 'crosshair' }}
             />
 
-            {/* 选择填充和裁剪的持久化选框 - 仅在对应工具激活时显示 */}
+            {/* 选择填充和裁剪的选框 - 修复：画笔模式不显示选框 */}
             {selection && (currentTool === 'select-fill' || currentTool === 'crop') && (
                <div 
                  className={`absolute pointer-events-none border-2 border-white`}
@@ -396,13 +440,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             )}
           </div>
 
-          {/* Context Control Panel */}
+          {/* Controls Panel */}
           <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-6 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-4 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-30 min-w-[400px]">
              {currentTool === 'brush' || currentTool === 'ai-erase' ? (
                <div className="flex items-center gap-6 w-full">
                  <div className="flex flex-col gap-1 flex-1">
                    <div className="flex justify-between">
-                     <span className="text-[10px] font-black text-slate-500 uppercase">画笔粗细</span>
+                     <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Brush Size</span>
                      <span className="text-[10px] font-black text-blue-400">{brushSize}px</span>
                    </div>
                    <input 
@@ -419,41 +463,41 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                      className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-3 transition-all active:scale-95 disabled:opacity-50"
                    >
                      {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-                     开始 AI 智能擦除
+                     AI ERASE
                    </button>
                  )}
                </div>
              ) : currentTool === 'select-fill' ? (
                <div className="flex items-center justify-between w-full px-4">
                  <div className="flex flex-col">
-                   <span className="text-xs font-black text-white uppercase tracking-tighter">框选区域</span>
-                   <span className="text-[10px] text-slate-500 font-bold">按下 Delete 键或点击按钮填充颜色</span>
+                   <span className="text-xs font-black text-white uppercase tracking-tighter">Fill Tool</span>
+                   <span className="text-[10px] text-slate-500 font-bold tracking-widest">PRESS DELETE TO FILL</span>
                  </div>
                  <button onClick={handleFill} disabled={!selection} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50">
-                   <PaintBucket size={16} /> 填充选区
+                   <PaintBucket size={16} /> FILL AREA
                  </button>
                </div>
              ) : currentTool === 'crop' ? (
                <div className="flex items-center justify-between w-full px-4">
                  <div className="flex flex-col">
-                   <span className="text-xs font-black text-white uppercase tracking-tighter">裁剪工具</span>
-                   <span className="text-[10px] text-slate-500 font-bold">拖拽选择要保留的区域</span>
+                   <span className="text-xs font-black text-white uppercase tracking-tighter">Crop Tool</span>
+                   <span className="text-[10px] text-slate-500 font-bold tracking-widest">DRAG TO SELECT AREA</span>
                  </div>
                  <button onClick={handleCrop} disabled={!selection} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50">
-                   <Scissors size={16} /> 确认裁剪
+                   <Scissors size={16} /> CONFIRM CROP
                  </button>
                </div>
              ) : (
                <div className="w-full text-center px-10 py-1">
-                 <p className="text-slate-500 text-xs font-bold italic">
-                   从左侧工具栏选择功能开始编辑您的铺货图片
+                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
+                   Select a tool to begin media enhancement
                  </p>
                </div>
              )}
           </div>
 
-          {/* Global Processing Loader */}
-          {isProcessing && (
+          {/* Loader */}
+          {(isProcessing || isUploading) && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/70 backdrop-blur-md">
                <div className="relative">
                  <div className="w-24 h-24 border-4 border-indigo-600/30 rounded-full animate-ping"></div>
@@ -461,7 +505,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                     <Loader2 size={40} className="text-indigo-500 animate-spin" />
                  </div>
                </div>
-               <p className="mt-8 text-white font-black tracking-[0.3em] text-sm uppercase animate-pulse">AI 正在施展魔法...</p>
+               <p className="mt-8 text-white font-black tracking-[0.3em] text-sm uppercase animate-pulse">
+                 {isUploading ? 'Uploading to cloud...' : 'Processing AI marks...'}
+               </p>
             </div>
           )}
         </div>
