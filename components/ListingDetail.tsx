@@ -4,7 +4,7 @@ import {
   ArrowLeft, Sparkles, Copy, ShoppingCart, Search, 
   Image as ImageIcon, Edit2, Trash2, Plus, X,
   Link as LinkIcon, Trash, BrainCircuit, Globe, Languages, Download, Loader2,
-  Upload
+  Upload, DollarSign, Truck
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -97,12 +97,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     formData.append('file', file);
 
     try {
+      // 注意：这里不设置 headers，fetch 会自动设置包含 boundary 的 multipart/form-data
       const response = await fetch(IMAGE_HOSTING_API, {
         method: 'POST',
         body: formData,
+        // 如果遇到 Failed to fetch，通常是 CORS 或者是 HTTPS/HTTP 混合问题
+        // 这里尝试明确请求模式
+        mode: 'cors'
       });
 
-      if (!response.ok) throw new Error('Upload failed');
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Upload failed: ${response.status} ${errorText}`);
+      }
       
       const data = await response.json();
       
@@ -110,8 +117,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       let uploadedUrl = '';
       if (Array.isArray(data) && data[0]?.src) {
         uploadedUrl = `${IMAGE_HOST_DOMAIN}${data[0].src}`;
-      } else if (data.url || data.link) {
-        uploadedUrl = data.url || data.link;
+      } else if (data.url || data.link || (data.data && data.data.url)) {
+        uploadedUrl = data.url || data.link || data.data?.url;
       }
       
       if (uploadedUrl) {
@@ -119,16 +126,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         if (!updated.cleaned.other_images) updated.cleaned.other_images = [];
         updated.cleaned.other_images.push(uploadedUrl);
         
-        // 更新本地状态并同步到数据库
         updateAndSync(updated);
-        // 上传后自动预览新图片
-        setSelectedImage(uploadedUrl);
+        setSelectedImage(uploadedUrl); 
       } else {
-        throw new Error('Invalid response format from image server');
+        throw new Error('Invalid response from server. No image URL found.');
       }
     } catch (error: any) {
-      console.error("Local upload error:", error);
-      alert(`Upload failed: ${error.message}`);
+      console.error("Image Upload Error:", error);
+      // 如果是 Failed to fetch，可能是图床服务器没有配置 CORS 允许当前域名
+      const msg = error.message.includes('fetch') 
+        ? "Upload failed (Network/CORS error). Please ensure your image server allows cross-origin requests."
+        : error.message;
+      alert(msg);
     } finally {
       setIsUploadingLocal(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -384,8 +393,34 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-             <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+             <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                 <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Listing Editor ({MARKETPLACES.find(m => m.code === activeMarketplace)?.name})</h4>
+                <div className="flex gap-4 items-center">
+                  <div className="flex items-center gap-2">
+                    <DollarSign size={14} className="text-slate-400" />
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={localListing.cleaned.price}
+                      onChange={(e) => handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)}
+                      onBlur={handleBlur}
+                      placeholder="Price"
+                      className="w-20 bg-transparent border-b border-slate-200 text-xs font-bold outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Truck size={14} className="text-slate-400" />
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={localListing.cleaned.shipping || 0}
+                      onChange={(e) => handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)}
+                      onBlur={handleBlur}
+                      placeholder="Shipping"
+                      className="w-20 bg-transparent border-b border-slate-200 text-xs font-bold outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
              </div>
              {currentContent ? (
                <div className="p-6 space-y-6">
