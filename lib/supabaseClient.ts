@@ -1,20 +1,18 @@
+
 import { createClient } from '@supabase/supabase-js';
 
 /**
- * 支持多种环境变量命名方式：
- * 1. process.env (Vercel/Node 标准)
- * 2. import.meta.env (Vite 标准)
+ * 注意：在 Vite 环境下，必须使用完整的 process.env.VARIABLE_NAME 形式，
+ * 才能被 vite.config.ts 中的 define 插件正确识别并替换。
+ * 不要使用 process.env[key] 这种动态写法。
  */
-const getEnv = (key: string) => {
-  // @ts-ignore
-  return process.env[key] || process.env[`NEXT_PUBLIC_${key}`] || (import.meta as any).env?.[`VITE_${key}`] || '';
-};
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 
-const supabaseUrl = getEnv('SUPABASE_URL');
-const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
-
-// 检查是否配置了有效的 URL
-const isConfigured = supabaseUrl && supabaseUrl !== 'https://placeholder-url.supabase.co' && supabaseUrl !== '';
+// 检查是否配置了有效的 URL 且不是占位符
+const isConfigured = 
+  supabaseUrl !== '' && 
+  supabaseUrl !== 'https://placeholder-url.supabase.co';
 
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder-url.supabase.co', 
