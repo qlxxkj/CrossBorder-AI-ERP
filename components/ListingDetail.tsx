@@ -14,7 +14,7 @@ import { SourcingModal } from './SourcingModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { useTranslation } from '../lib/i18n';
 
-// Limits for Amazon/E-commerce standards
+// Amazon/E-commerce standard limits
 const LIMITS = {
   TITLE: 200,
   BULLET: 500,
@@ -105,13 +105,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
   };
 
-  // --- Image Reordering Logic ---
+  // --- Image Logic ---
   const allImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])];
 
   const handleDragStart = (idx: number) => setDraggedIdx(idx);
   const handleDragOver = (e: React.DragEvent) => e.preventDefault();
   const handleDrop = (targetIdx: number) => {
-    if (draggedIdx === null) return;
+    if (draggedIdx === null || draggedIdx === targetIdx) return;
     const newImages = [...allImages];
     const item = newImages.splice(draggedIdx, 1)[0];
     newImages.splice(targetIdx, 0, item);
@@ -122,16 +122,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     
     updateAndSync(updated);
     setDraggedIdx(null);
-  };
-
-  const handleAddImage = () => {
-    if (!newImageUrl) return;
-    const updated = { ...localListing };
-    if (!updated.cleaned.other_images) updated.cleaned.other_images = [];
-    updated.cleaned.other_images.push(newImageUrl);
-    updateAndSync(updated);
-    setNewImageUrl('');
-    setShowAddImage(false);
   };
 
   const handleLocalFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -149,6 +139,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       alert(`Upload failed: ${error.message}`);
     } finally {
       setIsUploadingLocal(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -171,6 +162,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     updateAndSync(updated);
   };
 
+  // --- AI & Optimization ---
   const handleOptimize = async () => {
     setIsOptimizing(true);
     try {
@@ -215,7 +207,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleBlur = () => updateAndSync(localListing);
 
-  // --- Bullet Point Management ---
   const addBullet = () => {
     if (!currentContent) return;
     const next = [...currentContent.optimized_features, ""];
@@ -281,6 +272,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         />
       )}
 
+      {/* Action Header */}
       <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-40">
         <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-800 font-medium transition-colors">
           <ArrowLeft size={20} className="mr-2" /> {t('back')}
@@ -299,14 +291,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="space-y-6">
+          {/* Gallery Card */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-4 flex items-center justify-between gap-2">
               <span className="flex items-center gap-2"><ImageIcon size={18} className="text-blue-500" /> Gallery (Drag to Sort)</span>
-              <button onClick={() => fileInputRef.current?.click()} className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1">
-                <Plus size={12} /> Add
+              <button 
+                onClick={() => fileInputRef.current?.click()} 
+                className="text-xs text-indigo-600 font-black flex items-center gap-1 hover:underline"
+              >
+                <Plus size={14} /> Upload
               </button>
             </h3>
             
+            {/* Large Preview */}
             <div className="relative aspect-square rounded-xl bg-slate-50 border border-slate-100 overflow-hidden mb-4 group shadow-inner">
               <img src={selectedImage} className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105" alt="Main" />
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -314,6 +311,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               </div>
             </div>
             
+            {/* Draggable Thumbnails Grid */}
             <div className="grid grid-cols-4 gap-2">
               {allImages.map((img, i) => (
                 <div 
@@ -322,17 +320,39 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                   onDragStart={() => handleDragStart(i)}
                   onDragOver={handleDragOver}
                   onDrop={() => handleDrop(i)}
-                  className={`relative aspect-square rounded-lg border-2 group/item cursor-move transition-all ${
-                    selectedImage === img ? 'border-blue-500 scale-95' : 'border-slate-100 hover:border-slate-300'
+                  onClick={() => setSelectedImage(img)}
+                  className={`relative aspect-square rounded-lg border-2 group/item cursor-move transition-all overflow-hidden ${
+                    selectedImage === img ? 'border-blue-500 scale-95 shadow-inner' : 'border-slate-100 hover:border-slate-300'
                   } ${draggedIdx === i ? 'opacity-20' : ''}`}
                 >
-                  <img src={img} onClick={() => setSelectedImage(img)} className="w-full h-full object-cover rounded pointer-events-none" alt={`Thumbnail ${i}`} />
-                  {i === 0 && <div className="absolute top-0 left-0 bg-blue-500 text-[8px] font-black text-white px-1 py-0.5 rounded-br uppercase">Main</div>}
-                  <button onClick={(e) => handleDeleteImage(img, e)} className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity z-10 shadow-sm">
+                  <img src={img} className="w-full h-full object-cover rounded pointer-events-none" alt={`Thumbnail ${i}`} />
+                  {i === 0 && (
+                    <div className="absolute top-0 left-0 bg-blue-500 text-[8px] font-black text-white px-1 py-0.5 rounded-br uppercase shadow-sm">Main</div>
+                  )}
+                  <button 
+                    onClick={(e) => handleDeleteImage(img, e)} 
+                    className="absolute top-0.5 right-0.5 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity z-10 shadow-sm hover:scale-110"
+                  >
                     <X size={10} />
                   </button>
                 </div>
               ))}
+              
+              {/* Add Image Placeholder */}
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingLocal}
+                className="aspect-square rounded-lg border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-500 transition-all bg-slate-50 group/add"
+              >
+                {isUploadingLocal ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <>
+                    <Plus size={18} className="group-hover/add:scale-110 transition-transform" />
+                    <span className="text-[8px] font-black uppercase mt-1">Add</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
@@ -359,6 +379,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
         </div>
 
+        {/* Content Editor */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
@@ -369,6 +390,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
              {currentContent ? (
                <div className="p-6 space-y-6 flex-1 overflow-y-auto">
+                 {/* Title Field */}
                  <div className="space-y-1">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Optimized Title</label>
@@ -381,10 +403,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         else handleFieldChange(`translations.${activeMarketplace}.optimized_title`, e.target.value);
                       }}
                       onBlur={handleBlur}
-                      className={`w-full p-3 bg-indigo-50/10 border ${currentContent.optimized_title.length > LIMITS.TITLE ? 'border-red-500 ring-2 ring-red-500/10' : 'border-slate-200'} rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none min-h-[80px] leading-relaxed transition-all`}
+                      className={`w-full p-3 bg-indigo-50/10 border ${currentContent.optimized_title.length > LIMITS.TITLE ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200'} rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none min-h-[80px] leading-relaxed transition-all`}
                     />
                  </div>
 
+                 {/* Keywords Field */}
                  <div className="space-y-1">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Backend Search Keywords</label>
@@ -397,12 +420,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         else handleFieldChange(`translations.${activeMarketplace}.optimized_keywords`, e.target.value);
                       }}
                       onBlur={handleBlur}
-                      className={`w-full p-3 bg-slate-50 border ${currentContent.search_keywords.length > LIMITS.KEYWORDS ? 'border-red-500 ring-2 ring-red-500/10' : 'border-slate-200'} rounded-xl text-xs font-mono transition-all`}
+                      className={`w-full p-3 bg-slate-50 border ${currentContent.search_keywords.length > LIMITS.KEYWORDS ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200'} rounded-xl text-xs font-mono transition-all`}
                       placeholder="comma, separated, keywords..."
                     />
                  </div>
 
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Bullet Points */}
                     <div className="space-y-4">
                        <div className="flex justify-between items-center">
                          <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Feature Bullet Points</label>
@@ -429,13 +453,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                   else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next);
                                }}
                                onBlur={handleBlur}
-                               className={`w-full p-2 bg-slate-50 border ${f.length > LIMITS.BULLET ? 'border-red-500 ring-2 ring-red-500/10' : 'border-slate-200'} rounded-lg text-xs outline-none transition-all focus:ring-1 focus:ring-indigo-500 min-h-[60px]`}
+                               className={`w-full p-2 bg-slate-50 border ${f.length > LIMITS.BULLET ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200'} rounded-lg text-xs outline-none transition-all focus:ring-1 focus:ring-indigo-500 min-h-[60px]`}
                              />
                            </div>
                          ))}
                        </div>
                     </div>
 
+                    {/* Description */}
                     <div className="space-y-1">
                        <div className="flex justify-between items-center">
                          <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Detailed Description</label>
@@ -448,7 +473,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            else handleFieldChange(`translations.${activeMarketplace}.optimized_description`, e.target.value);
                          }}
                          onBlur={handleBlur}
-                         className={`w-full p-4 bg-slate-50 border ${currentContent.optimized_description.length > LIMITS.DESCRIPTION ? 'border-red-500 ring-2 ring-red-500/10' : 'border-slate-200'} rounded-xl text-xs min-h-[400px] leading-relaxed transition-all focus:ring-2 focus:ring-indigo-500 outline-none`}
+                         className={`w-full p-4 bg-slate-50 border ${currentContent.optimized_description.length > LIMITS.DESCRIPTION ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200'} rounded-xl text-xs min-h-[400px] leading-relaxed transition-all focus:ring-2 focus:ring-indigo-500 outline-none`}
                        />
                     </div>
                  </div>
