@@ -1,18 +1,17 @@
+
 import React from 'react';
 import { Package, LogOut, LayoutDashboard, Database, Settings } from 'lucide-react';
 import { UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
-import { LanguageSwitcher } from './LanguageSwitcher';
 
 interface SidebarProps {
   onLogout: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   lang: UILanguage;
-  onLanguageChange: (lang: UILanguage) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onLogout, activeTab, setActiveTab, lang, onLanguageChange }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ onLogout, activeTab, setActiveTab, lang }) => {
   const t = useTranslation(lang);
   const menuItems = [
     { id: 'dashboard', label: t('dashboard'), icon: <LayoutDashboard size={20} /> },
@@ -45,10 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, activeTab, setActive
         ))}
       </nav>
 
-      <div className="p-6 border-t border-slate-800 space-y-4">
-        <div className="flex justify-center">
-          <LanguageSwitcher currentLang={lang} onLanguageChange={onLanguageChange} isDark />
-        </div>
+      <div className="p-6 border-t border-slate-800">
         <button 
           onClick={onLogout}
           className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all font-bold text-sm"

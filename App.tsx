@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
@@ -16,6 +17,58 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [lang, setLang] = useState<UILanguage>('en');
   const [listings, setListings] = useState<Listing[]>([]);
+
+  // 1. 智能语言检测逻辑
+  useEffect(() => {
+    const detectLang = async () => {
+      // 优先级1: 用户手动选择过的缓存
+      const savedLang = localStorage.getItem('app_lang') as UILanguage;
+      if (savedLang) {
+        setLang(savedLang);
+        return;
+      }
+
+      // 优先级2: 基于浏览器语言和 IP 定位
+      try {
+        // 首先尝试从浏览器语言识别
+        const browserLang = navigator.language.split('-')[0];
+        const supported = ['en', 'zh', 'ja', 'de', 'fr', 'es'];
+        if (supported.includes(browserLang)) {
+          setLang(browserLang as UILanguage);
+        }
+
+        // 尝试通过 IP 获取地理位置进行更精准的切换
+        const res = await fetch('https://ipapi.co/json/');
+        const data = await res.json();
+        const country = data.country_code?.toUpperCase();
+        
+        const geoMap: Record<string, UILanguage> = {
+          'CN': 'zh',
+          'JP': 'ja',
+          'DE': 'de',
+          'FR': 'fr',
+          'ES': 'es',
+          'MX': 'es',
+          'AT': 'de',
+          'CH': 'de'
+        };
+
+        if (country && geoMap[country]) {
+          setLang(geoMap[country]);
+        }
+      } catch (e) {
+        console.warn("Language auto-detection via IP failed, using browser defaults.");
+      }
+    };
+
+    detectLang();
+  }, []);
+
+  // 监听语言变化并保存
+  const handleLanguageChange = (newLang: UILanguage) => {
+    setLang(newLang);
+    localStorage.setItem('app_lang', newLang);
+  };
 
   // 从数据库拉取数据
   const fetchListings = async () => {
@@ -77,7 +130,7 @@ const App: React.FC = () => {
       <LandingPage 
         onLogin={() => setView(session ? AppView.DASHBOARD : AppView.AUTH)} 
         uiLang={lang} 
-        onLanguageChange={setLang} 
+        onLanguageChange={handleLanguageChange} 
       />
     );
   }
@@ -91,7 +144,6 @@ const App: React.FC = () => {
         activeTab={activeTab} 
         setActiveTab={setActiveTab}
         lang={lang}
-        onLanguageChange={setLang}
       />
       
       <main className="ml-64 flex-1">
