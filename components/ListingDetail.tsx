@@ -4,7 +4,8 @@ import {
   ArrowLeft, Sparkles, Copy, ShoppingCart, Search, 
   Image as ImageIcon, Edit2, Trash2, Plus, X,
   Link as LinkIcon, Trash, BrainCircuit, Globe, Languages, Download, Loader2,
-  Upload, DollarSign, Truck, Info, Settings2, GripVertical, ZoomIn, Save, ChevronRight
+  Upload, DollarSign, Truck, Info, Settings2, GripVertical, ZoomIn, Save, ChevronRight,
+  Zap
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -53,6 +54,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isTranslating, setIsTranslating] = useState<string | null>(null);
+  const [isTranslatingAll, setIsTranslatingAll] = useState(false);
   const [isUploadingLocal, setIsUploadingLocal] = useState(false);
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
   const [localListing, setLocalListing] = useState<Listing>(listing);
@@ -63,7 +65,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [activeMarketplace, setActiveMarketplace] = useState<string>('en');
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
-  // 当外部 listing 改变时（例如点击“下一个”），重置本地状态
   useEffect(() => {
     setLocalListing(listing);
     setSelectedImage(listing.cleaned.main_image);
@@ -79,15 +80,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsSaving(true);
     try {
       const now = new Date().toISOString();
-      const { error } = await supabase.from('listings').update({
+      const payload = {
         cleaned: updatedListing.cleaned,
         optimized: updatedListing.optimized,
         translations: updatedListing.translations,
         status: updatedListing.status,
-        updated_at: now // 更新数据库时间戳
-      }).eq('id', updatedListing.id);
+        updated_at: now
+      };
+      
+      const { error } = await supabase
+        .from('listings')
+        .update(payload)
+        .eq('id', updatedListing.id);
       
       if (error) throw error;
+      console.log('Successfully synced to Supabase at', now);
     } catch (e) {
       console.error("Sync to Supabase failed:", e);
     } finally {
@@ -102,7 +109,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const handleSaveAndNext = async () => {
-    // 在跳转之前强制同步当前状态到数据库
     await syncToSupabase(localListing);
     onNext();
   };
@@ -248,14 +254,56 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         translations: { ...(localListing.translations || {}), [mktCode]: translated } 
       };
       
-      // 重要：直接触发同步，并等待完成以确保翻译存入数据库
-      await syncToSupabase(updated);
+      // 自动保存逻辑：更新状态并同步
       setLocalListing(updated);
       onUpdate(updated);
+      await syncToSupabase(updated);
       setActiveMarketplace(mktCode);
     } catch (error: any) {
-      alert(`Translation failed: ${error.message}`);
+      console.error(`Individual translation to ${mktCode} failed:`, error);
+      alert(`Translation failed for ${mktCode}: ${error.message}`);
     } finally {
+      setIsTranslating(null);
+    }
+  };
+
+  const handleTranslateAll = async () => {
+    if (!localListing.optimized) {
+      alert("Please optimize in English first.");
+      return;
+    }
+    
+    const marketsToTranslate = MARKETPLACES.filter(m => m.code !== 'en');
+    setIsTranslatingAll(true);
+    
+    try {
+      const newTranslations = { ...(localListing.translations || {}) };
+      
+      // 串行执行以防触发 API 并发限制
+      for (const mkt of marketsToTranslate) {
+        setIsTranslating(mkt.code);
+        const translated = await translateListingWithAI(localListing.optimized!, mkt.code);
+        newTranslations[mkt.code] = translated;
+      }
+      
+      const updated = { 
+        ...localListing, 
+        status: 'optimized' as const,
+        translations: newTranslations 
+      };
+      
+      // 批量处理后一次性自动保存
+      setLocalListing(updated);
+      onUpdate(updated);
+      await syncToSupabase(updated);
+      
+      setIsTranslating(null);
+      alert("All translations completed and saved.");
+    } catch (error: any) {
+      console.error("Batch translation failed:", error);
+      alert(`Batch translation failed: ${error.message}`);
+    } finally {
+      setIsTranslatingAll(false);
       setIsTranslating(null);
     }
   };
@@ -392,13 +440,24 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
 
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
-            <h3 className="font-black text-slate-900 mb-6 flex items-center gap-2 text-xs uppercase tracking-[0.2em]">
-              <Languages size={16} className="text-purple-500" /> Multi-Market Translation
-            </h3>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-black text-slate-900 flex items-center gap-2 text-xs uppercase tracking-[0.2em]">
+                <Languages size={16} className="text-purple-500" /> Multi-Market Translation
+              </h3>
+              <button 
+                onClick={handleTranslateAll}
+                disabled={isTranslatingAll || !localListing.optimized}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-xl text-[10px] font-black uppercase tracking-tighter transition-all shadow-md active:scale-95"
+              >
+                {isTranslatingAll ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                一键翻译所有
+              </button>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               {MARKETPLACES.map(m => (
                 <button 
                   key={m.code}
+                  disabled={isTranslating !== null || isTranslatingAll}
                   onClick={() => localListing.translations?.[m.code] || m.code === 'en' ? setActiveMarketplace(m.code) : handleTranslate(m.code)}
                   className={`flex items-center justify-between px-4 py-3 rounded-2xl border text-xs font-black transition-all ${
                     activeMarketplace === m.code 
