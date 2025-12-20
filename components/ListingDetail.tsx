@@ -242,14 +242,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter relative">
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleLocalFileSelect} />
 
-      {/* Instant Hover Preview Overlay */}
+      {/* Instant Hover Preview Overlay - Positioned to the Right Center */}
       {hoveredImage && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none p-20 animate-in fade-in zoom-in duration-200">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"></div>
-          <div className="relative bg-white p-2 rounded-3xl shadow-2xl shadow-black/50 overflow-hidden transform scale-110">
-            <img src={hoveredImage} className="max-w-[70vw] max-h-[70vh] object-contain rounded-2xl" alt="Instant Preview" />
-            <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-sm flex items-center gap-2">
-              <ZoomIn size={12} /> Inspecting Image
+        <div className="fixed top-1/2 right-8 -translate-y-1/2 z-[100] pointer-events-none animate-in fade-in slide-in-from-right-4 duration-300">
+          <div className="relative bg-white p-3 rounded-[2rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] border border-slate-200 overflow-hidden transform scale-100 ring-8 ring-slate-900/5 backdrop-blur-sm">
+            <img src={hoveredImage} className="max-w-[35vw] max-h-[75vh] object-contain rounded-2xl shadow-inner" alt="Instant Preview" />
+            <div className="absolute top-6 right-6 bg-slate-900/70 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] backdrop-blur-md flex items-center gap-2 border border-white/10">
+              <ZoomIn size={12} className="animate-pulse" /> Live Preview
             </div>
           </div>
         </div>
@@ -316,7 +315,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           {/* Gallery with Instant Hover Preview */}
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
             <h3 className="font-black text-slate-900 mb-6 flex items-center justify-between text-xs uppercase tracking-[0.2em]">
-              <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Gallery (Hover for Preview)</span>
+              <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Media Gallery</span>
               <button onClick={() => fileInputRef.current?.click()} className="text-blue-600 hover:underline flex items-center gap-1 font-black text-[10px] tracking-widest uppercase"><Plus size={14} /> Upload</button>
             </h3>
             
