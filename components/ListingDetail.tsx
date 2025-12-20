@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   ArrowLeft, Sparkles, Copy, ShoppingCart, Search, 
   Image as ImageIcon, Edit2, Trash2, Plus, X,
@@ -66,7 +66,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [activeMarketplace, setActiveMarketplace] = useState<string>('en');
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
-  // 关键：只有当 ID 变化时才重置本地状态，防止保存操作触发的 Prop 更新导致编辑中的数据被重置
+  // 引用 localListing 的最新值，用于 handleBlur 等不需要立即触发状态变化的场景
+  const listingRef = useRef<Listing>(localListing);
+  useEffect(() => {
+    listingRef.current = localListing;
+  }, [localListing]);
+
   useEffect(() => {
     setLocalListing(listing);
     setSelectedImage(listing.cleaned.main_image);
@@ -78,17 +83,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     ? (localListing.optimized || null)
     : (localListing.translations?.[activeMarketplace] || null);
 
-  // 增强的同步函数，强制接收最新数据
   const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
     setIsSaving(true);
     try {
       const now = new Date().toISOString();
-      // 构建 payload，确保 translations 字段被包含
       const payload = {
         cleaned: targetListing.cleaned,
-        optimized: targetListing.optimized || {},
-        translations: targetListing.translations || {},
+        optimized: targetListing.optimized || null,
+        translations: targetListing.translations || null,
         status: targetListing.status,
         updated_at: now
       };
@@ -100,13 +103,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       
       if (error) throw error;
       
-      // 反馈给父组件
       onUpdate({ ...targetListing, updated_at: now });
       setLastSaved(new Date().toLocaleTimeString());
-      console.log('Saved successfully to Supabase:', targetListing.id);
+      console.log('Database sync successful:', targetListing.id, 'Status:', targetListing.status);
     } catch (e: any) {
       console.error("Supabase Save Error:", e);
-      alert("保存到数据库失败，请检查网络或数据库字段。 Error: " + e.message);
+      alert("保存失败: " + e.message);
     } finally {
       setIsSaving(false);
     }
@@ -209,7 +211,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const handleBlur = () => {
-    syncToSupabase(localListing);
+    // 强制使用 ref 的最新值，避免闭包捕获
+    syncToSupabase(listingRef.current);
   };
 
   const handleOptimize = async () => {
@@ -218,7 +221,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       let optimizedData = aiProvider === 'gemini' 
         ? await optimizeListingWithAI(localListing.cleaned)
         : await optimizeListingWithOpenAI(localListing.cleaned);
-      const updated = { ...localListing, status: 'optimized' as const, optimized: optimizedData };
+      const updated = { 
+        ...localListing, 
+        status: 'optimized' as const, 
+        optimized: optimizedData 
+      };
       setLocalListing(updated);
       await syncToSupabase(updated);
     } catch (error: any) {
@@ -238,15 +245,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const translated = await translateListingWithAI(localListing.optimized, mktCode);
       const updated = { 
         ...localListing, 
+        status: 'optimized' as const, // 明确更新状态
         translations: { ...(localListing.translations || {}), [mktCode]: translated } 
       };
       
-      // 关键：立即更新本地并同步数据库
       setLocalListing(updated);
       await syncToSupabase(updated);
       setActiveMarketplace(mktCode);
     } catch (error: any) {
-      console.error(`Translation to ${mktCode} failed:`, error);
       alert(`翻译失败 (${mktCode}): ${error.message}`);
     } finally {
       setIsTranslating(null);
@@ -255,7 +261,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleTranslateAll = async () => {
     if (!localListing.optimized) {
-      alert("请先进行英文 AI 优化。");
+      alert("请先进行 AI 优化后再执行翻译。");
       return;
     }
     
@@ -265,7 +271,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     try {
       const newTranslations = { ...(localListing.translations || {}) };
       
-      // 串行翻译，避免触发 AI 限制
       for (const mkt of marketsToTranslate) {
         setIsTranslating(mkt.code);
         const translated = await translateListingWithAI(localListing.optimized!, mkt.code);
@@ -274,15 +279,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       
       const updated = { 
         ...localListing, 
+        status: 'optimized' as const, // 明确更新状态
         translations: newTranslations 
       };
       
       setLocalListing(updated);
       await syncToSupabase(updated);
       setIsTranslating(null);
-      alert("所有语言翻译完成并已保存。");
+      alert("所有站点翻译完成。");
     } catch (error: any) {
-      console.error("Batch translation failed:", error);
       alert(`批量翻译中断: ${error.message}`);
     } finally {
       setIsTranslatingAll(false);
@@ -361,7 +366,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </button>
           {lastSaved && (
             <div className="flex items-center gap-1.5 text-[10px] font-black text-green-500 uppercase tracking-widest bg-green-50 px-3 py-1 rounded-full border border-green-100">
-              <Check size={12} /> {t('connected').includes('已连接') ? '已自动保存' : 'Auto-saved'} @ {lastSaved}
+              <Check size={12} /> {t('connected').includes('已连接') ? '已存至云端' : 'Auto-saved'} @ {lastSaved}
             </div>
           )}
         </div>
@@ -383,7 +388,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             className="flex items-center gap-2 px-8 py-2.5 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-95 uppercase tracking-[0.1em] disabled:opacity-70"
           >
             {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-            {isSaving ? '正在同步...' : '保存并处理下一个'}
+            {isSaving ? '同步中...' : '保存并继续'}
             {!isSaving && <ChevronRight size={18} />}
           </button>
         </div>
@@ -543,7 +548,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                        <div className="flex justify-between items-center bg-slate-50/80 p-3 rounded-2xl">
                          <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Selling Feature Points</label>
                          <div className="flex items-center gap-2">
-                            <button onClick={handleManualSave} className="text-slate-400 hover:text-indigo-500 p-1"><Save size={14} /></button>
+                            <button onClick={handleManualSave} className="text-slate-400 hover:text-indigo-500 p-1 transition-colors"><Save size={14} /></button>
                             <button onClick={() => {
                                 const next = [...currentContent.optimized_features, ""];
                                 if (activeMarketplace === 'en') handleFieldChange('optimized.optimized_features', next);

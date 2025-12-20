@@ -26,6 +26,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
     const newListing = {
       asin: MOCK_CLEANED_DATA.asin + Math.floor(Math.random() * 1000),
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       status: 'collected',
       cleaned: { ...MOCK_CLEANED_DATA, title: `${MOCK_CLEANED_DATA.title} (${listings.length + 1})` }
     };
@@ -53,10 +54,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
     }
   };
 
-  const filteredListings = listings.filter(l => 
-    l.cleaned.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    l.asin.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredListings = listings.filter(l => {
+    const displayTitle = (l.status === 'optimized' && l.optimized?.optimized_title) 
+      ? l.optimized.optimized_title 
+      : l.cleaned.title;
+    return displayTitle.toLowerCase().includes(searchTerm.toLowerCase()) || 
+           l.asin.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -136,7 +140,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
                     </td>
                     <td className="p-6 font-mono text-xs font-bold text-slate-500 tracking-tighter">{listing.asin}</td>
                     <td className="p-6">
-                      <p className="text-sm font-bold text-slate-800 line-clamp-1">{listing.cleaned.title}</p>
+                      <p className="text-sm font-bold text-slate-800 line-clamp-1">
+                        {(listing.status === 'optimized' && listing.optimized?.optimized_title) 
+                          ? listing.optimized.optimized_title 
+                          : listing.cleaned.title}
+                      </p>
                       <div className="flex gap-1 mt-1">
                         {listing.translations && Object.keys(listing.translations).map(k => (
                           <span key={k} className="text-[8px] px-1 bg-slate-100 rounded uppercase font-black text-slate-400">{k}</span>
