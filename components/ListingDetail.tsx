@@ -105,7 +105,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
   };
 
-  // --- Image Logic ---
+  // --- Image Reordering & Preview ---
   const allImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])];
 
   const handleDragStart = (idx: number) => setDraggedIdx(idx);
@@ -162,7 +162,48 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     updateAndSync(updated);
   };
 
-  // --- AI & Optimization ---
+  // --- Field Management ---
+  const handleFieldChange = (path: string, value: any) => {
+    const updated = JSON.parse(JSON.stringify(localListing));
+    const keys = path.split('.');
+    let current: any = updated;
+    for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
+    current[keys[keys.length - 1]] = value;
+    setLocalListing(updated);
+  };
+
+  const handleBlur = () => updateAndSync(localListing);
+
+  // --- Bullet Point Management (Fixed: Direct Update) ---
+  const addBullet = () => {
+    if (!currentContent) return;
+    const updated = JSON.parse(JSON.stringify(localListing));
+    const nextBullets = [...currentContent.optimized_features, ""];
+    
+    if (activeMarketplace === 'en') {
+      updated.optimized.optimized_features = nextBullets;
+    } else {
+      if (!updated.translations[activeMarketplace]) return;
+      updated.translations[activeMarketplace].optimized_features = nextBullets;
+    }
+    updateAndSync(updated);
+  };
+
+  const removeBullet = (idx: number) => {
+    if (!currentContent) return;
+    const updated = JSON.parse(JSON.stringify(localListing));
+    const nextBullets = currentContent.optimized_features.filter((_, i: number) => i !== idx);
+    
+    if (activeMarketplace === 'en') {
+      updated.optimized.optimized_features = nextBullets;
+    } else {
+      if (!updated.translations[activeMarketplace]) return;
+      updated.translations[activeMarketplace].optimized_features = nextBullets;
+    }
+    updateAndSync(updated);
+  };
+
+  // --- AI Optimization ---
   const handleOptimize = async () => {
     setIsOptimizing(true);
     try {
@@ -196,41 +237,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
-  const handleFieldChange = (path: string, value: any) => {
-    const updated = JSON.parse(JSON.stringify(localListing));
-    const keys = path.split('.');
-    let current: any = updated;
-    for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
-    current[keys[keys.length - 1]] = value;
-    setLocalListing(updated);
-  };
-
-  const handleBlur = () => updateAndSync(localListing);
-
-  const addBullet = () => {
-    if (!currentContent) return;
-    const next = [...currentContent.optimized_features, ""];
-    if (activeMarketplace === 'en') handleFieldChange('optimized.optimized_features', next);
-    else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next);
-    handleBlur();
-  };
-
-  const removeBullet = (idx: number) => {
-    if (!currentContent) return;
-    const next = currentContent.optimized_features.filter((_, i) => i !== idx);
-    if (activeMarketplace === 'en') handleFieldChange('optimized.optimized_features', next);
-    else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next);
-    handleBlur();
-  };
-
   const CharCounter = ({ count, limit }: { count: number, limit: number }) => (
-    <span className={`text-[10px] font-bold ${count > limit ? 'text-red-500' : 'text-slate-400'}`}>
+    <span className={`text-[10px] font-black tracking-tighter ${count > limit ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
       {count} / {limit}
     </span>
   );
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900">
+    <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter">
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleLocalFileSelect} />
 
       {isEditorOpen && (
@@ -272,17 +286,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         />
       )}
 
-      {/* Action Header */}
-      <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-40">
-        <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-800 font-medium transition-colors">
-          <ArrowLeft size={20} className="mr-2" /> {t('back')}
+      {/* Sticky Header */}
+      <div className="flex items-center justify-between bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-slate-200 shadow-sm sticky top-4 z-40 transition-all">
+        <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-900 font-black text-sm uppercase tracking-widest transition-colors">
+          <ArrowLeft size={18} className="mr-2" /> {t('back')}
         </button>
-        <div className="flex gap-3 items-center">
-          <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-            <button onClick={() => setAiProvider('gemini')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${aiProvider === 'gemini' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Gemini</button>
-            <button onClick={() => setAiProvider('openai')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${aiProvider === 'openai' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>GPT-4o</button>
+        <div className="flex gap-4 items-center">
+          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <button onClick={() => setAiProvider('gemini')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all uppercase tracking-widest ${aiProvider === 'gemini' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Gemini</button>
+            <button onClick={() => setAiProvider('openai')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all uppercase tracking-widest ${aiProvider === 'openai' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>GPT-4o</button>
           </div>
-          <button onClick={handleOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg transition-all disabled:opacity-50">
+          <button onClick={handleOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-8 py-2.5 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-95 disabled:opacity-50 uppercase tracking-widest">
             {isOptimizing ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
             {t('aiOptimize')}
           </button>
@@ -291,28 +305,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="space-y-6">
-          {/* Gallery Card */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2"><ImageIcon size={18} className="text-blue-500" /> Gallery (Drag to Sort)</span>
-              <button 
-                onClick={() => fileInputRef.current?.click()} 
-                className="text-xs text-indigo-600 font-black flex items-center gap-1 hover:underline"
-              >
-                <Plus size={14} /> Upload
-              </button>
+          {/* Gallery with Drag & Drop */}
+          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
+            <h3 className="font-black text-slate-900 mb-6 flex items-center justify-between text-xs uppercase tracking-[0.2em]">
+              <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Media Gallery</span>
+              <button onClick={() => fileInputRef.current?.click()} className="text-blue-600 hover:underline flex items-center gap-1"><Plus size={14} /> Upload</button>
             </h3>
             
-            {/* Large Preview */}
-            <div className="relative aspect-square rounded-xl bg-slate-50 border border-slate-100 overflow-hidden mb-4 group shadow-inner">
-              <img src={selectedImage} className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105" alt="Main" />
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <button onClick={() => setIsEditorOpen(true)} className="px-4 py-2 bg-white text-slate-900 rounded-lg font-bold text-xs shadow-xl flex items-center gap-2 hover:bg-slate-50"><Edit2 size={14} /> AI Studio</button>
+            <div className="relative aspect-square rounded-3xl bg-slate-50 border border-slate-100 overflow-hidden mb-6 group shadow-inner transition-all hover:shadow-xl">
+              <img src={selectedImage} className="w-full h-full object-contain transition-transform duration-700 group-hover:scale-110" alt="Main" />
+              <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                <button onClick={() => setIsEditorOpen(true)} className="px-6 py-3 bg-white text-slate-900 rounded-2xl font-black text-xs shadow-2xl flex items-center gap-2 hover:bg-blue-50 transform hover:scale-105 transition-all"><Edit2 size={14} /> Open AI Studio</button>
               </div>
             </div>
             
-            {/* Draggable Thumbnails Grid */}
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-3">
               {allImages.map((img, i) => (
                 <div 
                   key={i} 
@@ -321,57 +328,37 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                   onDragOver={handleDragOver}
                   onDrop={() => handleDrop(i)}
                   onClick={() => setSelectedImage(img)}
-                  className={`relative aspect-square rounded-lg border-2 group/item cursor-move transition-all overflow-hidden ${
-                    selectedImage === img ? 'border-blue-500 scale-95 shadow-inner' : 'border-slate-100 hover:border-slate-300'
+                  className={`relative aspect-square rounded-2xl border-2 group/item cursor-move transition-all overflow-hidden shadow-sm ${
+                    selectedImage === img ? 'border-blue-500 scale-95 ring-4 ring-blue-50' : 'border-slate-50 hover:border-slate-300'
                   } ${draggedIdx === i ? 'opacity-20' : ''}`}
                 >
                   <img src={img} className="w-full h-full object-cover rounded pointer-events-none" alt={`Thumbnail ${i}`} />
-                  {i === 0 && (
-                    <div className="absolute top-0 left-0 bg-blue-500 text-[8px] font-black text-white px-1 py-0.5 rounded-br uppercase shadow-sm">Main</div>
-                  )}
-                  <button 
-                    onClick={(e) => handleDeleteImage(img, e)} 
-                    className="absolute top-0.5 right-0.5 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity z-10 shadow-sm hover:scale-110"
-                  >
-                    <X size={10} />
-                  </button>
+                  {i === 0 && <div className="absolute top-0 left-0 bg-blue-600 text-[8px] font-black text-white px-2 py-1 rounded-br-xl uppercase shadow-md">Main</div>}
+                  <button onClick={(e) => handleDeleteImage(img, e)} className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-all z-10 shadow-lg hover:scale-110"><X size={10} /></button>
                 </div>
               ))}
-              
-              {/* Add Image Placeholder */}
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploadingLocal}
-                className="aspect-square rounded-lg border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-500 transition-all bg-slate-50 group/add"
-              >
-                {isUploadingLocal ? (
-                  <Loader2 className="animate-spin" size={16} />
-                ) : (
-                  <>
-                    <Plus size={18} className="group-hover/add:scale-110 transition-transform" />
-                    <span className="text-[8px] font-black uppercase mt-1">Add</span>
-                  </>
-                )}
+              <button onClick={() => fileInputRef.current?.click()} className="aspect-square rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-600 transition-all bg-slate-50 group/add">
+                {isUploadingLocal ? <Loader2 className="animate-spin" size={16} /> : <Plus size={20} className="group-hover/add:rotate-90 transition-transform" />}
               </button>
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Languages size={18} className="text-purple-500" /> {t('translateMarketplace')}
+          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
+            <h3 className="font-black text-slate-900 mb-6 flex items-center gap-2 text-xs uppercase tracking-[0.2em]">
+              <Languages size={16} className="text-purple-500" /> Multi-Market Translation
             </h3>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-3">
               {MARKETPLACES.map(m => (
                 <button 
                   key={m.code}
                   onClick={() => localListing.translations?.[m.code] || m.code === 'en' ? setActiveMarketplace(m.code) : handleTranslate(m.code)}
-                  className={`flex items-center justify-between p-2 rounded-lg border text-xs font-bold transition-all ${
+                  className={`flex items-center justify-between px-4 py-3 rounded-2xl border text-xs font-black transition-all ${
                     activeMarketplace === m.code 
-                      ? 'border-purple-500 bg-purple-50 text-purple-700' 
-                      : (localListing.translations?.[m.code] || m.code === 'en' ? 'border-slate-200 text-slate-600 hover:border-purple-300' : 'border-dashed border-slate-200 text-slate-400 hover:border-slate-300')
+                      ? 'border-purple-500 bg-purple-50 text-purple-700 shadow-sm scale-105' 
+                      : (localListing.translations?.[m.code] || m.code === 'en' ? 'border-slate-100 text-slate-600 hover:border-purple-300' : 'border-dashed border-slate-200 text-slate-400 hover:bg-slate-50')
                   }`}
                 >
-                  <span>{m.flag} {m.name}</span>
+                  <span className="flex items-center gap-2"><span>{m.flag}</span> {m.name}</span>
                   {isTranslating === m.code && <Loader2 size={12} className="animate-spin" />}
                 </button>
               ))}
@@ -379,21 +366,56 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
         </div>
 
-        {/* Content Editor */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
-             <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <Edit2 size={12} /> Listing Editor ({MARKETPLACES.find(m => m.code === activeMarketplace)?.name})
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
+             <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
+                  <Edit2 size={14} /> Global Product Editor &bull; {MARKETPLACES.find(m => m.code === activeMarketplace)?.name}
                 </h4>
+                <div className="flex gap-2">
+                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                  <div className="w-2 h-2 rounded-full bg-slate-200"></div>
+                </div>
+             </div>
+
+             {/* Logistics & Pricing Section */}
+             <div className="p-8 border-b border-slate-100 bg-slate-50/20">
+                <div className="flex items-center gap-2 mb-6">
+                  <Settings2 size={16} className="text-indigo-500" />
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Core Logistics & Pricing</span>
+                </div>
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><DollarSign size={10} /> Listing Price (USD)</label>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={localListing.cleaned.price}
+                      onChange={(e) => handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)}
+                      onBlur={handleBlur}
+                      className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-inner"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Truck size={10} /> Shipping Cost (USD)</label>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={localListing.cleaned.shipping || 0}
+                      onChange={(e) => handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)}
+                      onBlur={handleBlur}
+                      className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-inner"
+                    />
+                  </div>
+                </div>
              </div>
 
              {currentContent ? (
-               <div className="p-6 space-y-6 flex-1 overflow-y-auto">
-                 {/* Title Field */}
-                 <div className="space-y-1">
+               <div className="p-8 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
+                 {/* Title */}
+                 <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Optimized Title</label>
+                      <label className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em]">Optimized Global Title</label>
                       <CharCounter count={currentContent.optimized_title.length} limit={LIMITS.TITLE} />
                     </div>
                     <textarea 
@@ -403,14 +425,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         else handleFieldChange(`translations.${activeMarketplace}.optimized_title`, e.target.value);
                       }}
                       onBlur={handleBlur}
-                      className={`w-full p-3 bg-indigo-50/10 border ${currentContent.optimized_title.length > LIMITS.TITLE ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200'} rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none min-h-[80px] leading-relaxed transition-all`}
+                      className={`w-full p-5 bg-white border ${currentContent.optimized_title.length > LIMITS.TITLE ? 'border-red-500 ring-4 ring-red-100' : 'border-slate-200'} rounded-2xl text-base font-bold text-slate-800 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none min-h-[100px] leading-relaxed transition-all shadow-sm`}
                     />
                  </div>
 
-                 {/* Keywords Field */}
-                 <div className="space-y-1">
+                 {/* Keywords */}
+                 <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Backend Search Keywords</label>
+                      <label className="text-[10px] font-black text-amber-500 uppercase tracking-[0.2em]">Backend Search Keywords</label>
                       <CharCounter count={currentContent.search_keywords.length} limit={LIMITS.KEYWORDS} />
                     </div>
                     <input 
@@ -420,28 +442,28 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         else handleFieldChange(`translations.${activeMarketplace}.optimized_keywords`, e.target.value);
                       }}
                       onBlur={handleBlur}
-                      className={`w-full p-3 bg-slate-50 border ${currentContent.search_keywords.length > LIMITS.KEYWORDS ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200'} rounded-xl text-xs font-mono transition-all`}
-                      placeholder="comma, separated, keywords..."
+                      className={`w-full px-5 py-4 bg-slate-50/50 border ${currentContent.search_keywords.length > LIMITS.KEYWORDS ? 'border-red-500 ring-4 ring-red-100' : 'border-slate-200'} rounded-2xl text-sm font-mono tracking-tight text-slate-600 focus:border-amber-500 transition-all shadow-inner`}
+                      placeholder="Enter comma separated high-intent keywords..."
                     />
                  </div>
 
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {/* Bullet Points */}
-                    <div className="space-y-4">
-                       <div className="flex justify-between items-center">
-                         <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Feature Bullet Points</label>
-                         <button onClick={addBullet} className="text-[10px] font-black text-blue-600 uppercase hover:underline flex items-center gap-1">
-                           <Plus size={10} /> Add Point
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                    {/* Feature Bullets */}
+                    <div className="space-y-6">
+                       <div className="flex justify-between items-center bg-slate-50/80 p-3 rounded-2xl">
+                         <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Selling Feature Points</label>
+                         <button onClick={addBullet} className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-tighter shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center gap-1">
+                           <Plus size={12} /> Add Point
                          </button>
                        </div>
-                       <div className="space-y-4">
-                         {currentContent.optimized_features.map((f, i) => (
-                           <div key={i} className="space-y-1 animate-in fade-in slide-in-from-top-2">
-                             <div className="flex justify-between items-center px-1">
-                               <span className="text-[9px] font-bold text-slate-400">Point {i+1}</span>
-                               <div className="flex items-center gap-2">
+                       <div className="space-y-6">
+                         {currentContent.optimized_features.map((f: string, i: number) => (
+                           <div key={i} className="space-y-2 p-4 rounded-2xl border border-slate-50 hover:bg-slate-50/30 transition-all animate-in fade-in slide-in-from-top-2">
+                             <div className="flex justify-between items-center">
+                               <span className="px-2 py-0.5 bg-slate-100 rounded text-[9px] font-black text-slate-400 uppercase tracking-widest">Bullet {i+1}</span>
+                               <div className="flex items-center gap-3">
                                  <CharCounter count={f.length} limit={LIMITS.BULLET} />
-                                 <button onClick={() => removeBullet(i)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
+                                 <button onClick={() => removeBullet(i)} className="text-slate-300 hover:text-red-500 transition-colors p-1"><Trash2 size={14} /></button>
                                </div>
                              </div>
                              <textarea 
@@ -453,7 +475,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                   else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next);
                                }}
                                onBlur={handleBlur}
-                               className={`w-full p-2 bg-slate-50 border ${f.length > LIMITS.BULLET ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200'} rounded-lg text-xs outline-none transition-all focus:ring-1 focus:ring-indigo-500 min-h-[60px]`}
+                               className={`w-full p-4 bg-white border ${f.length > LIMITS.BULLET ? 'border-red-500 ring-4 ring-red-100' : 'border-slate-200'} rounded-xl text-xs font-bold text-slate-700 outline-none transition-all focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 min-h-[80px] leading-relaxed shadow-sm`}
                              />
                            </div>
                          ))}
@@ -461,9 +483,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     </div>
 
                     {/* Description */}
-                    <div className="space-y-1">
-                       <div className="flex justify-between items-center">
-                         <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Detailed Description</label>
+                    <div className="space-y-2">
+                       <div className="flex justify-between items-center bg-slate-50/80 p-3 rounded-2xl">
+                         <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Detailed Product Narration</label>
                          <CharCounter count={currentContent.optimized_description.length} limit={LIMITS.DESCRIPTION} />
                        </div>
                        <textarea 
@@ -473,24 +495,35 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            else handleFieldChange(`translations.${activeMarketplace}.optimized_description`, e.target.value);
                          }}
                          onBlur={handleBlur}
-                         className={`w-full p-4 bg-slate-50 border ${currentContent.optimized_description.length > LIMITS.DESCRIPTION ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200'} rounded-xl text-xs min-h-[400px] leading-relaxed transition-all focus:ring-2 focus:ring-indigo-500 outline-none`}
+                         className={`w-full p-6 bg-white border ${currentContent.optimized_description.length > LIMITS.DESCRIPTION ? 'border-red-500 ring-4 ring-red-100' : 'border-slate-200'} rounded-3xl text-xs font-medium text-slate-700 min-h-[500px] leading-loose transition-all focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none shadow-sm`}
                        />
                     </div>
                  </div>
                </div>
              ) : (
-               <div className="p-20 text-center flex flex-col items-center justify-center gap-4 flex-1">
-                  <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-200">
-                    <BrainCircuit size={32} />
+               <div className="p-32 text-center flex flex-col items-center justify-center gap-6 flex-1 bg-slate-50/30">
+                  <div className="w-24 h-24 bg-white rounded-[2rem] border border-slate-100 shadow-xl flex items-center justify-center text-slate-100 transform rotate-12 transition-transform hover:rotate-0">
+                    <BrainCircuit size={48} />
                   </div>
-                  <p className="text-slate-400 font-medium italic text-center leading-relaxed">
-                    Run "AI Optimize" to generate high-converting content<br/>or select a marketplace to start editing.
-                  </p>
+                  <div className="space-y-2 max-w-sm">
+                    <p className="text-slate-800 font-black text-xl tracking-tight uppercase">Ready for optimization</p>
+                    <p className="text-slate-400 font-medium text-xs leading-relaxed">
+                      Initialize the AI engine to generate high-converting SEO content for this product.
+                    </p>
+                  </div>
+                  <button onClick={handleOptimize} className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-800 transition-all active:scale-95">Start Optimization</button>
                </div>
              )}
           </div>
         </div>
       </div>
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+      `}</style>
     </div>
   );
 };
