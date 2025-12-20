@@ -21,56 +21,43 @@ const App: React.FC = () => {
   // 1. 智能语言检测逻辑
   useEffect(() => {
     const detectLang = async () => {
-      // 优先级1: 用户手动选择过的缓存
       const savedLang = localStorage.getItem('app_lang') as UILanguage;
       if (savedLang) {
         setLang(savedLang);
         return;
       }
 
-      // 优先级2: 基于浏览器语言和 IP 定位
       try {
-        // 首先尝试从浏览器语言识别
         const browserLang = navigator.language.split('-')[0];
         const supported = ['en', 'zh', 'ja', 'de', 'fr', 'es'];
         if (supported.includes(browserLang)) {
           setLang(browserLang as UILanguage);
         }
 
-        // 尝试通过 IP 获取地理位置进行更精准的切换
         const res = await fetch('https://ipapi.co/json/');
         const data = await res.json();
         const country = data.country_code?.toUpperCase();
         
         const geoMap: Record<string, UILanguage> = {
-          'CN': 'zh',
-          'JP': 'ja',
-          'DE': 'de',
-          'FR': 'fr',
-          'ES': 'es',
-          'MX': 'es',
-          'AT': 'de',
-          'CH': 'de'
+          'CN': 'zh', 'JP': 'ja', 'DE': 'de', 'FR': 'fr', 'ES': 'es',
+          'MX': 'es', 'AT': 'de', 'CH': 'de'
         };
 
         if (country && geoMap[country]) {
           setLang(geoMap[country]);
         }
       } catch (e) {
-        console.warn("Language auto-detection via IP failed, using browser defaults.");
+        console.warn("Language auto-detection via IP failed.");
       }
     };
-
     detectLang();
   }, []);
 
-  // 监听语言变化并保存
   const handleLanguageChange = (newLang: UILanguage) => {
     setLang(newLang);
     localStorage.setItem('app_lang', newLang);
   };
 
-  // 从数据库拉取数据
   const fetchListings = async () => {
     if (!isSupabaseConfigured()) return;
     const { data, error } = await supabase
@@ -119,6 +106,16 @@ const App: React.FC = () => {
     setSession(null);
   };
 
+  // 2. 跳转到下一个 Listing 的逻辑
+  const handleNextListing = () => {
+    if (!selectedListing || listings.length === 0) return;
+    const currentIndex = listings.findIndex(l => l.id === selectedListing.id);
+    const nextIndex = (currentIndex + 1) % listings.length;
+    setSelectedListing(listings[nextIndex]);
+    // 强制滚动到顶部
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
@@ -165,6 +162,7 @@ const App: React.FC = () => {
               setListings(prev => prev.map(l => l.id === updated.id ? updated : l));
               setSelectedListing(updated);
             }}
+            onNext={handleNextListing}
             uiLang={lang}
           />
         )}

@@ -1,10 +1,10 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Sparkles, Copy, ShoppingCart, Search, 
   Image as ImageIcon, Edit2, Trash2, Plus, X,
   Link as LinkIcon, Trash, BrainCircuit, Globe, Languages, Download, Loader2,
-  Upload, DollarSign, Truck, Info, Settings2, GripVertical, ZoomIn
+  Upload, DollarSign, Truck, Info, Settings2, GripVertical, ZoomIn, Save, ChevronRight
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -31,6 +31,7 @@ interface ListingDetailProps {
   listing: Listing;
   onBack: () => void;
   onUpdate: (updatedListing: Listing) => void;
+  onNext: () => void;
   uiLang: UILanguage;
 }
 
@@ -45,7 +46,7 @@ const MARKETPLACES = [
   { code: 'jp', name: 'Japan', flag: '🇯🇵' },
 ];
 
-export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, uiLang }) => {
+export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -60,6 +61,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [isSourcingOpen, setIsSourcingOpen] = useState(false);
   const [activeMarketplace, setActiveMarketplace] = useState<string>('en');
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+
+  // 当外部 listing 改变时（例如点击“下一个”），重置本地状态
+  useEffect(() => {
+    setLocalListing(listing);
+    setSelectedImage(listing.cleaned.main_image);
+    setActiveMarketplace('en');
+  }, [listing]);
 
   const currentContent = activeMarketplace === 'en' 
     ? (localListing.optimized || null)
@@ -85,6 +93,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setLocalListing(updated);
     onUpdate(updated);
     syncToSupabase(updated);
+  };
+
+  const handleSaveAndNext = () => {
+    updateAndSync(localListing);
+    onNext();
   };
 
   const uploadToHost = async (source: File | string): Promise<string> => {
@@ -161,7 +174,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     updateAndSync(updated);
   };
 
-  // --- Field Management ---
   const handleFieldChange = (path: string, value: any) => {
     const updated = JSON.parse(JSON.stringify(localListing));
     const keys = path.split('.');
@@ -178,7 +190,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const updated = JSON.parse(JSON.stringify(localListing));
     const nextBullets = [...currentContent.optimized_features, ""];
     if (activeMarketplace === 'en') {
-      updated.optimized.optimized_features = nextBullets;
+      updated.optimized!.optimized_features = nextBullets;
     } else {
       if (!updated.translations[activeMarketplace]) return;
       updated.translations[activeMarketplace].optimized_features = nextBullets;
@@ -191,7 +203,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const updated = JSON.parse(JSON.stringify(localListing));
     const nextBullets = currentContent.optimized_features.filter((_: any, i: number) => i !== idx);
     if (activeMarketplace === 'en') {
-      updated.optimized.optimized_features = nextBullets;
+      updated.optimized!.optimized_features = nextBullets;
     } else {
       if (!updated.translations[activeMarketplace]) return;
       updated.translations[activeMarketplace].optimized_features = nextBullets;
@@ -222,8 +234,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsTranslating(mktCode);
     try {
       const translated = await translateListingWithAI(localListing.optimized, mktCode);
-      const updated = { ...localListing, translations: { ...(localListing.translations || {}), [mktCode]: translated } };
-      updateAndSync(updated);
+      const updated = { 
+        ...localListing, 
+        status: 'optimized' as const, // 强制标记为已优化
+        translations: { ...(localListing.translations || {}), [mktCode]: translated } 
+      };
+      updateAndSync(updated); // 同步到 Supabase
       setActiveMarketplace(mktCode);
     } catch (error: any) {
       alert(`Translation failed: ${error.message}`);
@@ -242,7 +258,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter relative">
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleLocalFileSelect} />
 
-      {/* Instant Hover Preview Overlay - Positioned to the Right Center */}
+      {/* Instant Hover Preview Overlay */}
       {hoveredImage && (
         <div className="fixed top-1/2 right-8 -translate-y-1/2 z-[100] pointer-events-none animate-in fade-in slide-in-from-right-4 duration-300">
           <div className="relative bg-white p-3 rounded-[2rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] border border-slate-200 overflow-hidden transform scale-100 ring-8 ring-slate-900/5 backdrop-blur-sm">
@@ -298,21 +314,31 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-900 font-black text-sm uppercase tracking-widest transition-colors">
           <ArrowLeft size={18} className="mr-2" /> {t('back')}
         </button>
+
         <div className="flex gap-4 items-center">
-          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 mr-4">
             <button onClick={() => setAiProvider('gemini')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all uppercase tracking-widest ${aiProvider === 'gemini' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Gemini</button>
             <button onClick={() => setAiProvider('openai')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all uppercase tracking-widest ${aiProvider === 'openai' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>GPT-4o</button>
           </div>
-          <button onClick={handleOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-8 py-2.5 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-95 disabled:opacity-50 uppercase tracking-widest">
+          
+          <button onClick={handleOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition-all active:scale-95 disabled:opacity-50 uppercase tracking-widest">
             {isOptimizing ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
             {t('aiOptimize')}
+          </button>
+
+          <button 
+            onClick={handleSaveAndNext} 
+            className="flex items-center gap-2 px-8 py-2.5 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-95 uppercase tracking-[0.1em]"
+          >
+            <Save size={18} />
+            保存并处理下一个
+            <ChevronRight size={18} />
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="space-y-6">
-          {/* Gallery with Instant Hover Preview */}
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
             <h3 className="font-black text-slate-900 mb-6 flex items-center justify-between text-xs uppercase tracking-[0.2em]">
               <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Media Gallery</span>
@@ -383,7 +409,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 </h4>
              </div>
 
-             {/* Logistics & Pricing Section */}
              <div className="p-8 border-b border-slate-100 bg-slate-50/20">
                 <div className="flex items-center gap-2 mb-6">
                   <Settings2 size={16} className="text-indigo-500" />
