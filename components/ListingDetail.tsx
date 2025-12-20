@@ -51,6 +51,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [isTranslating, setIsTranslating] = useState<string | null>(null);
   const [isUploadingLocal, setIsUploadingLocal] = useState(false);
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
@@ -75,17 +76,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const syncToSupabase = async (updatedListing: Listing) => {
     if (!isSupabaseConfigured()) return;
+    setIsSaving(true);
     try {
+      const now = new Date().toISOString();
       const { error } = await supabase.from('listings').update({
         cleaned: updatedListing.cleaned,
         optimized: updatedListing.optimized,
         translations: updatedListing.translations,
-        status: updatedListing.status
+        status: updatedListing.status,
+        updated_at: now // 更新数据库时间戳
       }).eq('id', updatedListing.id);
       
       if (error) throw error;
     } catch (e) {
       console.error("Sync to Supabase failed:", e);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -95,8 +101,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     syncToSupabase(updated);
   };
 
-  const handleSaveAndNext = () => {
-    updateAndSync(localListing);
+  const handleSaveAndNext = async () => {
+    // 在跳转之前强制同步当前状态到数据库
+    await syncToSupabase(localListing);
     onNext();
   };
 
@@ -117,7 +124,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
   };
 
-  // --- Image Reordering & Preview ---
   const allImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])];
 
   const handleDragStart = (idx: number) => setDraggedIdx(idx);
@@ -175,12 +181,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const handleFieldChange = (path: string, value: any) => {
-    const updated = JSON.parse(JSON.stringify(localListing));
-    const keys = path.split('.');
-    let current: any = updated;
-    for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
-    current[keys[keys.length - 1]] = value;
-    setLocalListing(updated);
+    setLocalListing(prev => {
+      const updated = JSON.parse(JSON.stringify(prev));
+      const keys = path.split('.');
+      let current: any = updated;
+      for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
+      current[keys[keys.length - 1]] = value;
+      return updated;
+    });
   };
 
   const handleBlur = () => updateAndSync(localListing);
@@ -236,10 +244,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const translated = await translateListingWithAI(localListing.optimized, mktCode);
       const updated = { 
         ...localListing, 
-        status: 'optimized' as const, // 强制标记为已优化
+        status: 'optimized' as const,
         translations: { ...(localListing.translations || {}), [mktCode]: translated } 
       };
-      updateAndSync(updated); // 同步到 Supabase
+      
+      // 重要：直接触发同步，并等待完成以确保翻译存入数据库
+      await syncToSupabase(updated);
+      setLocalListing(updated);
+      onUpdate(updated);
       setActiveMarketplace(mktCode);
     } catch (error: any) {
       alert(`Translation failed: ${error.message}`);
@@ -328,11 +340,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
           <button 
             onClick={handleSaveAndNext} 
-            className="flex items-center gap-2 px-8 py-2.5 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-95 uppercase tracking-[0.1em]"
+            disabled={isSaving}
+            className="flex items-center gap-2 px-8 py-2.5 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-95 uppercase tracking-[0.1em] disabled:opacity-70"
           >
-            <Save size={18} />
-            保存并处理下一个
-            <ChevronRight size={18} />
+            {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+            {isSaving ? '正在保存...' : '保存并处理下一个'}
+            {!isSaving && <ChevronRight size={18} />}
           </button>
         </div>
       </div>
