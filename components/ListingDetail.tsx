@@ -5,7 +5,7 @@ import {
   Image as ImageIcon, Edit2, Trash2, Plus, X,
   Link as LinkIcon, Trash, BrainCircuit, Globe, Languages, Download, Loader2,
   Upload, DollarSign, Truck, Info, Settings2, GripVertical, ZoomIn, Save, ChevronRight,
-  Zap
+  Zap, Check
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -53,6 +53,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState<string | null>(null);
   const [isTranslatingAll, setIsTranslatingAll] = useState(false);
   const [isUploadingLocal, setIsUploadingLocal] = useState(false);
@@ -65,47 +66,54 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [activeMarketplace, setActiveMarketplace] = useState<string>('en');
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
+  // 关键：只有当 ID 变化时才重置本地状态，防止保存操作触发的 Prop 更新导致编辑中的数据被重置
   useEffect(() => {
     setLocalListing(listing);
     setSelectedImage(listing.cleaned.main_image);
     setActiveMarketplace('en');
-  }, [listing]);
+    setLastSaved(null);
+  }, [listing.id]);
 
   const currentContent = activeMarketplace === 'en' 
     ? (localListing.optimized || null)
     : (localListing.translations?.[activeMarketplace] || null);
 
-  const syncToSupabase = async (updatedListing: Listing) => {
+  // 增强的同步函数，强制接收最新数据
+  const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
     setIsSaving(true);
     try {
       const now = new Date().toISOString();
+      // 构建 payload，确保 translations 字段被包含
       const payload = {
-        cleaned: updatedListing.cleaned,
-        optimized: updatedListing.optimized,
-        translations: updatedListing.translations,
-        status: updatedListing.status,
+        cleaned: targetListing.cleaned,
+        optimized: targetListing.optimized || {},
+        translations: targetListing.translations || {},
+        status: targetListing.status,
         updated_at: now
       };
       
       const { error } = await supabase
         .from('listings')
         .update(payload)
-        .eq('id', updatedListing.id);
+        .eq('id', targetListing.id);
       
       if (error) throw error;
-      console.log('Successfully synced to Supabase at', now);
-    } catch (e) {
-      console.error("Sync to Supabase failed:", e);
+      
+      // 反馈给父组件
+      onUpdate({ ...targetListing, updated_at: now });
+      setLastSaved(new Date().toLocaleTimeString());
+      console.log('Saved successfully to Supabase:', targetListing.id);
+    } catch (e: any) {
+      console.error("Supabase Save Error:", e);
+      alert("保存到数据库失败，请检查网络或数据库字段。 Error: " + e.message);
     } finally {
       setIsSaving(false);
     }
   };
 
-  const updateAndSync = (updated: Listing) => {
-    setLocalListing(updated);
-    onUpdate(updated);
-    syncToSupabase(updated);
+  const handleManualSave = () => {
+    syncToSupabase(localListing);
   };
 
   const handleSaveAndNext = async () => {
@@ -144,7 +152,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     updated.cleaned.main_image = newImages[0];
     updated.cleaned.other_images = newImages.slice(1);
     
-    updateAndSync(updated);
+    setLocalListing(updated);
+    syncToSupabase(updated);
     setDraggedIdx(null);
   };
 
@@ -157,7 +166,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const updated = { ...localListing };
       if (!updated.cleaned.other_images) updated.cleaned.other_images = [];
       updated.cleaned.other_images.push(uploadedUrl);
-      updateAndSync(updated);
+      setLocalListing(updated);
+      syncToSupabase(updated);
       setSelectedImage(uploadedUrl); 
     } catch (error: any) {
       alert(`Upload failed: ${error.message}`);
@@ -183,7 +193,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       updated.cleaned.other_images = updated.cleaned.other_images?.filter(i => i !== img);
     }
     if (selectedImage === img) setSelectedImage(updated.cleaned.main_image);
-    updateAndSync(updated);
+    setLocalListing(updated);
+    syncToSupabase(updated);
   };
 
   const handleFieldChange = (path: string, value: any) => {
@@ -197,32 +208,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  const handleBlur = () => updateAndSync(localListing);
-
-  const addBullet = () => {
-    if (!currentContent) return;
-    const updated = JSON.parse(JSON.stringify(localListing));
-    const nextBullets = [...currentContent.optimized_features, ""];
-    if (activeMarketplace === 'en') {
-      updated.optimized!.optimized_features = nextBullets;
-    } else {
-      if (!updated.translations[activeMarketplace]) return;
-      updated.translations[activeMarketplace].optimized_features = nextBullets;
-    }
-    updateAndSync(updated);
-  };
-
-  const removeBullet = (idx: number) => {
-    if (!currentContent) return;
-    const updated = JSON.parse(JSON.stringify(localListing));
-    const nextBullets = currentContent.optimized_features.filter((_: any, i: number) => i !== idx);
-    if (activeMarketplace === 'en') {
-      updated.optimized!.optimized_features = nextBullets;
-    } else {
-      if (!updated.translations[activeMarketplace]) return;
-      updated.translations[activeMarketplace].optimized_features = nextBullets;
-    }
-    updateAndSync(updated);
+  const handleBlur = () => {
+    syncToSupabase(localListing);
   };
 
   const handleOptimize = async () => {
@@ -232,7 +219,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         ? await optimizeListingWithAI(localListing.cleaned)
         : await optimizeListingWithOpenAI(localListing.cleaned);
       const updated = { ...localListing, status: 'optimized' as const, optimized: optimizedData };
-      updateAndSync(updated);
+      setLocalListing(updated);
+      await syncToSupabase(updated);
     } catch (error: any) {
       alert(`Optimization failed: ${error.message}`);
     } finally {
@@ -250,18 +238,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const translated = await translateListingWithAI(localListing.optimized, mktCode);
       const updated = { 
         ...localListing, 
-        status: 'optimized' as const,
         translations: { ...(localListing.translations || {}), [mktCode]: translated } 
       };
       
-      // 自动保存逻辑：更新状态并同步
+      // 关键：立即更新本地并同步数据库
       setLocalListing(updated);
-      onUpdate(updated);
       await syncToSupabase(updated);
       setActiveMarketplace(mktCode);
     } catch (error: any) {
-      console.error(`Individual translation to ${mktCode} failed:`, error);
-      alert(`Translation failed for ${mktCode}: ${error.message}`);
+      console.error(`Translation to ${mktCode} failed:`, error);
+      alert(`翻译失败 (${mktCode}): ${error.message}`);
     } finally {
       setIsTranslating(null);
     }
@@ -269,17 +255,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleTranslateAll = async () => {
     if (!localListing.optimized) {
-      alert("Please optimize in English first.");
+      alert("请先进行英文 AI 优化。");
       return;
     }
     
-    const marketsToTranslate = MARKETPLACES.filter(m => m.code !== 'en');
     setIsTranslatingAll(true);
+    const marketsToTranslate = MARKETPLACES.filter(m => m.code !== 'en');
     
     try {
       const newTranslations = { ...(localListing.translations || {}) };
       
-      // 串行执行以防触发 API 并发限制
+      // 串行翻译，避免触发 AI 限制
       for (const mkt of marketsToTranslate) {
         setIsTranslating(mkt.code);
         const translated = await translateListingWithAI(localListing.optimized!, mkt.code);
@@ -288,20 +274,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       
       const updated = { 
         ...localListing, 
-        status: 'optimized' as const,
         translations: newTranslations 
       };
       
-      // 批量处理后一次性自动保存
       setLocalListing(updated);
-      onUpdate(updated);
       await syncToSupabase(updated);
-      
       setIsTranslating(null);
-      alert("All translations completed and saved.");
+      alert("所有语言翻译完成并已保存。");
     } catch (error: any) {
       console.error("Batch translation failed:", error);
-      alert(`Batch translation failed: ${error.message}`);
+      alert(`批量翻译中断: ${error.message}`);
     } finally {
       setIsTranslatingAll(false);
       setIsTranslating(null);
@@ -344,7 +326,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               updated.cleaned.main_image = currentImages[0];
               updated.cleaned.other_images = currentImages.slice(1);
               setSelectedImage(uploadedUrl);
-              updateAndSync(updated);
+              setLocalListing(updated);
+              syncToSupabase(updated);
               setIsEditorOpen(false);
             } catch (err: any) {
               alert("Save failed: " + err.message);
@@ -362,7 +345,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             if (!updated.cleaned.sourcing_links) updated.cleaned.sourcing_links = [];
             if (!updated.cleaned.sourcing_links.includes(link)) {
               updated.cleaned.sourcing_links.push(link);
-              updateAndSync(updated);
+              setLocalListing(updated);
+              syncToSupabase(updated);
             }
             setIsSourcingOpen(false);
           }}
@@ -371,9 +355,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       {/* Sticky Header */}
       <div className="flex items-center justify-between bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-slate-200 shadow-sm sticky top-4 z-40 transition-all">
-        <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-900 font-black text-sm uppercase tracking-widest transition-colors">
-          <ArrowLeft size={18} className="mr-2" /> {t('back')}
-        </button>
+        <div className="flex items-center gap-6">
+          <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-900 font-black text-sm uppercase tracking-widest transition-colors">
+            <ArrowLeft size={18} className="mr-2" /> {t('back')}
+          </button>
+          {lastSaved && (
+            <div className="flex items-center gap-1.5 text-[10px] font-black text-green-500 uppercase tracking-widest bg-green-50 px-3 py-1 rounded-full border border-green-100">
+              <Check size={12} /> {t('connected').includes('已连接') ? '已自动保存' : 'Auto-saved'} @ {lastSaved}
+            </div>
+          )}
+        </div>
 
         <div className="flex gap-4 items-center">
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 mr-4">
@@ -392,7 +383,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             className="flex items-center gap-2 px-8 py-2.5 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-95 uppercase tracking-[0.1em] disabled:opacity-70"
           >
             {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-            {isSaving ? '正在保存...' : '保存并处理下一个'}
+            {isSaving ? '正在同步...' : '保存并处理下一个'}
             {!isSaving && <ChevronRight size={18} />}
           </button>
         </div>
@@ -450,7 +441,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-xl text-[10px] font-black uppercase tracking-tighter transition-all shadow-md active:scale-95"
               >
                 {isTranslatingAll ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
-                一键翻译所有
+                一键生成全站点
               </button>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -551,9 +542,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <div className="space-y-6">
                        <div className="flex justify-between items-center bg-slate-50/80 p-3 rounded-2xl">
                          <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Selling Feature Points</label>
-                         <button onClick={addBullet} className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-tighter shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center gap-1">
-                           <Plus size={12} /> Add Point
-                         </button>
+                         <div className="flex items-center gap-2">
+                            <button onClick={handleManualSave} className="text-slate-400 hover:text-indigo-500 p-1"><Save size={14} /></button>
+                            <button onClick={() => {
+                                const next = [...currentContent.optimized_features, ""];
+                                if (activeMarketplace === 'en') handleFieldChange('optimized.optimized_features', next);
+                                else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next);
+                             }} className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-tighter shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center gap-1">
+                               <Plus size={12} /> Add Point
+                            </button>
+                         </div>
                        </div>
                        <div className="space-y-6">
                          {currentContent.optimized_features.map((f: string, i: number) => (
@@ -562,7 +560,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                <span className="px-2 py-0.5 bg-slate-100 rounded text-[9px] font-black text-slate-400 uppercase tracking-widest">Bullet {i+1}</span>
                                <div className="flex items-center gap-3">
                                  <CharCounter count={f.length} limit={LIMITS.BULLET} />
-                                 <button onClick={() => removeBullet(i)} className="text-slate-300 hover:text-red-500 transition-colors p-1"><Trash2 size={14} /></button>
+                                 <button onClick={() => {
+                                    const next = currentContent.optimized_features.filter((_: any, idx: number) => idx !== i);
+                                    if (activeMarketplace === 'en') handleFieldChange('optimized.optimized_features', next);
+                                    else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next);
+                                 }} className="text-slate-300 hover:text-red-500 transition-colors p-1"><Trash2 size={14} /></button>
                                </div>
                              </div>
                              <textarea 
