@@ -4,7 +4,7 @@ import {
   ArrowLeft, Sparkles, Copy, ShoppingCart, Search, 
   Image as ImageIcon, Edit2, Trash2, Plus, X,
   Link as LinkIcon, Trash, BrainCircuit, Globe, Languages, Download, Loader2,
-  Upload, DollarSign, Truck, Info, Settings2, GripVertical
+  Upload, DollarSign, Truck, Info, Settings2, GripVertical, ZoomIn
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -55,11 +55,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [selectedImage, setSelectedImage] = useState<string>(listing.cleaned.main_image);
+  const [hoveredImage, setHoveredImage] = useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isSourcingOpen, setIsSourcingOpen] = useState(false);
   const [activeMarketplace, setActiveMarketplace] = useState<string>('en');
-  const [newImageUrl, setNewImageUrl] = useState('');
-  const [showAddImage, setShowAddImage] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
   const currentContent = activeMarketplace === 'en' 
@@ -174,12 +173,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleBlur = () => updateAndSync(localListing);
 
-  // --- Bullet Point Management (Fixed: Direct Update) ---
   const addBullet = () => {
     if (!currentContent) return;
     const updated = JSON.parse(JSON.stringify(localListing));
     const nextBullets = [...currentContent.optimized_features, ""];
-    
     if (activeMarketplace === 'en') {
       updated.optimized.optimized_features = nextBullets;
     } else {
@@ -192,8 +189,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const removeBullet = (idx: number) => {
     if (!currentContent) return;
     const updated = JSON.parse(JSON.stringify(localListing));
-    const nextBullets = currentContent.optimized_features.filter((_, i: number) => i !== idx);
-    
+    const nextBullets = currentContent.optimized_features.filter((_: any, i: number) => i !== idx);
     if (activeMarketplace === 'en') {
       updated.optimized.optimized_features = nextBullets;
     } else {
@@ -203,7 +199,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     updateAndSync(updated);
   };
 
-  // --- AI Optimization ---
   const handleOptimize = async () => {
     setIsOptimizing(true);
     try {
@@ -244,8 +239,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   );
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter">
+    <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter relative">
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleLocalFileSelect} />
+
+      {/* Instant Hover Preview Overlay */}
+      {hoveredImage && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none p-20 animate-in fade-in zoom-in duration-200">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"></div>
+          <div className="relative bg-white p-2 rounded-3xl shadow-2xl shadow-black/50 overflow-hidden transform scale-110">
+            <img src={hoveredImage} className="max-w-[70vw] max-h-[70vh] object-contain rounded-2xl" alt="Instant Preview" />
+            <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-sm flex items-center gap-2">
+              <ZoomIn size={12} /> Inspecting Image
+            </div>
+          </div>
+        </div>
+      )}
 
       {isEditorOpen && (
         <ImageEditor 
@@ -305,11 +313,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="space-y-6">
-          {/* Gallery with Drag & Drop */}
+          {/* Gallery with Instant Hover Preview */}
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
             <h3 className="font-black text-slate-900 mb-6 flex items-center justify-between text-xs uppercase tracking-[0.2em]">
-              <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Media Gallery</span>
-              <button onClick={() => fileInputRef.current?.click()} className="text-blue-600 hover:underline flex items-center gap-1"><Plus size={14} /> Upload</button>
+              <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Gallery (Hover for Preview)</span>
+              <button onClick={() => fileInputRef.current?.click()} className="text-blue-600 hover:underline flex items-center gap-1 font-black text-[10px] tracking-widest uppercase"><Plus size={14} /> Upload</button>
             </h3>
             
             <div className="relative aspect-square rounded-3xl bg-slate-50 border border-slate-100 overflow-hidden mb-6 group shadow-inner transition-all hover:shadow-xl">
@@ -328,6 +336,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                   onDragOver={handleDragOver}
                   onDrop={() => handleDrop(i)}
                   onClick={() => setSelectedImage(img)}
+                  onMouseEnter={() => setHoveredImage(img)}
+                  onMouseLeave={() => setHoveredImage(null)}
                   className={`relative aspect-square rounded-2xl border-2 group/item cursor-move transition-all overflow-hidden shadow-sm ${
                     selectedImage === img ? 'border-blue-500 scale-95 ring-4 ring-blue-50' : 'border-slate-50 hover:border-slate-300'
                   } ${draggedIdx === i ? 'opacity-20' : ''}`}
@@ -372,10 +382,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
                   <Edit2 size={14} /> Global Product Editor &bull; {MARKETPLACES.find(m => m.code === activeMarketplace)?.name}
                 </h4>
-                <div className="flex gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                  <div className="w-2 h-2 rounded-full bg-slate-200"></div>
-                </div>
              </div>
 
              {/* Logistics & Pricing Section */}
@@ -412,7 +418,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
              {currentContent ? (
                <div className="p-8 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
-                 {/* Title */}
                  <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em]">Optimized Global Title</label>
@@ -429,7 +434,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     />
                  </div>
 
-                 {/* Keywords */}
                  <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] font-black text-amber-500 uppercase tracking-[0.2em]">Backend Search Keywords</label>
@@ -443,12 +447,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       }}
                       onBlur={handleBlur}
                       className={`w-full px-5 py-4 bg-slate-50/50 border ${currentContent.search_keywords.length > LIMITS.KEYWORDS ? 'border-red-500 ring-4 ring-red-100' : 'border-slate-200'} rounded-2xl text-sm font-mono tracking-tight text-slate-600 focus:border-amber-500 transition-all shadow-inner`}
-                      placeholder="Enter comma separated high-intent keywords..."
+                      placeholder="Enter comma separated keywords..."
                     />
                  </div>
 
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    {/* Feature Bullets */}
                     <div className="space-y-6">
                        <div className="flex justify-between items-center bg-slate-50/80 p-3 rounded-2xl">
                          <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Selling Feature Points</label>
@@ -482,7 +485,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                        </div>
                     </div>
 
-                    {/* Description */}
                     <div className="space-y-2">
                        <div className="flex justify-between items-center bg-slate-50/80 p-3 rounded-2xl">
                          <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Detailed Product Narration</label>
