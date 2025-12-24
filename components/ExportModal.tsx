@@ -27,7 +27,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       setLoading(false);
       return;
     }
-    const { data, error } = await supabase.from('templates').select('*');
+    const { data, error } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
     if (!error && data) setTemplates(data);
     setLoading(false);
   };
@@ -41,9 +41,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     if (mapping.acceptedValues && mapping.acceptedValues.length > 0) {
       return mapping.acceptedValues[Math.floor(Math.random() * mapping.acceptedValues.length)];
     }
-    if (mapping.dataType?.toLowerCase().includes('number') || mapping.dataType?.toLowerCase().includes('decimal')) {
-      return (Math.random() * 100).toFixed(2);
-    }
     return '';
   };
 
@@ -53,24 +50,25 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
     try {
       const csvRows = [];
+      // 亚马逊模板固有的元数据行
       csvRows.push(""); 
       csvRows.push("version=2023.1210"); 
       csvRows.push(`Marketplace=${selectedTemplate.marketplace || 'US'}`);
-      csvRows.push(selectedTemplate.headers.join(','));
-      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
-      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
-      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
+      csvRows.push(selectedTemplate.headers.join(',')); // 表头行 (Row 4)
+      csvRows.push(selectedTemplate.headers.map(() => "").join(',')); // Row 5 (Meta)
+      csvRows.push(selectedTemplate.headers.map(() => "").join(',')); // Row 6 (Meta)
+      csvRows.push(selectedTemplate.headers.map(() => "").join(',')); // Row 7 (Meta)
 
       selectedListings.forEach(listing => {
         const cleaned = listing.cleaned;
         const optimized = listing.optimized;
+        const otherImages = cleaned.other_images || [];
 
         const row = selectedTemplate.headers.map(header => {
           const mapping = selectedTemplate.mappings?.[header];
           let value = '';
 
           if (mapping) {
-            // 优先级 1: 映射自 Listing 字段
             if (mapping.source === 'listing') {
               const field = mapping.listingField;
               if (field === 'asin') value = listing.asin;
@@ -79,33 +77,31 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               else if (field === 'brand') value = cleaned.brand;
               else if (field === 'description') value = optimized?.optimized_description || cleaned.description;
               else if (field === 'main_image') value = cleaned.main_image;
-              else if (field?.startsWith('feature')) {
+              else if (field?.startsWith('other_image')) {
+                // 自动展开图片数组逻辑
+                const idx = parseInt(field.replace('other_image', '')) - 1;
+                value = otherImages[idx] || '';
+              } else if (field?.startsWith('feature')) {
                 const idx = parseInt(field.replace('feature', '')) - 1;
                 const points = optimized?.optimized_features || cleaned.features || [];
                 value = points[idx] || '';
               } else if (field === 'weight') value = cleaned.item_weight || '';
               else if (field === 'dimensions') value = cleaned.product_dimensions || '';
-              
-              // 如果映射值为空，回退到模板默认值
-              if (!value) value = mapping.templateDefault || '';
             } 
-            // 优先级 2: 使用模板第 8 行自带的默认值
-            else if (mapping.source === 'template_default') {
-              value = mapping.templateDefault || '';
-            }
-            // 优先级 3: 自定义填写值
             else if (mapping.source === 'custom') {
               value = mapping.defaultValue || '';
             }
-            // 优先级 4: 随机生成符合约束的值
+            else if (mapping.source === 'template_default') {
+              value = mapping.templateDefault || '';
+            }
             else if (mapping.source === 'random') {
               value = generateRandomValue(mapping);
             }
-          } else {
-            // 极简兜底逻辑
-            const lowerH = header.toLowerCase();
-            if (lowerH.includes('sku')) value = listing.asin;
-            else if (lowerH.includes('price')) value = String(cleaned.price);
+          }
+
+          // 最后的兜底逻辑：如果映射后的值依然为空，尝试使用 Row 8 默认值
+          if (!value && mapping?.templateDefault) {
+            value = mapping.templateDefault;
           }
 
           return `"${cleanString(value)}"`;
@@ -118,7 +114,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${selectedTemplate.name}_Export_${new Date().toISOString().split('T')[0]}.csv`;
+      link.download = `${selectedTemplate.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -149,7 +145,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              </div>
              <div>
                 <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} Selected</p>
-                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-[0.2em]">Priority: Mapped &gt; Row8 &gt; Random</p>
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-[0.2em]">Priority: Mapped &gt; Manual &gt; Row8</p>
              </div>
           </div>
 
@@ -165,7 +161,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                       <span className="font-black text-sm truncate">{tmp.name}</span>
                       <div className="flex items-center gap-3 mt-1 opacity-60">
                         <span className="text-[8px] font-black text-slate-500 uppercase">{tmp.headers.length} Cols</span>
-                        {tmp.mappings && <span className="text-[8px] font-black text-indigo-500 uppercase flex items-center gap-1"><Shuffle size={8}/> Smart Rules Active</span>}
+                        {tmp.mappings && <span className="text-[8px] font-black text-indigo-500 uppercase flex items-center gap-1"><Shuffle size={8}/> Smart Logic Enabled</span>}
                       </div>
                     </div>
                   </button>
