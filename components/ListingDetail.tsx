@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Sparkles, Copy, ShoppingCart, Search, 
   Image as ImageIcon, Edit2, Trash2, Plus, X,
@@ -66,7 +66,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [activeMarketplace, setActiveMarketplace] = useState<string>('en');
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
-  // 引用 localListing 的最新值，用于 handleBlur 等不需要立即触发状态变化的场景
   const listingRef = useRef<Listing>(localListing);
   useEffect(() => {
     listingRef.current = localListing;
@@ -105,10 +104,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       
       onUpdate({ ...targetListing, updated_at: now });
       setLastSaved(new Date().toLocaleTimeString());
-      console.log('Database sync successful:', targetListing.id, 'Status:', targetListing.status);
     } catch (e: any) {
       console.error("Supabase Save Error:", e);
-      alert("保存失败: " + e.message);
+      alert("Save failed: " + e.message);
     } finally {
       setIsSaving(false);
     }
@@ -211,7 +209,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const handleBlur = () => {
-    // 强制使用 ref 的最新值，避免闭包捕获
     syncToSupabase(listingRef.current);
   };
 
@@ -245,7 +242,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const translated = await translateListingWithAI(localListing.optimized, mktCode);
       const updated = { 
         ...localListing, 
-        status: 'optimized' as const, // 明确更新状态
+        status: 'optimized' as const,
         translations: { ...(localListing.translations || {}), [mktCode]: translated } 
       };
       
@@ -253,7 +250,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       await syncToSupabase(updated);
       setActiveMarketplace(mktCode);
     } catch (error: any) {
-      alert(`翻译失败 (${mktCode}): ${error.message}`);
+      alert(`Translation failed (${mktCode}): ${error.message}`);
     } finally {
       setIsTranslating(null);
     }
@@ -261,7 +258,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleTranslateAll = async () => {
     if (!localListing.optimized) {
-      alert("请先进行 AI 优化后再执行翻译。");
+      alert("Please optimize in English first.");
       return;
     }
     
@@ -279,16 +276,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       
       const updated = { 
         ...localListing, 
-        status: 'optimized' as const, // 明确更新状态
+        status: 'optimized' as const,
         translations: newTranslations 
       };
       
       setLocalListing(updated);
       await syncToSupabase(updated);
       setIsTranslating(null);
-      alert("所有站点翻译完成。");
     } catch (error: any) {
-      alert(`批量翻译中断: ${error.message}`);
+      alert(`Batch translation failed: ${error.message}`);
     } finally {
       setIsTranslatingAll(false);
       setIsTranslating(null);
@@ -305,7 +301,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter relative">
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleLocalFileSelect} />
 
-      {/* Instant Hover Preview Overlay */}
       {hoveredImage && (
         <div className="fixed top-1/2 right-8 -translate-y-1/2 z-[100] pointer-events-none animate-in fade-in slide-in-from-right-4 duration-300">
           <div className="relative bg-white p-3 rounded-[2rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] border border-slate-200 overflow-hidden transform scale-100 ring-8 ring-slate-900/5 backdrop-blur-sm">
@@ -366,7 +361,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </button>
           {lastSaved && (
             <div className="flex items-center gap-1.5 text-[10px] font-black text-green-500 uppercase tracking-widest bg-green-50 px-3 py-1 rounded-full border border-green-100">
-              <Check size={12} /> {t('connected').includes('已连接') ? '已存至云端' : 'Auto-saved'} @ {lastSaved}
+              <Check size={12} /> {t('autoSaved')} @ {lastSaved}
             </div>
           )}
         </div>
@@ -388,7 +383,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             className="flex items-center gap-2 px-8 py-2.5 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-95 uppercase tracking-[0.1em] disabled:opacity-70"
           >
             {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-            {isSaving ? '同步中...' : '保存并继续'}
+            {isSaving ? t('syncing') : t('saveAndNext')}
             {!isSaving && <ChevronRight size={18} />}
           </button>
         </div>
@@ -438,7 +433,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-black text-slate-900 flex items-center gap-2 text-xs uppercase tracking-[0.2em]">
-                <Languages size={16} className="text-purple-500" /> Multi-Market Translation
+                <Languages size={16} className="text-purple-500" /> {t('translateMarketplace')}
               </h3>
               <button 
                 onClick={handleTranslateAll}
@@ -446,7 +441,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-xl text-[10px] font-black uppercase tracking-tighter transition-all shadow-md active:scale-95"
               >
                 {isTranslatingAll ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
-                一键生成全站点
+                {t('translateAll')}
               </button>
             </div>
             <div className="grid grid-cols-2 gap-3">

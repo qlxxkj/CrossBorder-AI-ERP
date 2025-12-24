@@ -18,7 +18,6 @@ const App: React.FC = () => {
   const [lang, setLang] = useState<UILanguage>('en');
   const [listings, setListings] = useState<Listing[]>([]);
 
-  // 1. 智能语言检测逻辑
   useEffect(() => {
     const detectLang = async () => {
       const savedLang = localStorage.getItem('app_lang') as UILanguage;
@@ -106,13 +105,11 @@ const App: React.FC = () => {
     setSession(null);
   };
 
-  // 2. 跳转到下一个 Listing 的逻辑
   const handleNextListing = () => {
     if (!selectedListing || listings.length === 0) return;
     const currentIndex = listings.findIndex(l => l.id === selectedListing.id);
     const nextIndex = (currentIndex + 1) % listings.length;
     setSelectedListing(listings[nextIndex]);
-    // 强制滚动到顶部
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -132,7 +129,7 @@ const App: React.FC = () => {
     );
   }
 
-  if (view === AppView.AUTH) return <AuthPage onBack={() => setView(AppView.LANDING)} />;
+  if (view === AppView.AUTH) return <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} />;
 
   return (
     <div className="flex min-h-screen bg-slate-50">

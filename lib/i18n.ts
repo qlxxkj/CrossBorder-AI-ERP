@@ -1,3 +1,4 @@
+
 import { UILanguage } from '../types';
 
 export const UI_LANGUAGES = [
@@ -49,7 +50,24 @@ const translations: Record<UILanguage, Record<string, string>> = {
     step3Title: 'Sourcing',
     step3Desc: 'Find direct factory sources on 1688 via image search.',
     step4Title: 'Launch',
-    step4Desc: 'Export localized templates to global marketplaces.'
+    step4Desc: 'Export localized templates to global marketplaces.',
+    // New translations for Auth and Detail
+    saveAndNext: 'Save & Next',
+    translateAll: 'One-Click Global Sites',
+    syncing: 'Syncing...',
+    autoSaved: 'Auto-saved to Cloud',
+    authWelcome: 'Welcome Back',
+    authCreate: 'Create an Account',
+    authStartSub: 'Start optimizing your listings today.',
+    authSignInSub: 'Sign in to access your dashboard.',
+    emailAddr: 'Email address',
+    password: 'Password',
+    alreadyHaveAccount: 'Already have an account?',
+    noAccount: "Don't have an account?",
+    signUp: 'Sign up',
+    orEmail: 'Or continue with email',
+    googleLogin: 'Continue with Google',
+    wechatLogin: 'Continue with WeChat'
   },
   zh: {
     heroTitle: '让跨境电商更智能、更高效',
@@ -90,7 +108,24 @@ const translations: Record<UILanguage, Record<string, string>> = {
     step3Title: '以图搜图',
     step3Desc: '深度对接1688，快速匹配优质货源厂家。',
     step4Title: '多站刊登',
-    step4Desc: '一键生成多语言模板，快速铺货至全球站点。'
+    step4Desc: '一键生成多语言模板，快速铺货至全球站点。',
+    // New translations for Auth and Detail
+    saveAndNext: '保存并继续',
+    translateAll: '一键生成全球站点',
+    syncing: '同步中...',
+    autoSaved: '已存至云端',
+    authWelcome: '欢迎回来',
+    authCreate: '创建账号',
+    authStartSub: '立即开启您的 AI 铺货之旅。',
+    authSignInSub: '登录以访问您的控制面板。',
+    emailAddr: '邮箱地址',
+    password: '密码',
+    alreadyHaveAccount: '已有账号？',
+    noAccount: '还没有账号？',
+    signUp: '注册',
+    orEmail: '或使用邮箱继续',
+    googleLogin: '使用 Google 登录',
+    wechatLogin: '使用微信登录'
   },
   ja: {
     heroTitle: '越境ECをスマートに、効率的に',
@@ -131,7 +166,23 @@ const translations: Record<UILanguage, Record<string, string>> = {
     step3Title: '仕入れ',
     step3Desc: '1688で直接工場ソースを見つける。',
     step4Title: '公開',
-    step4Desc: 'グローバルマーケットプレイスに輸出。'
+    step4Desc: 'グローバルマーケットプレイスに輸出。',
+    saveAndNext: '保存して次へ',
+    translateAll: '全サイト一括生成',
+    syncing: '同期中...',
+    autoSaved: 'クラウドに保存済み',
+    authWelcome: 'お帰りなさい',
+    authCreate: 'アカウント作成',
+    authStartSub: '今日からリスティングの最適化を始めましょう。',
+    authSignInSub: 'ログインしてダッシュボードにアクセス。',
+    emailAddr: 'メールアドレス',
+    password: 'パスワード',
+    alreadyHaveAccount: '既にアカウントをお持ちですか？',
+    noAccount: 'アカウントをお持ちでないですか？',
+    signUp: 'サインアップ',
+    orEmail: 'またはメールで続行',
+    googleLogin: 'Googleで続行',
+    wechatLogin: 'WeChatで続行'
   },
   de: {
     heroTitle: 'Automatisieren Sie Ihr grenzüberschreitendes Imperium',
@@ -172,7 +223,23 @@ const translations: Record<UILanguage, Record<string, string>> = {
     step3Title: 'Beschaffung',
     step3Desc: 'Fabrikquellen auf 1688 finden.',
     step4Title: 'Starten',
-    step4Desc: 'In globale Marktplätze exportieren.'
+    step4Desc: 'In globale Marktplätze exportieren.',
+    saveAndNext: 'Speichern & Weiter',
+    translateAll: 'Alle Standorte generieren',
+    syncing: 'Synchronisierung...',
+    autoSaved: 'In Cloud gespeichert',
+    authWelcome: 'Willkommen zurück',
+    authCreate: 'Konto erstellen',
+    authStartSub: 'Optimieren Sie noch heute Ihre Angebote.',
+    authSignInSub: 'Anmelden, um zum Dashboard zu gelangen.',
+    emailAddr: 'E-Mail-Adresse',
+    password: 'Passwort',
+    alreadyHaveAccount: 'Bereits ein Konto?',
+    noAccount: 'Noch kein Konto?',
+    signUp: 'Registrieren',
+    orEmail: 'Oder per E-Mail fortfahren',
+    googleLogin: 'Weiter mit Google',
+    wechatLogin: 'Weiter mit WeChat'
   },
   fr: {
     heroTitle: 'Automatisez votre empire transfrontalier',
@@ -213,7 +280,23 @@ const translations: Record<UILanguage, Record<string, string>> = {
     step3Title: 'Sourcing',
     step3Desc: 'Trouver des usines sur 1688 par image.',
     step4Title: 'Lancer',
-    step4Desc: 'Exporter vers les marchés mondiaux.'
+    step4Desc: 'Exporter vers les marchés mondiaux.',
+    saveAndNext: 'Enregistrer & Suivant',
+    translateAll: 'Générer tous les sites',
+    syncing: 'Synchronisation...',
+    autoSaved: 'Enregistré dans le Cloud',
+    authWelcome: 'Bon retour',
+    authCreate: 'Créer un compte',
+    authStartSub: 'Optimisez vos annonces dès aujourd\'hui.',
+    authSignInSub: 'Connectez-vous pour accéder au tableau de bord.',
+    emailAddr: 'Adresse e-mail',
+    password: 'Mot de passe',
+    alreadyHaveAccount: 'Vous avez déjà un compte ?',
+    noAccount: 'Pas encore de compte ?',
+    signUp: 'S\'inscrire',
+    orEmail: 'Ou continuer par e-mail',
+    googleLogin: 'Continuer avec Google',
+    wechatLogin: 'Continuer avec WeChat'
   },
   es: {
     heroTitle: 'Automatice su imperio transfronterizo',
@@ -254,7 +337,23 @@ const translations: Record<UILanguage, Record<string, string>> = {
     step3Title: 'Sourcing',
     step3Desc: 'Encontrar fábricas en 1688.',
     step4Title: 'Lanzar',
-    step4Desc: 'Exportar a mercados globales.'
+    step4Desc: 'Exportar a mercados globales.',
+    saveAndNext: 'Guardar y Siguiente',
+    translateAll: 'Generar todos los sitios',
+    syncing: 'Sincronizando...',
+    autoSaved: 'Guardado en la nube',
+    authWelcome: 'Bienvenido de nuevo',
+    authCreate: 'Crear una cuenta',
+    authStartSub: 'Optimice sus anuncios hoy mismo.',
+    authSignInSub: 'Inicie sesión para acceder al panel.',
+    emailAddr: 'Correo electrónico',
+    password: 'Contraseña',
+    alreadyHaveAccount: '¿Ya tienes cuenta?',
+    noAccount: '¿No tienes cuenta?',
+    signUp: 'Registrarse',
+    orEmail: 'O continuar con email',
+    googleLogin: 'Continuar con Google',
+    wechatLogin: 'Continuar con WeChat'
   }
 };
 
