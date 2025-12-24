@@ -41,11 +41,12 @@ export interface Listing {
 
 export interface FieldMapping {
   header: string;
-  source: 'listing' | 'custom' | 'random';
-  listingField?: string; // e.g., 'asin', 'title', 'price'
+  source: 'listing' | 'custom' | 'random' | 'template_default';
+  listingField?: string; 
   defaultValue?: string;
-  dataType?: string; // from Data Definitions
-  acceptedValues?: string[]; // from Data Definitions
+  templateDefault?: string; // 来自 Row 8 的值
+  dataType?: string; 
+  acceptedValues?: string[]; 
 }
 
 export interface ExportTemplate {
@@ -53,8 +54,8 @@ export interface ExportTemplate {
   name: string;
   headers: string[];
   required_headers?: string[];
-  mappings?: Record<string, FieldMapping>; // New: Store mapping logic
-  default_values: Record<string, string>; // Legacy support
+  mappings?: Record<string, FieldMapping>;
+  default_values: Record<string, string>;
   marketplace: string;
   created_at: string;
 }
