@@ -149,7 +149,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              </div>
              <div>
                 <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} Selected</p>
-                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-[0.2em]">Priority: Mapped > Row8 > Random</p>
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-[0.2em]">Priority: Mapped &gt; Row8 &gt; Random</p>
              </div>
           </div>
 

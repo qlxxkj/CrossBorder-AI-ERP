@@ -41,7 +41,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     fetchTemplates();
   }, []);
 
-  const fetchTemplates = async () => {
+  const fetchTemplates = async (selectId?: string) => {
     if (!isSupabaseConfigured()) {
       setLoading(false);
       return;
@@ -54,7 +54,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           setDbError('SCHEMA_INCOMPLETE');
         }
       }
-      if (data) setTemplates(data);
+      if (data) {
+        setTemplates(data);
+        if (selectId) {
+          const newTemplate = data.find(t => t.id === selectId);
+          if (newTemplate) setSelectedTemplate(newTemplate);
+        }
+      }
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -79,7 +85,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         let fieldDefinitions: Record<string, { dataType?: string; acceptedValues?: string[] }> = {};
         let foundSheetName = "";
 
-        // 1. 解析 Data Definitions
         const definitionsSheet = workbook.SheetNames.find(n => 
           n.toLowerCase().includes('data definitions') || n.includes('数据定义')
         );
@@ -117,19 +122,16 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           }
         }
 
-        // 2. 解析 Template Sheet (Row 4 表头, Row 8 默认值)
         const templateSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'template' || n.includes('模板'));
         if (templateSheetName) {
           const worksheet = workbook.Sheets[templateSheetName];
           const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
           
-          // Row 4: Headers
           const row4 = jsonData[3];
           if (row4 && row4.length > 5) {
             foundHeaders = row4.map(h => String(h || '').trim()).filter(h => h !== '');
             foundSheetName = templateSheetName;
 
-            // Row 8: Template Defaults (Index 7)
             const row8 = jsonData[7];
             if (row8) {
               foundHeaders.forEach((h, idx) => {
@@ -153,7 +155,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let source: 'listing' | 'custom' | 'template_default' = tplDefault ? 'template_default' : 'custom';
           let field = '';
 
-          // 智能匹配逻辑
           if (lowerH.includes('sku') || lowerH.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (lowerH.includes('item_name') || lowerH === 'title') { source = 'listing'; field = 'title'; }
           else if (lowerH.includes('price')) { source = 'listing'; field = 'price'; }
@@ -180,14 +181,17 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           created_at: new Date().toISOString()
         };
 
-        const { error: insErr } = await supabase.from('templates').insert([payload]);
+        const { data: insertData, error: insErr } = await supabase.from('templates').insert([payload]).select();
+        
         if (insErr && insErr.code === '42703') {
            setDbError('SCHEMA_INCOMPLETE');
            const { mappings, required_headers, ...fallback } = payload;
-           await supabase.from('templates').insert([fallback]);
+           const { data: fallbackData } = await supabase.from('templates').insert([fallback]).select();
+           if (fallbackData) fetchTemplates(fallbackData[0]?.id);
+        } else if (insertData) {
+           fetchTemplates(insertData[0]?.id);
         }
         
-        fetchTemplates();
         alert(uiLang === 'zh' ? "上传成功！已自动捕获第8行预设值。" : "Uploaded! Row 8 defaults captured.");
 
       } catch (err: any) {
@@ -249,7 +253,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('manageTemplates')}</span>
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
-            {loading ? <Loader2 className="animate-spin mx-auto mt-20 text-indigo-500" /> : 
+            {loading ? <div className="flex justify-center pt-20"><Loader2 className="animate-spin text-indigo-500" /></div> : 
               templates.map(tmp => (
                 <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`w-full p-6 rounded-3xl border text-left flex items-center justify-between transition-all group ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/30 ring-1 ring-indigo-500/10' : 'border-slate-50 bg-white hover:border-slate-200'}`}>
                   <div className="flex items-center gap-4 overflow-hidden">
