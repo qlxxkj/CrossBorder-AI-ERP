@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Shuffle } from 'lucide-react';
+import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Shuffle, Globe } from 'lucide-react';
 import { Listing, ExportTemplate, UILanguage, FieldMapping } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -50,14 +50,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
     try {
       const csvRows = [];
-      // 亚马逊模板固有的元数据行
+      // 1-3. Marketplace Meta
       csvRows.push(""); 
       csvRows.push("version=2023.1210"); 
       csvRows.push(`Marketplace=${selectedTemplate.marketplace || 'US'}`);
-      csvRows.push(selectedTemplate.headers.join(',')); // 表头行 (Row 4)
-      csvRows.push(selectedTemplate.headers.map(() => "").join(',')); // Row 5 (Meta)
-      csvRows.push(selectedTemplate.headers.map(() => "").join(',')); // Row 6 (Meta)
-      csvRows.push(selectedTemplate.headers.map(() => "").join(',')); // Row 7 (Meta)
+      // 4-7. Headers & Empty Rows
+      csvRows.push(selectedTemplate.headers.join(','));
+      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
+      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
+      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
 
       selectedListings.forEach(listing => {
         const cleaned = listing.cleaned;
@@ -78,7 +79,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               else if (field === 'description') value = optimized?.optimized_description || cleaned.description;
               else if (field === 'main_image') value = cleaned.main_image;
               else if (field?.startsWith('other_image')) {
-                // 自动展开图片数组逻辑
                 const idx = parseInt(field.replace('other_image', '')) - 1;
                 value = otherImages[idx] || '';
               } else if (field?.startsWith('feature')) {
@@ -99,7 +99,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             }
           }
 
-          // 最后的兜底逻辑：如果映射后的值依然为空，尝试使用 Row 8 默认值
+          // 兜底：如果没映射到值，最后尝试 Row 8 原始值
           if (!value && mapping?.templateDefault) {
             value = mapping.templateDefault;
           }
@@ -114,7 +114,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${selectedTemplate.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+      
+      const mktSuffix = selectedTemplate.marketplace || 'US';
+      const dateSuffix = new Date().toISOString().split('T')[0];
+      link.download = `AMZ_Export_${mktSuffix}_${dateSuffix}.csv`;
+      
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -145,7 +149,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              </div>
              <div>
                 <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} Selected</p>
-                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-[0.2em]">Priority: Mapped &gt; Manual &gt; Row8</p>
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-[0.2em]">Validated Amazon Ready Data</p>
              </div>
           </div>
 
@@ -153,15 +157,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('selectTemplate')}</label>
              <div className="grid grid-cols-1 gap-3 max-h-64 overflow-y-auto custom-scrollbar p-1">
                 {loading ? <Loader2 className="animate-spin mx-auto my-10" /> : templates.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-10 font-bold uppercase tracking-widest">No templates available.</p>
+                  <p className="text-xs text-slate-400 text-center py-10 font-bold uppercase tracking-widest">No templates configured.</p>
                 ) : templates.map(tmp => (
                   <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`flex items-center gap-4 p-5 rounded-[1.5rem] border text-left transition-all group ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/50 shadow-md ring-2 ring-indigo-500/10' : 'border-slate-100 bg-white hover:border-slate-300'}`}>
-                    <FileSpreadsheet size={24} className={selectedTemplate?.id === tmp.id ? 'text-indigo-600' : 'text-slate-200'} />
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs ${selectedTemplate?.id === tmp.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                      {tmp.marketplace.substring(0, 2)}
+                    </div>
                     <div className="flex flex-col flex-1 overflow-hidden">
                       <span className="font-black text-sm truncate">{tmp.name}</span>
                       <div className="flex items-center gap-3 mt-1 opacity-60">
+                        <span className="text-[8px] font-black text-slate-500 uppercase flex items-center gap-1"><Globe size={8}/> {tmp.marketplace}</span>
                         <span className="text-[8px] font-black text-slate-500 uppercase">{tmp.headers.length} Cols</span>
-                        {tmp.mappings && <span className="text-[8px] font-black text-indigo-500 uppercase flex items-center gap-1"><Shuffle size={8}/> Smart Logic Enabled</span>}
                       </div>
                     </div>
                   </button>
