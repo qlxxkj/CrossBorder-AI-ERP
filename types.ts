@@ -39,12 +39,22 @@ export interface Listing {
   translations?: Record<string, OptimizedData>;
 }
 
+export interface FieldMapping {
+  header: string;
+  source: 'listing' | 'custom' | 'random';
+  listingField?: string; // e.g., 'asin', 'title', 'price'
+  defaultValue?: string;
+  dataType?: string; // from Data Definitions
+  acceptedValues?: string[]; // from Data Definitions
+}
+
 export interface ExportTemplate {
   id: string;
   name: string;
   headers: string[];
-  required_headers?: string[]; // New: track mandatory fields from "Data Definitions"
-  default_values: Record<string, string>;
+  required_headers?: string[];
+  mappings?: Record<string, FieldMapping>; // New: Store mapping logic
+  default_values: Record<string, string>; // Legacy support
   marketplace: string;
   created_at: string;
 }

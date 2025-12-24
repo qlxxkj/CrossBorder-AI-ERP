@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Download, FileSpreadsheet, Loader2, CheckCircle2 } from 'lucide-react';
-import { Listing, ExportTemplate, UILanguage } from '../types';
+import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Shuffle } from 'lucide-react';
+import { Listing, ExportTemplate, UILanguage, FieldMapping } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
@@ -34,9 +34,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
   const cleanString = (str: any) => {
     if (str === null || str === undefined) return '';
-    return String(str)
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
-      .replace(/"/g, '""');
+    return String(str).replace(/[\u0000-\u001F\u007F-\u009F]/g, "").replace(/"/g, '""');
+  };
+
+  // 生成随机值的工具函数
+  const generateRandomValue = (mapping: FieldMapping) => {
+    if (mapping.acceptedValues && mapping.acceptedValues.length > 0) {
+      return mapping.acceptedValues[Math.floor(Math.random() * mapping.acceptedValues.length)];
+    }
+    if (mapping.dataType?.toLowerCase().includes('number') || mapping.dataType?.toLowerCase().includes('decimal')) {
+      return (Math.random() * 100).toFixed(2);
+    }
+    return '';
   };
 
   const handleExport = () => {
@@ -44,25 +53,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     setExporting(true);
 
     try {
-      // Amazon Flat File Structure: 
-      // Row 1: Instruction
-      // Row 2: Service Version
-      // Row 3: Marketplace
-      // Row 4: Header (the one we stored)
-      // Row 5-7: Labels/Instructions
-      // Row 8+: Data
-      
       const csvRows = [];
-      
-      // Placeholder metadata rows for rows 1-3
       csvRows.push(""); 
       csvRows.push("version=2023.1210"); 
       csvRows.push(`Marketplace=${selectedTemplate.marketplace || 'US'}`);
-      
-      // Row 4: Headers
       csvRows.push(selectedTemplate.headers.join(','));
-      
-      // Row 5-7: Sub-headers / metadata
       csvRows.push(selectedTemplate.headers.map(() => "").join(','));
       csvRows.push(selectedTemplate.headers.map(() => "").join(','));
       csvRows.push(selectedTemplate.headers.map(() => "").join(','));
@@ -72,42 +67,38 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         const optimized = listing.optimized;
 
         const row = selectedTemplate.headers.map(header => {
-          const lowerH = header.toLowerCase();
-          
-          if (selectedTemplate.default_values[header]) {
-            return `"${cleanString(selectedTemplate.default_values[header])}"`;
-          }
-
+          const mapping = selectedTemplate.mappings?.[header];
           let value = '';
-          
-          // Improved mapping for Amazon standard headers
-          if (lowerH.includes('item_name') || lowerH.includes('product_name') || lowerH === 'title' || lowerH === 'product_title') {
-             value = optimized?.optimized_title || cleaned.title;
-          } else if (lowerH.includes('item_sku') || lowerH.includes('sku') || lowerH.includes('seller_sku')) {
-             value = listing.asin;
-          } else if (lowerH.includes('external_product_id') || lowerH.includes('product_id')) {
-             value = listing.asin;
-          } else if (lowerH.includes('external_product_id_type')) {
-             value = 'ASIN';
-          } else if (lowerH.includes('brand_name') || lowerH === 'brand') {
-             value = cleaned.brand;
-          } else if (lowerH.includes('standard_price') || lowerH === 'price' || lowerH.includes('list_price')) {
-             value = String(cleaned.price);
-          } else if (lowerH.includes('product_description') || lowerH.includes('item_description') || lowerH === 'description') {
-             value = optimized?.optimized_description || cleaned.description;
-          } else if (lowerH.includes('main_image_url') || lowerH === 'main_image') {
-             value = cleaned.main_image;
-          } else if (lowerH.includes('other_image_url1')) {
-             value = cleaned.other_images?.[0] || '';
-          } else if (lowerH.includes('bullet_point')) {
-             const points = optimized?.optimized_features || cleaned.features || [];
-             const idxMatch = lowerH.match(/bullet_point(\d+)/);
-             if (idxMatch) {
-               const idx = parseInt(idxMatch[1]) - 1;
-               value = points[idx] || '';
-             }
-          } else if (lowerH.includes('update_delete')) {
-             value = 'Update';
+
+          if (mapping) {
+            if (mapping.source === 'listing' || mapping.source === 'random') {
+              const field = mapping.listingField;
+              if (field === 'asin') value = listing.asin;
+              else if (field === 'title') value = optimized?.optimized_title || cleaned.title;
+              else if (field === 'price') value = String(cleaned.price);
+              else if (field === 'brand') value = cleaned.brand;
+              else if (field === 'description') value = optimized?.optimized_description || cleaned.description;
+              else if (field === 'main_image') value = cleaned.main_image;
+              else if (field?.startsWith('feature')) {
+                const idx = parseInt(field.replace('feature', '')) - 1;
+                const points = optimized?.optimized_features || cleaned.features || [];
+                value = points[idx] || '';
+              } else if (field === 'weight') value = cleaned.item_weight || '';
+              else if (field === 'dimensions') value = cleaned.product_dimensions || '';
+              else if (field === 'other_image1') value = cleaned.other_images?.[0] || '';
+
+              // 如果字段为空且开启了随机生成
+              if (!value && mapping.source === 'random') {
+                value = generateRandomValue(mapping);
+              }
+            } else {
+              value = mapping.defaultValue || '';
+            }
+          } else {
+            // 兜底逻辑：尝试传统映射
+            const lowerH = header.toLowerCase();
+            if (lowerH.includes('sku')) value = listing.asin;
+            else if (lowerH.includes('price')) value = String(cleaned.price);
           }
 
           return `"${cleanString(value)}"`;
@@ -149,7 +140,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              <CheckCircle2 size={24} className="text-indigo-600" />
              <div>
                 <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} Selected</p>
-                <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Format: Row 4 Headers, Row 8 Data</p>
+                <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Smart Field Mapping Active</p>
              </div>
           </div>
 
@@ -161,11 +152,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                 ) : templates.map(tmp => (
                   <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`flex items-center gap-4 p-4 rounded-2xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' : 'border-slate-100 hover:border-slate-200'}`}>
                     <FileSpreadsheet size={18} className={selectedTemplate?.id === tmp.id ? 'text-indigo-600' : 'text-slate-300'} />
-                    <div className="flex flex-col">
+                    <div className="flex flex-col flex-1">
                       <span className="font-black text-sm truncate">{tmp.name}</span>
-                      {tmp.required_headers && (
-                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">{tmp.required_headers.length} Mandatory Fields</span>
-                      )}
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[8px] font-bold text-slate-400 uppercase">{tmp.headers.length} Columns</span>
+                        {tmp.mappings && <span className="text-[8px] font-bold text-indigo-500 uppercase flex items-center gap-1"><Shuffle size={8}/> Smart Mapped</span>}
+                      </div>
                     </div>
                   </button>
                 ))}
