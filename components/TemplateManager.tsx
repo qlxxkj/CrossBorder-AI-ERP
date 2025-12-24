@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info, Star } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info, Star, Filter, ArrowRightLeft, Database } from 'lucide-react';
 import { ExportTemplate, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -10,6 +10,21 @@ interface TemplateManagerProps {
   uiLang: UILanguage;
 }
 
+// 定义自动映射字段，用于在 UI 中区分
+const AUTO_MAPPED_FIELDS = [
+  'item_sku', 'sku', 'seller_sku',
+  'external_product_id', 'product_id',
+  'external_product_id_type', 'product_id_type',
+  'item_name', 'product_name', 'title',
+  'brand_name', 'brand',
+  'standard_price', 'price', 'list_price',
+  'product_description', 'item_description', 'description',
+  'main_image_url', 'main_image',
+  'other_image_url1', 'other_image_url2', 'other_image_url3',
+  'bullet_point1', 'bullet_point2', 'bullet_point3', 'bullet_point4', 'bullet_point5',
+  'update_delete'
+];
+
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -18,6 +33,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ExportTemplate | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filterRequired, setFilterRequired] = useState(false);
 
   useEffect(() => {
     fetchTemplates();
@@ -35,11 +51,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       if (data) setTemplates(data);
     } catch (err: any) {
       console.error(err);
-      if (err.message.includes('public.templates')) {
-        setError(uiLang === 'zh' ? "数据库中缺少 'templates' 表，请在 Supabase 控制台运行 SQL 脚本。" : "Table 'templates' not found. Please run the SQL script in Supabase.");
-      } else {
-        setError(err.message);
-      }
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -59,22 +71,31 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         let foundHeaders: string[] = [];
         let requiredHeaders: string[] = [];
         let foundSheetName = "";
+        let detectedMarketplace = "US";
 
-        // 1. Parse "Data Definitions" sheet to find mandatory fields
-        const definitionsSheet = workbook.SheetNames.find(n => n.includes('Data Definitions') || n.includes('数据定义'));
+        // 1. 解析 Data Definitions 工作表
+        const definitionsSheet = workbook.SheetNames.find(n => 
+          n.toLowerCase().includes('data definitions') || 
+          n.includes('数据定义')
+        );
         if (definitionsSheet) {
           const sheet = workbook.Sheets[definitionsSheet];
           const defData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
           
-          // Find "Field Name" and "Required" column indices
           let fieldNameIdx = -1;
           let requiredIdx = -1;
           
-          for (let i = 0; i < Math.min(defData.length, 10); i++) {
+          for (let i = 0; i < Math.min(defData.length, 15); i++) {
             const row = defData[i];
             if (!row) continue;
-            const fn = row.findIndex(c => String(c || '').toLowerCase().includes('field name'));
-            const req = row.findIndex(c => String(c || '').toLowerCase().includes('required'));
+            const fn = row.findIndex(c => {
+              const s = String(c || '').toLowerCase();
+              return s.includes('field name') || (s.includes('字段') && s.includes('名称'));
+            });
+            const req = row.findIndex(c => {
+              const s = String(c || '').toLowerCase();
+              return s.includes('required') || s.includes('必填');
+            });
             if (fn !== -1) fieldNameIdx = fn;
             if (req !== -1) requiredIdx = req;
             if (fieldNameIdx !== -1 && requiredIdx !== -1) break;
@@ -84,14 +105,14 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             defData.forEach(row => {
               const fieldName = String(row[fieldNameIdx] || '').trim();
               const isReq = String(row[requiredIdx] || '').toLowerCase();
-              if (fieldName && (isReq === 'required' || isReq === 'yes' || isReq.includes('必填'))) {
+              if (fieldName && (isReq === 'required' || isReq === 'yes' || isReq.includes('必填') || isReq.includes('conditional'))) {
                 requiredHeaders.push(fieldName);
               }
             });
           }
         }
 
-        // 2. Parse "Template" sheet for actual headers (Row 4)
+        // 2. 解析 Template 工作表
         const templateSheetName = workbook.SheetNames.find(n => 
           n.toLowerCase().includes('template') || 
           n.includes('模板') || 
@@ -101,28 +122,30 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const worksheet = workbook.Sheets[templateSheetName];
         const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
         
-        // Amazon Standard: Row 1-3 are instructions/labels, Row 4 is Header, Data starts Row 8
-        const headerRowIndex = 3; // Index 3 is Row 4
-        const headerRow = jsonData[headerRowIndex];
+        // 智能定位表头行：优先检查第 4 行，若不匹配则搜索前 10 行中包含特征词的行
+        const amazonKeywords = ['item_sku', 'sku', 'external_product_id', 'feed_product_type'];
+        let headerRowIndex = -1;
 
-        if (headerRow && headerRow.length > 5) {
-          foundHeaders = headerRow.map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim()).filter(h => h !== '');
-          foundSheetName = templateSheetName;
+        // 优先检查标准第 4 行 (Index 3)
+        if (jsonData[3] && jsonData[3].some(c => amazonKeywords.some(k => String(c).toLowerCase().includes(k)))) {
+          headerRowIndex = 3;
         } else {
-          // Fallback to keyword search if Row 4 is not standard
-          const keywords = ['item_sku', 'external_product_id', 'item_name'];
+          // 搜索前 10 行
           for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
-            const row = jsonData[i];
-            if (row && row.some(c => keywords.some(k => String(c).toLowerCase().includes(k)))) {
-              foundHeaders = row.map(h => String(h || '').trim()).filter(h => h !== '');
-              foundSheetName = templateSheetName;
+            if (jsonData[i] && jsonData[i].some(c => amazonKeywords.some(k => String(c).toLowerCase().includes(k)))) {
+              headerRowIndex = i;
               break;
             }
           }
         }
 
+        if (headerRowIndex !== -1) {
+          foundHeaders = jsonData[headerRowIndex].map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim()).filter(h => h !== '');
+          foundSheetName = templateSheetName;
+        }
+
         if (foundHeaders.length === 0) {
-          throw new Error(uiLang === 'zh' ? "在工作簿中未找到有效的亚马逊表头（通常在第4行）。" : "No valid Amazon headers found (usually row 4).");
+          throw new Error(uiLang === 'zh' ? "未能在工作表中找到有效的亚马逊表头。请确保文件是原始的 .xlsm 模板。" : "No valid Amazon headers found. Ensure you use the original .xlsm template.");
         }
 
         const { data: { session } } = await supabase.auth.getSession();
@@ -134,7 +157,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           headers: foundHeaders,
           required_headers: requiredHeaders,
           default_values: {},
-          marketplace: 'US', // Can be refined by parsing Template sheet if info exists
+          marketplace: detectedMarketplace,
           created_at: new Date().toISOString()
         };
 
@@ -146,8 +169,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           setTemplates(prev => [newTemplatePayload as any as ExportTemplate, ...prev]);
         }
       } catch (err: any) {
-        console.error("Template parse error:", err);
-        alert(uiLang === 'zh' ? `解析失败: ${err.message}` : `Parse error: ${err.message}`);
+        console.error("Upload error:", err);
+        alert(`Error: ${err.message}`);
       } finally {
         setIsUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -173,14 +196,14 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     
     if (updError) alert(updError.message);
     else {
-      alert(uiLang === 'zh' ? "配置已保存" : "Configuration saved!");
+      alert(uiLang === 'zh' ? "刊登配置已同步" : "Listing config synced!");
       fetchTemplates();
     }
   };
 
   const deleteTemplate = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm(uiLang === 'zh' ? "删除模板？" : "Delete template?")) return;
+    if (!window.confirm(uiLang === 'zh' ? "删除模板？" : "Delete?")) return;
     if (isSupabaseConfigured()) {
       await supabase.from('templates').delete().eq('id', id);
       fetchTemplates();
@@ -189,6 +212,15 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     }
     if (selectedTemplate?.id === id) setSelectedTemplate(null);
   };
+
+  const filteredHeaders = useMemo(() => {
+    if (!selectedTemplate) return [];
+    let headers = selectedTemplate.headers;
+    if (filterRequired) {
+      headers = headers.filter(h => selectedTemplate.required_headers?.includes(h));
+    }
+    return headers;
+  }, [selectedTemplate, filterRequired]);
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -199,7 +231,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold">Standard Amazon Header (Row 4) & Data Definitions Support</p>
+            <p className="text-sm text-slate-400 font-bold">Standard Amazon Mapping Engine (Rows 4 & 8 Support)</p>
           </div>
         </div>
         <button 
@@ -210,26 +242,11 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
           {t('uploadTemplate')}
         </button>
-        <input 
-          type="file" 
-          ref={fileInputRef} 
-          className="hidden" 
-          accept=".xlsm, .xlsx, .csv" 
-          onChange={handleFileUpload} 
-        />
+        <input type="file" ref={fileInputRef} className="hidden" accept=".xlsm, .xlsx" onChange={handleFileUpload} />
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-100 p-6 rounded-3xl flex items-start gap-4 shadow-sm">
-           <AlertCircle className="text-red-600 shrink-0" size={24} />
-           <div>
-              <p className="text-red-900 font-black text-sm">{uiLang === 'zh' ? '数据库配置错误' : 'Database Error'}</p>
-              <p className="text-red-600 text-xs font-bold mt-1 leading-relaxed">{error}</p>
-           </div>
-        </div>
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-320px)]">
+        {/* Left List */}
         <div className="lg:col-span-1 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
           <div className="p-6 border-b border-slate-50 bg-slate-50/50">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t('manageTemplates')}</span>
@@ -246,16 +263,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               templates.map(tmp => (
                 <button 
                   key={tmp.id}
-                  onClick={() => setSelectedTemplate(tmp)}
+                  onClick={() => { setSelectedTemplate(tmp); setFilterRequired(false); }}
                   className={`w-full p-5 rounded-3xl border text-left flex items-center justify-between transition-all group ${
                     selectedTemplate?.id === tmp.id 
-                      ? 'border-indigo-500 bg-indigo-50/40 text-indigo-900 shadow-sm' 
+                      ? 'border-indigo-500 bg-indigo-50/40 text-indigo-900 shadow-sm ring-1 ring-indigo-500/10' 
                       : 'border-slate-50 bg-white hover:border-slate-200 text-slate-600'
                   }`}
                 >
                   <div className="flex items-center gap-4 overflow-hidden">
                     <FileSpreadsheet className={selectedTemplate?.id === tmp.id ? 'text-indigo-600' : 'text-slate-300'} size={24} />
-                    <span className="font-black text-sm truncate">{tmp.name}</span>
+                    <div className="flex flex-col">
+                      <span className="font-black text-sm truncate">{tmp.name}</span>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
+                        {tmp.required_headers?.length || 0} Required Fields
+                      </span>
+                    </div>
                   </div>
                   <Trash2 size={18} className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" onClick={(e) => deleteTemplate(tmp.id, e)} />
                 </button>
@@ -264,6 +286,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
         </div>
 
+        {/* Right Editor */}
         <div className="lg:col-span-2 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col overflow-hidden">
           {selectedTemplate ? (
             <>
@@ -274,38 +297,73 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   </div>
                   <h3 className="font-black text-slate-900 text-base tracking-tight truncate max-w-md">{selectedTemplate.name}</h3>
                 </div>
-                <button onClick={saveTemplate} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest flex items-center gap-2 shadow-xl shadow-indigo-100 active:scale-95 transition-all">
-                  <Save size={16} /> {t('save')}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => setFilterRequired(!filterRequired)}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border ${
+                      filterRequired ? 'bg-amber-500 text-white border-amber-600 shadow-lg' : 'bg-white text-slate-400 border-slate-200 hover:border-slate-400'
+                    }`}
+                  >
+                    <Filter size={14} /> {uiLang === 'zh' ? '只看必填' : 'Required Only'}
+                  </button>
+                  <button onClick={saveTemplate} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest flex items-center gap-2 shadow-xl shadow-indigo-100 active:scale-95 transition-all">
+                    <Save size={16} /> {t('save')}
+                  </button>
+                </div>
               </div>
               <div className="p-8 flex-1 overflow-y-auto custom-scrollbar space-y-6">
-                <div className="bg-amber-50 p-5 rounded-3xl border border-amber-100 flex gap-4 items-start">
-                   <Info className="text-amber-500 shrink-0" size={20} />
-                   <p className="text-[11px] font-bold text-amber-700 leading-relaxed uppercase tracking-wider">
-                      {uiLang === 'zh' 
-                        ? '红色星号标记的字段为亚马逊必填字段（由 Data Definitions 识别），请优先维护以确保成功刊登。' 
-                        : 'Fields with red stars are mandatory (from Data Definitions). Maintain these first to ensure successful listing.'}
-                   </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   <div className="bg-amber-50 p-5 rounded-3xl border border-amber-100 flex gap-4 items-start">
+                      <Star className="text-amber-500 shrink-0 fill-amber-500" size={20} />
+                      <p className="text-[11px] font-bold text-amber-700 leading-relaxed uppercase tracking-wider">
+                         {uiLang === 'zh' 
+                           ? '必填维护：在此设置类目必填项的默认值。系统会自动识别 Data Definitions 中定义的必填字段。' 
+                           : 'Mandatory Maintenance: Set default values for category required fields identified from Data Definitions.'}
+                      </p>
+                   </div>
+                   <div className="bg-blue-50 p-5 rounded-3xl border border-blue-100 flex gap-4 items-start">
+                      <ArrowRightLeft className="text-blue-500 shrink-0" size={20} />
+                      <p className="text-[11px] font-bold text-blue-700 leading-relaxed uppercase tracking-wider">
+                         {uiLang === 'zh' 
+                           ? '自动映射：标题、价格、主图、ASIN 等常规字段将在导出时自动匹配 Listing 数据，无需在此配置。' 
+                           : 'Auto Mapping: Core fields (Title, Price, Images, etc.) will map automatically during export.'}
+                      </p>
+                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-4">
-                  {selectedTemplate.headers.map((h, i) => {
+
+                <div className="space-y-4">
+                  {filteredHeaders.map((h, i) => {
                     const isRequired = selectedTemplate.required_headers?.includes(h);
+                    const isAutoMapped = AUTO_MAPPED_FIELDS.some(f => h.toLowerCase().includes(f));
+                    
                     return (
-                      <div key={i} className={`flex flex-col sm:flex-row gap-4 p-5 rounded-3xl border transition-all group ${isRequired ? 'bg-red-50/20 border-red-100' : 'bg-slate-50/50 border-slate-50 hover:bg-white'}`}>
+                      <div key={i} className={`flex flex-col sm:flex-row gap-4 p-5 rounded-3xl border transition-all group ${
+                        isRequired ? 'bg-red-50/20 border-red-100 shadow-[inset_0_1px_4px_rgba(220,38,38,0.05)]' : 
+                        isAutoMapped ? 'bg-slate-50/50 border-slate-50 opacity-60' : 'bg-slate-50/30 border-slate-50 hover:bg-white hover:shadow-sm'
+                      }`}>
                         <div className="sm:w-1/3 flex items-center gap-2">
-                          <span className={`text-xs font-black break-all leading-tight ${isRequired ? 'text-red-600' : 'text-slate-500'}`}>
+                          <span className={`text-[11px] font-black break-all leading-tight ${isRequired ? 'text-red-700' : isAutoMapped ? 'text-slate-400' : 'text-slate-600'}`}>
                             {h}
                           </span>
                           {isRequired && <Star size={10} className="text-red-500 fill-red-500 shrink-0" />}
+                          {isAutoMapped && <Database size={10} className="text-slate-300 shrink-0" title="Auto-mapped field" />}
                         </div>
                         <div className="flex-1">
-                          <input 
-                            type="text" 
-                            value={selectedTemplate.default_values[h] || ''}
-                            onChange={(e) => updateDefaultValue(h, e.target.value)}
-                            placeholder={isRequired ? "Mandatory field..." : "Optional value..."}
-                            className={`w-full px-5 py-3 bg-white border rounded-2xl text-sm font-bold focus:ring-4 outline-none transition-all shadow-sm ${isRequired ? 'border-red-200 focus:ring-red-500/10 focus:border-red-500 text-red-900 placeholder:text-red-300' : 'border-slate-100 focus:ring-indigo-500/10 focus:border-indigo-500 text-slate-900'}`}
-                          />
+                          {isAutoMapped ? (
+                            <div className="px-5 py-3 bg-slate-100/50 border border-slate-100 rounded-2xl text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                               <Check size={12} /> Auto-Mapped from Listing
+                            </div>
+                          ) : (
+                            <input 
+                              type="text" 
+                              value={selectedTemplate.default_values[h] || ''}
+                              onChange={(e) => updateDefaultValue(h, e.target.value)}
+                              placeholder={isRequired ? "Mandatory: Enter default value..." : "Optional value..."}
+                              className={`w-full px-5 py-3 bg-white border rounded-2xl text-sm font-bold focus:ring-4 outline-none transition-all shadow-sm ${
+                                isRequired ? 'border-red-200 focus:ring-red-500/10 focus:border-red-500 text-red-900 placeholder:text-red-200' : 'border-slate-100 focus:ring-indigo-500/10 focus:border-indigo-500 text-slate-900'
+                              }`}
+                            />
+                          )}
                         </div>
                       </div>
                     );
@@ -320,7 +378,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                </div>
                <h4 className="text-slate-900 font-black text-2xl mb-3 tracking-tight">{t('selectTemplate')}</h4>
                <p className="text-slate-400 text-sm font-bold max-w-xs leading-relaxed">
-                  {uiLang === 'zh' ? '请从左侧列表选择一个模板。' : 'Select a template from the list on the left.'}
+                  {uiLang === 'zh' ? '请从左侧列表选择一个模板，或上传新的亚马逊 .xlsm 刊登文件。' : 'Select a template from the list on the left or upload a new Amazon batch file.'}
                </p>
             </div>
           )}
