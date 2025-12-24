@@ -54,46 +54,60 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     reader.onload = async (event) => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true, cellNF: false, cellText: false });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
+        const workbook = XLSX.read(data, { type: 'array' });
         
-        // 使用 raw: true 避免 SheetJS 对某些字符串进行错误的 Unicode 转义处理
+        // 1. 智能寻找目标工作表 (优先找 Template, 其次找包含数据的)
+        let targetSheetName = workbook.SheetNames[0];
+        const prioritySheet = workbook.SheetNames.find(n => 
+          n.toLowerCase().includes('template') || 
+          n.includes('模板') || 
+          n.includes('刊登')
+        );
+        if (prioritySheet) targetSheetName = prioritySheet;
+        
+        const worksheet = workbook.Sheets[targetSheetName];
         const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
         
-        // 查找包含 SKU 或商品名称关键词的行作为表头行（亚马逊模板特征）
-        const headerRowIndex = jsonData.findIndex(row => 
+        if (jsonData.length === 0) throw new Error("Working sheet is empty.");
+
+        // 2. 寻找表头行
+        // 策略 A: 查找包含关键字段的行
+        let headerRowIndex = jsonData.findIndex(row => 
           row && Array.isArray(row) && 
           row.some(c => {
             const s = String(c).toLowerCase();
-            return s.includes('sku') || s.includes('item_name') || s.includes('external_product_id');
+            return s.includes('item_sku') || s.includes('sku') || s.includes('external_product_id');
           })
         );
 
-        const targetRow = headerRowIndex > -1 ? jsonData[headerRowIndex] : jsonData[0];
+        // 策略 B: 如果没找到关键字段，找列数最多的那一行（通常是表头）
+        if (headerRowIndex === -1) {
+          let maxCols = 0;
+          jsonData.forEach((row, idx) => {
+            const count = row.filter(c => String(c).trim() !== '').length;
+            if (count > maxCols) {
+              maxCols = count;
+              headerRowIndex = idx;
+            }
+          });
+        }
+
+        const targetRow = headerRowIndex > -1 ? jsonData[headerRowIndex] : null;
         
-        if (!targetRow || targetRow.length < 5) {
-          throw new Error(uiLang === 'zh' ? "未能识别有效的亚马逊模板格式，请确保上传的是从后台下载的批量上传模板。" : "Invalid Amazon template format.");
+        if (!targetRow || targetRow.length < 3) {
+          throw new Error(uiLang === 'zh' ? "未能识别有效的表头，请确认该 Excel 文件是包含字段定义的亚马逊刊登模板。" : "Invalid template format. Header row not found.");
         }
 
         const headers = targetRow
-          .map(h => {
-            // 清理字符串，移除不可见字符和可能导致 Unicode 错误的序列
-            if (h === null || h === undefined) return '';
-            return String(h)
-              .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // 移除控制字符
-              .trim();
-          })
+          .map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim())
           .filter(h => h !== '');
-
-        if (headers.length === 0) throw new Error("No headers found.");
 
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) throw new Error("Please log in first.");
 
         const newTemplatePayload = {
           user_id: session.user.id,
-          name: file.name.replace(/\.[^/.]+$/, ""),
+          name: `${file.name.replace(/\.[^/.]+$/, "")} (${targetSheetName})`,
           headers,
           default_values: {},
           marketplace: 'US',
@@ -161,7 +175,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-2xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-medium">支持 Amazon .xlsm / .xlsx / .csv 格式</p>
+            <p className="text-sm text-slate-400 font-medium">支持亚马逊官方 .xlsm (多工作表) 及 CSV 格式</p>
           </div>
         </div>
         <button 
@@ -172,12 +186,11 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
           {t('uploadTemplate')}
         </button>
-        {/* 调整 accept 顺序，明确指定 xlsm 的 MIME 类型 */}
         <input 
           type="file" 
           ref={fileInputRef} 
           className="hidden" 
-          accept=".xlsm, application/vnd.ms-excel.sheet.macroEnabled.12, .xlsx, .csv" 
+          accept=".xlsm, .xlsx, .csv" 
           onChange={handleFileUpload} 
         />
       </div>
@@ -203,7 +216,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             ) : templates.length === 0 ? (
               <div className="p-8 text-center space-y-4">
                  <FileSpreadsheet className="mx-auto text-slate-100" size={48} />
-                 <p className="text-slate-400 text-xs font-bold leading-relaxed">{t('noTemplates')}</p>
+                 <p className="text-slate-400 text-xs font-bold">{t('noTemplates')}</p>
               </div>
             ) : (
               templates.map(tmp => (
@@ -212,7 +225,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   onClick={() => setSelectedTemplate(tmp)}
                   className={`w-full p-4 rounded-2xl border text-left flex items-center justify-between transition-all group ${
                     selectedTemplate?.id === tmp.id 
-                      ? 'border-indigo-500 bg-indigo-50/50 text-indigo-900 shadow-sm' 
+                      ? 'border-indigo-50/50 bg-indigo-50 text-indigo-900 shadow-sm ring-1 ring-indigo-500/20' 
                       : 'border-slate-50 bg-white hover:border-slate-200 text-slate-600'
                   }`}
                 >
@@ -241,7 +254,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               </div>
               <div className="p-8 flex-1 overflow-y-auto custom-scrollbar">
                 <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 text-[11px] font-bold text-amber-700 leading-relaxed mb-6">
-                   {uiLang === 'zh' ? '提示：在此维护 SKU 前缀、配送方式、分类 ID 等固定值，导出时将自动填充。' : 'Tip: Maintain SKU prefixes, fulfillment methods, and category IDs here to auto-fill during export.'}
+                   {uiLang === 'zh' ? '在此设置固定值（如品牌名、配送方式、类目名），这些值将在批量导出 CSV 时自动填充到对应列。' : 'Set fixed values here (e.g. Brand, Fulfillment, Category). They will be auto-filled in the exported CSV.'}
                 </div>
                 <div className="space-y-4">
                   {selectedTemplate.headers.map((h, i) => (
@@ -254,7 +267,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                           type="text" 
                           value={selectedTemplate.default_values[h] || ''}
                           onChange={(e) => updateDefaultValue(h, e.target.value)}
-                          placeholder="设置导出默认值..."
+                          placeholder="设置默认值..."
                           className="w-full px-4 py-2 bg-white border border-slate-100 rounded-xl text-xs font-medium focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm"
                         />
                       </div>
@@ -267,7 +280,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             <div className="flex-1 flex flex-col items-center justify-center p-20 text-center bg-slate-50/20">
                <Settings2 size={40} className="mb-4 opacity-20 text-slate-400" />
                <h4 className="text-slate-900 font-black text-lg mb-2">{t('selectTemplate')}</h4>
-               <p className="text-slate-400 text-xs font-medium max-w-xs">从左侧选择一个模板，或上传新的亚马逊官方 XLSM 模板。</p>
+               <p className="text-slate-400 text-xs font-medium max-w-xs">从左侧选择已上传的模板，或上传新的亚马逊 XLSM 文件。</p>
             </div>
           )}
         </div>

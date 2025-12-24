@@ -34,7 +34,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
   const cleanString = (str: any) => {
     if (str === null || str === undefined) return '';
-    // 移除控制字符和可能导致 Unicode 报错的序列，同时转义 CSV 中的引号
     return String(str)
       .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
       .replace(/"/g, '""');
@@ -45,10 +44,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     setExporting(true);
 
     try {
-      // 1. CSV Headers
       const csvRows = [selectedTemplate.headers.join(',')];
 
-      // 2. Data Rows
       selectedListings.forEach(listing => {
         const cleaned = listing.cleaned;
         const optimized = listing.optimized;
@@ -56,12 +53,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         const row = selectedTemplate.headers.map(header => {
           const lowerH = header.toLowerCase();
           
-          // Priority 1: User-defined Default Value
           if (selectedTemplate.default_values[header]) {
             return `"${cleanString(selectedTemplate.default_values[header])}"`;
           }
 
-          // Priority 2: Smart Mapping
           let value = '';
           
           if (lowerH.includes('item_name') || lowerH.includes('product_name') || lowerH === 'title') {
@@ -74,14 +69,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              value = 'ASIN';
           } else if (lowerH.includes('brand_name') || lowerH === 'brand') {
              value = cleaned.brand;
-          } else if (lowerH.includes('standard_price') || lowerH === 'price') {
+          } else if (lowerH.includes('standard_price') || lowerH === 'price' || lowerH.includes('list_price')) {
              value = String(cleaned.price);
-          } else if (lowerH.includes('product_description') || lowerH === 'description') {
+          } else if (lowerH.includes('product_description') || lowerH.includes('item_description') || lowerH === 'description') {
              value = optimized?.optimized_description || cleaned.description;
-          } else if (lowerH.includes('main_image_url') || lowerH === 'image') {
+          } else if (lowerH.includes('main_image_url') || lowerH === 'main_image') {
              value = cleaned.main_image;
-          } else if (lowerH.includes('other_image_url1') && cleaned.other_images?.[0]) {
-             value = cleaned.other_images[0];
+          } else if (lowerH.includes('other_image_url1')) {
+             value = cleaned.other_images?.[0] || '';
+          } else if (lowerH.includes('other_image_url2')) {
+             value = cleaned.other_images?.[1] || '';
           } else if (lowerH.includes('bullet_point')) {
              const points = optimized?.optimized_features || cleaned.features || [];
              const idxMatch = lowerH.match(/bullet_point(\d+)/);
@@ -96,7 +93,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         csvRows.push(row.join(','));
       });
 
-      // 使用 BOM 确保 Excel 打开不乱码
       const csvContent = "\ufeff" + csvRows.join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
