@@ -28,14 +28,15 @@ export interface OptimizedData {
 
 export interface Listing {
   id: string;
+  user_id?: string; // For Supabase RLS
   asin: string;
   url?: string;
   created_at: string;
-  updated_at?: string; // 根级时间戳
+  updated_at?: string;
   status: 'collected' | 'optimizing' | 'optimized';
   cleaned: CleanedData;
   optimized?: OptimizedData;
-  translations?: Record<string, OptimizedData>; // 特定市场翻译
+  translations?: Record<string, OptimizedData>;
 }
 
 export enum AppView {

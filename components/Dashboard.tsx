@@ -25,22 +25,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
     if (!isSupabaseConfigured()) return;
     setIsImporting(true);
     
-    const newListing = {
-      asin: MOCK_CLEANED_DATA.asin + Math.floor(Math.random() * 1000),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      status: 'collected',
-      cleaned: { ...MOCK_CLEANED_DATA, title: `${MOCK_CLEANED_DATA.title} (${listings.length + 1})` }
-    };
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const newListing = {
+        user_id: session?.user?.id, // Include user_id for RLS
+        asin: MOCK_CLEANED_DATA.asin + Math.floor(Math.random() * 1000),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: 'collected',
+        cleaned: { ...MOCK_CLEANED_DATA, title: `${MOCK_CLEANED_DATA.title} (${listings.length + 1})` }
+      };
 
-    const { error } = await supabase.from('listings').insert([newListing]);
-    
-    if (error) {
-      alert(`Import failed: ${error.message}`);
-    } else {
-      refreshListings();
+      const { error } = await supabase.from('listings').insert([newListing]);
+      
+      if (error) {
+        alert(`Import failed: ${error.message}`);
+      } else {
+        refreshListings();
+      }
+    } catch (err: any) {
+      alert(`Error during import: ${err.message}`);
+    } finally {
+      setIsImporting(false);
     }
-    setIsImporting(false);
   };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {

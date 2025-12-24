@@ -72,7 +72,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
   };
 
   const handleSave = async () => {
-    // 修复校验逻辑：ASIN 不再是必填项，Title 和 main_image 是必填项
+    // 修复校验逻辑：确保标题不为空且主图已上传
     if (!formData.title.trim() || !formData.main_image) {
       alert(uiLang === 'zh' ? "请填写产品标题并上传主图" : "Please fill in Product Title and upload a Main Image.");
       return;
@@ -85,6 +85,12 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
 
     setIsLoading(true);
     try {
+      // Get current session to include user_id
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("User session not found. Please log in again.");
+      }
+
       const cleanedData: CleanedData = {
         asin: formData.asin || `MANUAL-${Date.now()}`,
         title: formData.title,
@@ -102,6 +108,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
       };
 
       const newListing = {
+        user_id: session.user.id, // CRITICAL: Include user_id for RLS compliance
         asin: cleanedData.asin,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -217,7 +224,8 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* Improved Layout for Weight and Dimensions to avoid overlap */}
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1"><Weight size={12}/> {t('weightLabel')}</label>
                   <div className="flex gap-2">
@@ -231,7 +239,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                     <select 
                       value={formData.weightUnit}
                       onChange={(e) => setFormData(prev => ({ ...prev, weightUnit: e.target.value }))}
-                      className="w-20 px-2 py-3 bg-white border border-slate-200 rounded-2xl font-black text-xs uppercase"
+                      className="w-24 px-2 py-3 bg-white border border-slate-200 rounded-2xl font-black text-xs uppercase"
                     >
                       <option value="kg">kg</option>
                       <option value="lb">lb</option>
@@ -239,15 +247,14 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                     </select>
                   </div>
                 </div>
+                
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1"><Ruler size={12}/> {t('dimensionsLabel')}</label>
-                  <div className="flex gap-1 items-center">
-                    <input type="number" placeholder="L" value={formData.dimL} onChange={(e) => setFormData(p => ({ ...p, dimL: e.target.value }))} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-bold" />
-                    <span className="text-slate-300">×</span>
-                    <input type="number" placeholder="W" value={formData.dimW} onChange={(e) => setFormData(p => ({ ...p, dimW: e.target.value }))} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-bold" />
-                    <span className="text-slate-300">×</span>
-                    <input type="number" placeholder="H" value={formData.dimH} onChange={(e) => setFormData(p => ({ ...p, dimH: e.target.value }))} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-bold" />
-                    <select value={formData.dimUnit} onChange={(e) => setFormData(p => ({ ...p, dimUnit: e.target.value }))} className="w-16 px-1 py-3 bg-white border border-slate-200 rounded-xl font-black text-[10px] uppercase">
+                  <div className="grid grid-cols-4 gap-2">
+                    <input type="number" placeholder="L" value={formData.dimL} onChange={(e) => setFormData(p => ({ ...p, dimL: e.target.value }))} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-bold" />
+                    <input type="number" placeholder="W" value={formData.dimW} onChange={(e) => setFormData(p => ({ ...p, dimW: e.target.value }))} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-bold" />
+                    <input type="number" placeholder="H" value={formData.dimH} onChange={(e) => setFormData(p => ({ ...p, dimH: e.target.value }))} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-bold" />
+                    <select value={formData.dimUnit} onChange={(e) => setFormData(p => ({ ...p, dimUnit: e.target.value }))} className="w-full px-1 py-3 bg-white border border-slate-200 rounded-xl font-black text-[10px] uppercase">
                       <option value="cm">cm</option>
                       <option value="in">in</option>
                       <option value="mm">mm</option>
