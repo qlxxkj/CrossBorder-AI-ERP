@@ -1,16 +1,10 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info, Star, Filter, ArrowRightLeft, Database } from 'lucide-react';
+import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info, Star, Filter, ArrowRightLeft, Database, Copy } from 'lucide-react';
 import { ExportTemplate, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import * as XLSX from 'xlsx';
-
-/**
- * 注意：如果您遇到 "required_headers" 列不存在的错误，请在 Supabase SQL Editor 中运行以下命令：
- * 
- * ALTER TABLE templates ADD COLUMN IF NOT EXISTS required_headers text[];
- */
 
 interface TemplateManagerProps {
   uiLang: UILanguage;
@@ -37,7 +31,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ExportTemplate | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [filterRequired, setFilterRequired] = useState(false);
 
   useEffect(() => {
@@ -49,17 +43,30 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       setLoading(false);
       return;
     }
-    setError(null);
+    setDbError(null);
     try {
-      const { data, error: dbError } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
-      if (dbError) throw dbError;
+      const { data, error: dbErr } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
+      
+      if (dbErr) {
+        // 如果报错提示列不存在 (42703 是 PostgreSQL 的 undefined_column 代码)
+        if (dbErr.code === '42703' || dbErr.message.includes('required_headers')) {
+          setDbError('SCHEMA_INCOMPLETE');
+        } else {
+          throw dbErr;
+        }
+      }
       if (data) setTemplates(data);
     } catch (err: any) {
       console.error(err);
-      setError(err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const copySqlToClipboard = () => {
+    const sql = "ALTER TABLE templates ADD COLUMN IF NOT EXISTS required_headers text[];";
+    navigator.clipboard.writeText(sql);
+    alert(uiLang === 'zh' ? "SQL 已复制！请在 Supabase SQL Editor 中运行。" : "SQL Copied! Run it in Supabase SQL Editor.");
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,7 +85,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         let foundSheetName = "";
         let detectedMarketplace = "US";
 
-        // 1. 解析 Data Definitions
+        // 1. 解析必填项定义
         const definitionsSheet = workbook.SheetNames.find(n => 
           n.toLowerCase().includes('data definitions') || 
           n.includes('数据定义') ||
@@ -87,10 +94,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         if (definitionsSheet) {
           const sheet = workbook.Sheets[definitionsSheet];
           const defData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-          
           let fieldNameIdx = -1;
           let requiredIdx = -1;
-          
           for (let i = 0; i < Math.min(defData.length, 30); i++) {
             const row = defData[i];
             if (!row) continue;
@@ -106,7 +111,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             if (req !== -1) requiredIdx = req;
             if (fieldNameIdx !== -1 && requiredIdx !== -1) break;
           }
-
           if (fieldNameIdx !== -1 && requiredIdx !== -1) {
             defData.forEach(row => {
               const fieldName = String(row[fieldNameIdx] || '').trim();
@@ -118,35 +122,11 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           }
         }
 
-        // 2. 解析 Template
-        const amazonKeywords = [
-          'item_sku', 'sku', 'external_product_id', 'feed_product_type', 
-          'item_name', 'product_name', 'brand_name', 'product_type', 'item-type'
-        ];
-
-        const potentialSheets = workbook.SheetNames.filter(n => 
-          n.toLowerCase().includes('template') || 
-          n.includes('模板') || 
-          n.includes('刊登') ||
-          n.length > 0
-        ).sort((a, b) => {
-          const aMatch = a.toLowerCase().includes('template') ? 1 : 0;
-          const bMatch = b.toLowerCase().includes('template') ? 1 : 0;
-          return bMatch - aMatch;
-        });
-
-        for (const sheetName of potentialSheets) {
+        // 2. 解析表头
+        const amazonKeywords = ['item_sku', 'sku', 'external_product_id', 'feed_product_type'];
+        for (const sheetName of workbook.SheetNames) {
           const worksheet = workbook.Sheets[sheetName];
           const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-          
-          // 优先检查第 4 行
-          if (jsonData[3] && jsonData[3].some(c => amazonKeywords.some(k => String(c).toLowerCase().includes(k)))) {
-            foundHeaders = jsonData[3].map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim()).filter(h => h !== '');
-            foundSheetName = sheetName;
-            break;
-          }
-          
-          // 扫描前 50 行
           for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
             const row = jsonData[i];
             if (!row || !Array.isArray(row)) continue;
@@ -160,14 +140,11 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           if (foundHeaders.length > 0) break;
         }
 
-        if (foundHeaders.length === 0) {
-          throw new Error(uiLang === 'zh' ? "未能在工作表中找到有效的亚马逊表头。请确保文件是原始的 .xlsm 批量上传模板。" : "No valid Amazon headers found. Ensure you use the original .xlsm template.");
-        }
+        if (foundHeaders.length === 0) throw new Error("No headers found.");
 
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) throw new Error("Please log in first.");
 
-        // 构造 Payload，处理数据库列不匹配的可能性
         const newTemplatePayload: any = {
           user_id: session.user.id,
           name: `${file.name.replace(/\.[^/.]+$/, "")} (${foundSheetName})`,
@@ -180,28 +157,18 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
         if (isSupabaseConfigured()) {
           const { error: insError } = await supabase.from('templates').insert([newTemplatePayload]);
-          
           if (insError) {
-            // 如果报错提示列不存在，则尝试不带 required_headers 列进行插入（降级处理）
-            if (insError.message.includes('required_headers') || insError.code === '42703') {
-              console.warn("Retrying without required_headers column due to database schema mismatch.");
-              const { required_headers, ...fallbackPayload } = newTemplatePayload;
-              const { error: fallbackError } = await supabase.from('templates').insert([fallbackPayload]);
-              if (fallbackError) throw fallbackError;
-              
-              alert(uiLang === 'zh' 
-                ? "模板已成功上传，但您的数据库表缺少 'required_headers' 列，必填项高亮功能将受限。请联系管理员更新数据库。" 
-                : "Template uploaded. However, 'required_headers' column is missing in your DB. Feature restricted.");
+            if (insError.code === '42703' || insError.message.includes('required_headers')) {
+              setDbError('SCHEMA_INCOMPLETE');
+              const { required_headers, ...fallback } = newTemplatePayload;
+              await supabase.from('templates').insert([fallback]);
             } else {
               throw insError;
             }
           }
           fetchTemplates();
-        } else {
-          setTemplates(prev => [newTemplatePayload as any as ExportTemplate, ...prev]);
         }
       } catch (err: any) {
-        console.error("Upload error details:", err);
         alert(`Error: ${err.message}`);
       } finally {
         setIsUploading(false);
@@ -228,20 +195,16 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     
     if (updError) alert(updError.message);
     else {
-      alert(uiLang === 'zh' ? "刊登配置已同步" : "Listing config synced!");
+      alert(uiLang === 'zh' ? "配置已同步" : "Synced!");
       fetchTemplates();
     }
   };
 
   const deleteTemplate = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm(uiLang === 'zh' ? "确认删除该模板？" : "Delete?")) return;
-    if (isSupabaseConfigured()) {
-      await supabase.from('templates').delete().eq('id', id);
-      fetchTemplates();
-    } else {
-      setTemplates(prev => prev.filter(t => t.id !== id));
-    }
+    if (!window.confirm("Confirm delete?")) return;
+    await supabase.from('templates').delete().eq('id', id);
+    fetchTemplates();
     if (selectedTemplate?.id === id) setSelectedTemplate(null);
   };
 
@@ -256,6 +219,34 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+      {/* 数据库升级警示条 */}
+      {dbError === 'SCHEMA_INCOMPLETE' && (
+        <div className="bg-amber-50 border border-amber-200 p-6 rounded-[2rem] flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
+          <div className="flex items-center gap-5">
+             <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-white shadow-lg">
+                <AlertCircle size={24} />
+             </div>
+             <div>
+                <h4 className="font-black text-amber-900 text-sm uppercase tracking-wider">{uiLang === 'zh' ? '需要升级数据库结构' : 'Database Upgrade Required'}</h4>
+                <p className="text-amber-700 text-xs font-medium max-w-xl mt-1">
+                  {uiLang === 'zh' 
+                    ? "您的数据库缺少 'required_headers' 列。虽然您可以继续使用，但必填项自动识别功能无法生效。请在 Supabase SQL Editor 中运行指令。"
+                    : "Your templates table is missing the 'required_headers' column. Please run the SQL command in Supabase to fix this."}
+                </p>
+             </div>
+          </div>
+          <div className="flex bg-white rounded-2xl border border-amber-200 p-1 pl-4 items-center">
+            <code className="text-[10px] font-mono font-bold text-amber-600 truncate max-w-[200px]">ALTER TABLE templates ADD...</code>
+            <button 
+              onClick={copySqlToClipboard}
+              className="ml-4 px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-amber-600 transition-all active:scale-95"
+            >
+              <Copy size={12} /> {uiLang === 'zh' ? '复制 SQL' : 'Copy SQL'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
         <div className="flex items-center gap-5">
           <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100">
