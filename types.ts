@@ -28,7 +28,7 @@ export interface OptimizedData {
 
 export interface Listing {
   id: string;
-  user_id?: string; // For Supabase RLS
+  user_id?: string;
   asin: string;
   url?: string;
   created_at: string;
@@ -39,11 +39,21 @@ export interface Listing {
   translations?: Record<string, OptimizedData>;
 }
 
+export interface ExportTemplate {
+  id: string;
+  name: string;
+  headers: string[];
+  default_values: Record<string, string>;
+  marketplace: string;
+  created_at: string;
+}
+
 export enum AppView {
   LANDING = 'LANDING',
   AUTH = 'AUTH',
   DASHBOARD = 'DASHBOARD',
-  LISTING_DETAIL = 'LISTING_DETAIL'
+  LISTING_DETAIL = 'LISTING_DETAIL',
+  TEMPLATES = 'TEMPLATES'
 }
 
 export type UILanguage = 'en' | 'zh' | 'ja' | 'de' | 'fr' | 'es';

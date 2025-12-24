@@ -5,13 +5,13 @@ import { Dashboard } from './components/Dashboard';
 import { LandingPage } from './components/LandingPage';
 import { ListingDetail } from './components/ListingDetail';
 import { AuthPage } from './components/AuthPage';
+import { TemplateManager } from './components/TemplateManager';
 import { AppView, Listing, UILanguage } from './types';
-import { MOCK_CLEANED_DATA } from './constants';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.LANDING);
-  const [activeTab, setActiveTab] = useState('listings');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -148,7 +148,7 @@ const App: React.FC = () => {
       />
       
       <main className="ml-64 flex-1">
-        {view === AppView.DASHBOARD && (
+        {activeTab === 'dashboard' && (
           <Dashboard 
             onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }}
             listings={listings}
@@ -158,7 +158,15 @@ const App: React.FC = () => {
           />
         )}
 
-        {view === AppView.LISTING_DETAIL && selectedListing && (
+        {activeTab === 'templates' && (
+          <TemplateManager uiLang={lang} />
+        )}
+
+        {activeTab === 'settings' && (
+           <div className="p-10 text-slate-400 font-bold">Settings View - Coming Soon</div>
+        )}
+
+        {view === AppView.LISTING_DETAIL && selectedListing && activeTab === 'dashboard' && (
           <ListingDetail 
             listing={selectedListing} 
             onBack={() => { setView(AppView.DASHBOARD); fetchListings(); }}

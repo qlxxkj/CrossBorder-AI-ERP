@@ -1,11 +1,11 @@
 
 import React, { useState } from 'react';
-import { Plus, Search, Bot, CheckCircle, Trash2, Loader2 } from 'lucide-react';
+import { Plus, Search, CheckCircle, Trash2, Download, Filter } from 'lucide-react';
 import { Listing, UILanguage } from '../types';
-import { MOCK_CLEANED_DATA } from '../constants';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { ManualListingModal } from './ManualListingModal';
+import { ExportModal } from './ExportModal';
 
 interface DashboardProps {
   onSelectListing: (listing: Listing) => void;
@@ -18,38 +18,9 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings, setListings, lang, refreshListings }) => {
   const t = useTranslation(lang);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isImporting, setIsImporting] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
-
-  const handleSimulateImport = async () => {
-    if (!isSupabaseConfigured()) return;
-    setIsImporting(true);
-    
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const newListing = {
-        user_id: session?.user?.id, // Include user_id for RLS
-        asin: MOCK_CLEANED_DATA.asin + Math.floor(Math.random() * 1000),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        status: 'collected',
-        cleaned: { ...MOCK_CLEANED_DATA, title: `${MOCK_CLEANED_DATA.title} (${listings.length + 1})` }
-      };
-
-      const { error } = await supabase.from('listings').insert([newListing]);
-      
-      if (error) {
-        alert(`Import failed: ${error.message}`);
-      } else {
-        refreshListings();
-      }
-    } catch (err: any) {
-      alert(`Error during import: ${err.message}`);
-    } finally {
-      setIsImporting(false);
-    }
-  };
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -72,6 +43,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
            l.asin.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredListings.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredListings.map(l => l.id)));
+    }
+  };
+
+  const toggleSelectOne = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto">
       {isManualModalOpen && (
@@ -82,6 +69,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
             setIsManualModalOpen(false);
             refreshListings();
           }}
+        />
+      )}
+
+      {isExportModalOpen && (
+        <ExportModal 
+          uiLang={lang} 
+          selectedListings={listings.filter(l => selectedIds.has(l.id))}
+          onClose={() => setIsExportModalOpen(false)} 
         />
       )}
 
@@ -117,14 +112,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
           />
         </div>
         <div className="flex gap-3 w-full sm:w-auto">
-           <button 
-             onClick={handleSimulateImport}
-             disabled={isImporting}
-             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold text-sm transition-all disabled:opacity-50"
-           >
-            {isImporting ? <Loader2 size={18} className="animate-spin" /> : <Bot size={18} />}
-            {t('simulateImport')}
-           </button>
+           {selectedIds.size > 0 && (
+             <button 
+               onClick={() => setIsExportModalOpen(true)}
+               className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 font-black text-sm transition-all border border-indigo-100 shadow-sm"
+             >
+               <Download size={18} /> {t('export')} ({selectedIds.size})
+             </button>
+           )}
            <button 
              onClick={() => setIsManualModalOpen(true)}
              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800 font-bold text-sm shadow-xl transition-all"
@@ -139,6 +134,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase text-slate-400 font-black tracking-[0.2em]">
+                <th className="p-6 w-12">
+                   <input 
+                     type="checkbox" 
+                     className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                     checked={selectedIds.size === filteredListings.length && filteredListings.length > 0}
+                     onChange={toggleSelectAll}
+                   />
+                </th>
                 <th className="p-6 w-20">Media</th>
                 <th className="p-6">ASIN</th>
                 <th className="p-6 w-1/2">Title</th>
@@ -150,13 +153,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
             <tbody className="divide-y divide-slate-50">
               {filteredListings.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-20 text-center text-slate-300 font-bold italic">
+                  <td colSpan={7} className="p-20 text-center text-slate-300 font-bold italic">
                     No data captured yet...
                   </td>
                 </tr>
               ) : (
                 filteredListings.map((listing) => (
-                  <tr key={listing.id} className="hover:bg-slate-50 transition-colors group">
+                  <tr 
+                    key={listing.id} 
+                    className={`hover:bg-slate-50 transition-colors group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/30' : ''}`}
+                    onClick={() => onSelectListing(listing)}
+                  >
+                    <td className="p-6" onClick={(e) => e.stopPropagation()}>
+                       <input 
+                         type="checkbox" 
+                         className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                         checked={selectedIds.has(listing.id)}
+                         onChange={(e) => { e.stopPropagation(); toggleSelectOne(listing.id, e as any); }}
+                       />
+                    </td>
                     <td className="p-6">
                       <div className="w-14 h-14 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shadow-sm">
                         <img src={listing.cleaned.main_image} alt="" className="w-full h-full object-contain" />
@@ -190,7 +205,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
                     <td className="p-6 text-right">
                       <div className="flex justify-end gap-2">
                         <button 
-                          onClick={() => onSelectListing(listing)}
+                          onClick={(e) => { e.stopPropagation(); onSelectListing(listing); }}
                           className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all font-bold text-xs"
                         >
                           {t('edit')}

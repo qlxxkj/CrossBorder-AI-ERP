@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Package, LogOut, LayoutDashboard, Database, Settings } from 'lucide-react';
+import { Package, LogOut, LayoutDashboard, Database, Settings, Layout } from 'lucide-react';
 import { UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 
@@ -16,7 +16,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
   const t = useTranslation(lang);
   const menuItems = [
     { id: 'dashboard', label: t('dashboard'), icon: <LayoutDashboard size={20} /> },
-    { id: 'listings', label: t('listings'), icon: <Database size={20} /> },
+    { id: 'templates', label: t('templates'), icon: <Layout size={20} /> },
     { id: 'settings', label: t('settings'), icon: <Settings size={20} /> },
   ];
 
