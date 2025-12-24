@@ -80,12 +80,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               else if (field === 'description') value = optimized?.optimized_description || cleaned.description;
               else if (field === 'main_image') value = cleaned.main_image;
               else if (field?.startsWith('other_image')) {
-                // 提取索引 (other_image1 -> 0, other_image2 -> 1)
                 const match = field.match(/\d+/);
                 const idx = match ? parseInt(match[0]) - 1 : -1;
                 value = idx >= 0 ? (otherImages[idx] || '') : '';
               } else if (field?.startsWith('feature')) {
-                // 提取索引 (feature1 -> 0, feature2 -> 1)
                 const match = field.match(/\d+/);
                 const idx = match ? parseInt(match[0]) - 1 : -1;
                 value = idx >= 0 ? (features[idx] || '') : '';
@@ -103,7 +101,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             }
           }
 
-          // 最后的兜底逻辑：如果映射后的值依然为空，尝试使用 Row 8 原始值
+          // 兜底逻辑：如果映射后的值依然为空，尝试使用 Row 8 原始值
           if (!value && mapping?.templateDefault) {
             value = mapping.templateDefault;
           }

@@ -30,7 +30,6 @@ const LISTING_SOURCE_FIELDS = [
   { value: 'other_image6', label: 'Other Image 6' },
   { value: 'other_image7', label: 'Other Image 7' },
   { value: 'other_image8', label: 'Other Image 8' },
-  { value: 'other_image9', label: 'Other Image 9' },
   { value: 'weight', label: 'Item Weight' },
   { value: 'dimensions', label: 'Dimensions' },
 ];
@@ -112,38 +111,45 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         let requiredHeaders: string[] = [];
         let fieldDefinitions: Record<string, { dataType?: string; acceptedValues?: string[] }> = {};
         
-        // 1. Valid Values 解析
+        // 1. Valid Values 解析 - 修复无法提取选项值的问题
         const validValuesSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('valid values') || n.includes('有效值'));
         if (validValuesSheet) {
           const sheet = workbook.Sheets[validValuesSheet];
           const rawData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
           let fieldCol = -1, valCol = -1;
           
-          // 查找表头
-          for (let i = 0; i < Math.min(rawData.length, 15); i++) {
+          // 查找表头：亚马逊模板的 Valid Values 通常前几行是说明
+          for (let i = 0; i < Math.min(rawData.length, 20); i++) {
             const row = rawData[i];
             if (!row) continue;
-            row.forEach((cell, idx) => {
-              const s = String(cell || '').toLowerCase();
-              if (s.includes('field name') || s.includes('字段名称')) fieldCol = idx;
-              if (s.includes('valid value') || s.includes('有效值')) valCol = idx;
-            });
-            if (fieldCol !== -1 && valCol !== -1) break;
+            const fieldIdx = row.findIndex(cell => String(cell || '').toLowerCase().includes('field name') || String(cell || '').includes('字段名称'));
+            const valIdx = row.findIndex(cell => String(cell || '').toLowerCase().includes('valid value') || String(cell || '').includes('有效值'));
+            if (fieldIdx !== -1 && valIdx !== -1) {
+              fieldCol = fieldIdx;
+              valCol = valIdx;
+              break;
+            }
           }
 
           if (fieldCol !== -1 && valCol !== -1) {
-            rawData.forEach(row => {
-              const fName = String(row[fieldCol] || '').trim();
+            let lastFieldName = "";
+            rawData.forEach((row, idx) => {
+              if (!row) return;
+              let fName = String(row[fieldCol] || '').trim();
               const vVal = String(row[valCol] || '').trim();
-              if (fName && vVal && vVal.toLowerCase() !== 'none' && vVal.toLowerCase() !== '字段名称') {
+              
+              // 亚马逊模板中，字段名可能只在第一行出现，后续行只有 Valid Value
+              if (fName && fName.toLowerCase() !== 'field name' && fName !== '字段名称') {
+                lastFieldName = fName;
+              } else {
+                fName = lastFieldName;
+              }
+
+              if (fName && vVal && vVal.toLowerCase() !== 'valid value' && vVal !== '有效值' && vVal.toLowerCase() !== 'none') {
                 if (!fieldDefinitions[fName]) fieldDefinitions[fName] = { acceptedValues: [] };
-                // 拆分可能存在的一个单元格内多个值的情况
-                const parts = vVal.split(/,|\n/).map(v => v.trim()).filter(v => v !== '');
-                parts.forEach(p => {
-                  if (!fieldDefinitions[fName].acceptedValues?.includes(p)) {
-                    fieldDefinitions[fName].acceptedValues?.push(p);
-                  }
-                });
+                if (!fieldDefinitions[fName].acceptedValues?.includes(vVal)) {
+                  fieldDefinitions[fName].acceptedValues?.push(vVal);
+                }
               }
             });
           }
@@ -155,13 +161,12 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           const sheet = workbook.Sheets[definitionsSheet];
           const defData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
           let nameIdx = -1, reqIdx = -1;
-          for (let i = 0; i < Math.min(defData.length, 5); i++) {
-            defData[i]?.forEach((c, idx) => {
-              const s = String(c || '').toLowerCase();
-              if (s.includes('field name') || s.includes('字段名称')) nameIdx = idx;
-              if (s.includes('required') || s.includes('必填')) reqIdx = idx;
-            });
-            if (nameIdx !== -1) break;
+          for (let i = 0; i < Math.min(defData.length, 10); i++) {
+            const row = defData[i];
+            if (!row) continue;
+            const nIdx = row.findIndex(c => String(c || '').toLowerCase().includes('field name') || String(c || '').includes('字段名称'));
+            const rIdx = row.findIndex(c => String(c || '').toLowerCase().includes('required') || String(c || '').includes('必填'));
+            if (nIdx !== -1) { nameIdx = nIdx; reqIdx = rIdx; break; }
           }
           if (nameIdx !== -1 && reqIdx !== -1) {
             defData.forEach(row => {
@@ -188,8 +193,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           }
         }
 
-        if (foundHeaders.length === 0) throw new Error("Could not find headers in Row 4 of 'Template' sheet.");
-
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) throw new Error("Auth required");
 
@@ -203,13 +206,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let source: any = tplDefault ? 'template_default' : 'custom';
           let field = '';
 
-          // 自动映射逻辑：识别图片和 Bullet Points 并自动递增索引
+          // 修复：识别 Other Image Location 为 Other Image URL
           if (lowerH.includes('sku') || lowerH.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (lowerH.includes('item_name') || lowerH === 'title' || lowerH.includes('product_name')) { source = 'listing'; field = 'title'; }
           else if (lowerH.includes('standard_price') || lowerH === 'price') { source = 'listing'; field = 'price'; }
           else if (lowerH.includes('brand')) { source = 'listing'; field = 'brand'; }
           else if (lowerH.match(/main_image_url|main.image|主图/)) { source = 'listing'; field = 'main_image'; }
-          else if (lowerH.match(/other_image_url|other.image|附图/)) { 
+          else if (lowerH.match(/other_image_url|other_image_location|other.image|附图/)) { 
             otherImageCount++;
             source = 'listing'; 
             field = `other_image${otherImageCount}`; 
@@ -241,10 +244,10 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         }]).select();
 
         if (inserted) fetchTemplates(inserted[0].id);
-        alert(uiLang === 'zh' ? "模板上传并解析成功！" : "Upload & Parse Success!");
+        alert(uiLang === 'zh' ? "模板上传并解析成功！已自动提取选项值并配置映射。" : "Upload & Parse Success! Options extracted and mappings configured.");
 
       } catch (err: any) {
-        alert("Upload Error: " + err.message);
+        alert(err.message);
       } finally {
         setIsUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -303,12 +306,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('manageTemplates')}</span>
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
-            {templates.length === 0 && !loading && (
-              <div className="py-20 text-center opacity-20">
-                <Info size={32} className="mx-auto mb-2" />
-                <p className="text-xs font-black uppercase">No Templates</p>
-              </div>
-            )}
             {templates.map(tmp => (
               <div key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`group relative w-full p-5 rounded-3xl border cursor-pointer transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/30 ring-1 ring-indigo-500/10' : 'border-slate-50 bg-white hover:border-slate-200'}`}>
                 <div className="flex items-center gap-4">
@@ -373,11 +370,12 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               <div className="p-8 flex-1 overflow-y-auto custom-scrollbar space-y-4">
                 {filteredHeaders.map((h, i) => {
                   const isRequired = selectedTemplate.required_headers?.includes(h);
+                  // 修复：确保每个字段的映射状态是独立的
                   const mapping = selectedTemplate.mappings?.[h] || { header: h, source: 'custom', defaultValue: '' };
                   const hasOptions = mapping.acceptedValues && mapping.acceptedValues.length > 0;
 
                   return (
-                    <div key={i} className={`p-6 rounded-[2rem] border transition-all ${isRequired ? 'bg-red-50/10 border-red-100 shadow-[inset_0_0_20px_rgba(239,68,68,0.01)]' : 'bg-slate-50/30 border-slate-50'}`}>
+                    <div key={`${selectedTemplate.id}-${h}`} className={`p-6 rounded-[2rem] border transition-all ${isRequired ? 'bg-red-50/10 border-red-100 shadow-[inset_0_0_20px_rgba(239,68,68,0.01)]' : 'bg-slate-50/30 border-slate-50'}`}>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
@@ -439,10 +437,10 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                       {hasOptions && (
                         <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100/50 mt-4">
                            <span className="text-[8px] font-black text-slate-300 uppercase flex items-center gap-1"><Tag size={8}/> Valid Options:</span>
-                           {mapping.acceptedValues?.slice(0, 12).map((v, idx) => (
+                           {mapping.acceptedValues?.slice(0, 15).map((v, idx) => (
                              <span key={idx} className="text-[8px] px-2 py-0.5 bg-slate-100 text-slate-500 rounded font-bold border border-slate-200/50">{v}</span>
                            ))}
-                           {(mapping.acceptedValues?.length || 0) > 12 && <span className="text-[8px] text-slate-300 font-bold">... +{mapping.acceptedValues!.length - 12}</span>}
+                           {(mapping.acceptedValues?.length || 0) > 15 && <span className="text-[8px] text-slate-300 font-bold">... +{mapping.acceptedValues!.length - 15} more</span>}
                         </div>
                       )}
                     </div>
