@@ -6,11 +6,16 @@ import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import * as XLSX from 'xlsx';
 
+/**
+ * 注意：如果您遇到 "required_headers" 列不存在的错误，请在 Supabase SQL Editor 中运行以下命令：
+ * 
+ * ALTER TABLE templates ADD COLUMN IF NOT EXISTS required_headers text[];
+ */
+
 interface TemplateManagerProps {
   uiLang: UILanguage;
 }
 
-// 定义自动映射字段，用于在 UI 中区分
 const AUTO_MAPPED_FIELDS = [
   'item_sku', 'sku', 'seller_sku',
   'external_product_id', 'product_id',
@@ -73,7 +78,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         let foundSheetName = "";
         let detectedMarketplace = "US";
 
-        // 1. 解析 Data Definitions 工作表 (寻找必填项)
+        // 1. 解析 Data Definitions
         const definitionsSheet = workbook.SheetNames.find(n => 
           n.toLowerCase().includes('data definitions') || 
           n.includes('数据定义') ||
@@ -113,21 +118,18 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           }
         }
 
-        // 2. 解析 Template 工作表 (寻找表头)
-        // 亚马逊关键词扩展，用于识别表头行
+        // 2. 解析 Template
         const amazonKeywords = [
           'item_sku', 'sku', 'external_product_id', 'feed_product_type', 
           'item_name', 'product_name', 'brand_name', 'product_type', 'item-type'
         ];
 
-        // 查找可能的工作表：Template, 模板, 或者包含类目名称的表
         const potentialSheets = workbook.SheetNames.filter(n => 
           n.toLowerCase().includes('template') || 
           n.includes('模板') || 
           n.includes('刊登') ||
-          n.length > 0 // 兜底：所有表都可能是
+          n.length > 0
         ).sort((a, b) => {
-          // 优先匹配包含 "Template" 的表
           const aMatch = a.toLowerCase().includes('template') ? 1 : 0;
           const bMatch = b.toLowerCase().includes('template') ? 1 : 0;
           return bMatch - aMatch;
@@ -137,19 +139,17 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           const worksheet = workbook.Sheets[sheetName];
           const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
           
-          // 搜索表头行逻辑：
-          // a. 优先检查用户指定的第 4 行 (Index 3)
+          // 优先检查第 4 行
           if (jsonData[3] && jsonData[3].some(c => amazonKeywords.some(k => String(c).toLowerCase().includes(k)))) {
             foundHeaders = jsonData[3].map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim()).filter(h => h !== '');
             foundSheetName = sheetName;
             break;
           }
           
-          // b. 如果第 4 行不符合，扫描前 50 行寻找包含至少两个亚马逊关键词的行
+          // 扫描前 50 行
           for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
             const row = jsonData[i];
             if (!row || !Array.isArray(row)) continue;
-            
             const matchCount = row.filter(c => amazonKeywords.some(k => String(c).toLowerCase().includes(k))).length;
             if (matchCount >= 2) {
               foundHeaders = row.map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim()).filter(h => h !== '');
@@ -161,13 +161,14 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         }
 
         if (foundHeaders.length === 0) {
-          throw new Error(uiLang === 'zh' ? "未能在工作表中找到有效的亚马逊表头。请确保文件是原始的 .xlsm 批量上传模板（系统已扫描前 50 行未果）。" : "No valid Amazon headers found in first 50 rows. Ensure you use the original .xlsm template.");
+          throw new Error(uiLang === 'zh' ? "未能在工作表中找到有效的亚马逊表头。请确保文件是原始的 .xlsm 批量上传模板。" : "No valid Amazon headers found. Ensure you use the original .xlsm template.");
         }
 
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) throw new Error("Please log in first.");
 
-        const newTemplatePayload = {
+        // 构造 Payload，处理数据库列不匹配的可能性
+        const newTemplatePayload: any = {
           user_id: session.user.id,
           name: `${file.name.replace(/\.[^/.]+$/, "")} (${foundSheetName})`,
           headers: foundHeaders,
@@ -179,14 +180,29 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
         if (isSupabaseConfigured()) {
           const { error: insError } = await supabase.from('templates').insert([newTemplatePayload]);
-          if (insError) throw insError;
+          
+          if (insError) {
+            // 如果报错提示列不存在，则尝试不带 required_headers 列进行插入（降级处理）
+            if (insError.message.includes('required_headers') || insError.code === '42703') {
+              console.warn("Retrying without required_headers column due to database schema mismatch.");
+              const { required_headers, ...fallbackPayload } = newTemplatePayload;
+              const { error: fallbackError } = await supabase.from('templates').insert([fallbackPayload]);
+              if (fallbackError) throw fallbackError;
+              
+              alert(uiLang === 'zh' 
+                ? "模板已成功上传，但您的数据库表缺少 'required_headers' 列，必填项高亮功能将受限。请联系管理员更新数据库。" 
+                : "Template uploaded. However, 'required_headers' column is missing in your DB. Feature restricted.");
+            } else {
+              throw insError;
+            }
+          }
           fetchTemplates();
         } else {
           setTemplates(prev => [newTemplatePayload as any as ExportTemplate, ...prev]);
         }
       } catch (err: any) {
         console.error("Upload error details:", err);
-        alert(`Template Parse Error: ${err.message}`);
+        alert(`Error: ${err.message}`);
       } finally {
         setIsUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -247,7 +263,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold">Deep Scanning Mapping Engine (Supports Row 4 & Multi-sheet Detection)</p>
+            <p className="text-sm text-slate-400 font-bold">Standard Amazon Mapping Engine (Scan Deep for Rows 4-50)</p>
           </div>
         </div>
         <button 
@@ -393,7 +409,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center p-20 text-center bg-slate-50/20">
-               <div className="w-24 h-24 bg-white rounded-[2rem] border border-slate-100 shadow-xl flex items-center justify-center text-slate-100 mb-8 transform rotate-6 transition-transform hover:rotate-0">
+               <div className="w-24 h-24 bg-white rounded-[2rem] border border-slate-100 shadow-xl flex items-center justify-center text-slate-100 mb-8 transform rotate-12 transition-transform hover:rotate-0">
                   <Settings2 size={48} />
                </div>
                <h4 className="text-slate-900 font-black text-2xl mb-3 tracking-tight">{t('selectTemplate')}</h4>
