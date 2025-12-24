@@ -32,6 +32,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     setLoading(false);
   };
 
+  const cleanString = (str: any) => {
+    if (str === null || str === undefined) return '';
+    // 移除控制字符和可能导致 Unicode 报错的序列，同时转义 CSV 中的引号
+    return String(str)
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+      .replace(/"/g, '""');
+  };
+
   const handleExport = () => {
     if (!selectedTemplate) return;
     setExporting(true);
@@ -50,10 +58,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           
           // Priority 1: User-defined Default Value
           if (selectedTemplate.default_values[header]) {
-            return `"${selectedTemplate.default_values[header].replace(/"/g, '""')}"`;
+            return `"${cleanString(selectedTemplate.default_values[header])}"`;
           }
 
-          // Priority 2: Smart Mapping based on common Amazon internal names
+          // Priority 2: Smart Mapping
           let value = '';
           
           if (lowerH.includes('item_name') || lowerH.includes('product_name') || lowerH === 'title') {
@@ -74,8 +82,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              value = cleaned.main_image;
           } else if (lowerH.includes('other_image_url1') && cleaned.other_images?.[0]) {
              value = cleaned.other_images[0];
-          } else if (lowerH.includes('other_image_url2') && cleaned.other_images?.[1]) {
-             value = cleaned.other_images[1];
           } else if (lowerH.includes('bullet_point')) {
              const points = optimized?.optimized_features || cleaned.features || [];
              const idxMatch = lowerH.match(/bullet_point(\d+)/);
@@ -85,12 +91,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              }
           }
 
-          return `"${(value || '').replace(/"/g, '""')}"`;
+          return `"${cleanString(value)}"`;
         });
         csvRows.push(row.join(','));
       });
 
-      const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      // 使用 BOM 确保 Excel 打开不乱码
+      const csvContent = "\ufeff" + csvRows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
