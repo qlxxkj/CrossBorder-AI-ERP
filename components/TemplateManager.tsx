@@ -346,7 +346,11 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                             {h}
                           </span>
                           {isRequired && <Star size={10} className="text-red-500 fill-red-500 shrink-0" />}
-                          {isAutoMapped && <Database size={10} className="text-slate-300 shrink-0" title="Auto-mapped field" />}
+                          {isAutoMapped && (
+                            <span title="Auto-mapped field">
+                              <Database size={10} className="text-slate-300 shrink-0" />
+                            </span>
+                          )}
                         </div>
                         <div className="flex-1">
                           {isAutoMapped ? (
