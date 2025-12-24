@@ -22,7 +22,7 @@ const AUTO_MAPPED_FIELDS = [
   'main_image_url', 'main_image',
   'other_image_url1', 'other_image_url2', 'other_image_url3',
   'bullet_point1', 'bullet_point2', 'bullet_point3', 'bullet_point4', 'bullet_point5',
-  'update_delete'
+  'update_delete', 'feed_product_type', 'item_type'
 ];
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -73,10 +73,11 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         let foundSheetName = "";
         let detectedMarketplace = "US";
 
-        // 1. 解析 Data Definitions 工作表
+        // 1. 解析 Data Definitions 工作表 (寻找必填项)
         const definitionsSheet = workbook.SheetNames.find(n => 
           n.toLowerCase().includes('data definitions') || 
-          n.includes('数据定义')
+          n.includes('数据定义') ||
+          n.includes('Definitions')
         );
         if (definitionsSheet) {
           const sheet = workbook.Sheets[definitionsSheet];
@@ -85,7 +86,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let fieldNameIdx = -1;
           let requiredIdx = -1;
           
-          for (let i = 0; i < Math.min(defData.length, 15); i++) {
+          for (let i = 0; i < Math.min(defData.length, 30); i++) {
             const row = defData[i];
             if (!row) continue;
             const fn = row.findIndex(c => {
@@ -112,40 +113,55 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           }
         }
 
-        // 2. 解析 Template 工作表
-        const templateSheetName = workbook.SheetNames.find(n => 
+        // 2. 解析 Template 工作表 (寻找表头)
+        // 亚马逊关键词扩展，用于识别表头行
+        const amazonKeywords = [
+          'item_sku', 'sku', 'external_product_id', 'feed_product_type', 
+          'item_name', 'product_name', 'brand_name', 'product_type', 'item-type'
+        ];
+
+        // 查找可能的工作表：Template, 模板, 或者包含类目名称的表
+        const potentialSheets = workbook.SheetNames.filter(n => 
           n.toLowerCase().includes('template') || 
           n.includes('模板') || 
-          n.includes('刊登')
-        ) || workbook.SheetNames[0];
+          n.includes('刊登') ||
+          n.length > 0 // 兜底：所有表都可能是
+        ).sort((a, b) => {
+          // 优先匹配包含 "Template" 的表
+          const aMatch = a.toLowerCase().includes('template') ? 1 : 0;
+          const bMatch = b.toLowerCase().includes('template') ? 1 : 0;
+          return bMatch - aMatch;
+        });
 
-        const worksheet = workbook.Sheets[templateSheetName];
-        const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-        
-        // 智能定位表头行：优先检查第 4 行，若不匹配则搜索前 10 行中包含特征词的行
-        const amazonKeywords = ['item_sku', 'sku', 'external_product_id', 'feed_product_type'];
-        let headerRowIndex = -1;
-
-        // 优先检查标准第 4 行 (Index 3)
-        if (jsonData[3] && jsonData[3].some(c => amazonKeywords.some(k => String(c).toLowerCase().includes(k)))) {
-          headerRowIndex = 3;
-        } else {
-          // 搜索前 10 行
-          for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
-            if (jsonData[i] && jsonData[i].some(c => amazonKeywords.some(k => String(c).toLowerCase().includes(k)))) {
-              headerRowIndex = i;
+        for (const sheetName of potentialSheets) {
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+          
+          // 搜索表头行逻辑：
+          // a. 优先检查用户指定的第 4 行 (Index 3)
+          if (jsonData[3] && jsonData[3].some(c => amazonKeywords.some(k => String(c).toLowerCase().includes(k)))) {
+            foundHeaders = jsonData[3].map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim()).filter(h => h !== '');
+            foundSheetName = sheetName;
+            break;
+          }
+          
+          // b. 如果第 4 行不符合，扫描前 50 行寻找包含至少两个亚马逊关键词的行
+          for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
+            const row = jsonData[i];
+            if (!row || !Array.isArray(row)) continue;
+            
+            const matchCount = row.filter(c => amazonKeywords.some(k => String(c).toLowerCase().includes(k))).length;
+            if (matchCount >= 2) {
+              foundHeaders = row.map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim()).filter(h => h !== '');
+              foundSheetName = sheetName;
               break;
             }
           }
-        }
-
-        if (headerRowIndex !== -1) {
-          foundHeaders = jsonData[headerRowIndex].map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim()).filter(h => h !== '');
-          foundSheetName = templateSheetName;
+          if (foundHeaders.length > 0) break;
         }
 
         if (foundHeaders.length === 0) {
-          throw new Error(uiLang === 'zh' ? "未能在工作表中找到有效的亚马逊表头。请确保文件是原始的 .xlsm 模板。" : "No valid Amazon headers found. Ensure you use the original .xlsm template.");
+          throw new Error(uiLang === 'zh' ? "未能在工作表中找到有效的亚马逊表头。请确保文件是原始的 .xlsm 批量上传模板（系统已扫描前 50 行未果）。" : "No valid Amazon headers found in first 50 rows. Ensure you use the original .xlsm template.");
         }
 
         const { data: { session } } = await supabase.auth.getSession();
@@ -169,8 +185,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           setTemplates(prev => [newTemplatePayload as any as ExportTemplate, ...prev]);
         }
       } catch (err: any) {
-        console.error("Upload error:", err);
-        alert(`Error: ${err.message}`);
+        console.error("Upload error details:", err);
+        alert(`Template Parse Error: ${err.message}`);
       } finally {
         setIsUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -203,7 +219,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
   const deleteTemplate = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm(uiLang === 'zh' ? "删除模板？" : "Delete?")) return;
+    if (!window.confirm(uiLang === 'zh' ? "确认删除该模板？" : "Delete?")) return;
     if (isSupabaseConfigured()) {
       await supabase.from('templates').delete().eq('id', id);
       fetchTemplates();
@@ -231,7 +247,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold">Standard Amazon Mapping Engine (Rows 4 & 8 Support)</p>
+            <p className="text-sm text-slate-400 font-bold">Deep Scanning Mapping Engine (Supports Row 4 & Multi-sheet Detection)</p>
           </div>
         </div>
         <button 
@@ -242,7 +258,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
           {t('uploadTemplate')}
         </button>
-        <input type="file" ref={fileInputRef} className="hidden" accept=".xlsm, .xlsx" onChange={handleFileUpload} />
+        <input type="file" ref={fileInputRef} className="hidden" accept=".xlsm, .xlsx, .csv" onChange={handleFileUpload} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-320px)]">
@@ -382,7 +398,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                </div>
                <h4 className="text-slate-900 font-black text-2xl mb-3 tracking-tight">{t('selectTemplate')}</h4>
                <p className="text-slate-400 text-sm font-bold max-w-xs leading-relaxed">
-                  {uiLang === 'zh' ? '请从左侧列表选择一个模板，或上传新的亚马逊 .xlsm 刊登文件。' : 'Select a template from the list on the left or upload a new Amazon batch file.'}
+                  {uiLang === 'zh' ? '请从左侧列表选择一个模板，或上传新的亚马逊官方刊登文件。' : 'Select a template from the list on the left or upload a new Amazon batch file.'}
                </p>
             </div>
           )}
