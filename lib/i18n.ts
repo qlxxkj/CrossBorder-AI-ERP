@@ -51,7 +51,6 @@ const translations: Record<UILanguage, Record<string, string>> = {
     step3Desc: 'Find direct factory sources on 1688 via image search.',
     step4Title: 'Launch',
     step4Desc: 'Export localized templates to global marketplaces.',
-    // New translations for Auth and Detail
     saveAndNext: 'Save & Next',
     translateAll: 'One-Click Global Sites',
     syncing: 'Syncing...',
@@ -67,7 +66,20 @@ const translations: Record<UILanguage, Record<string, string>> = {
     signUp: 'Sign up',
     orEmail: 'Or continue with email',
     googleLogin: 'Continue with Google',
-    wechatLogin: 'Continue with WeChat'
+    wechatLogin: 'Continue with WeChat',
+    // Manual Add Translations
+    addListing: 'Add New Listing',
+    asinLabel: 'ASIN',
+    titleLabel: 'Product Title',
+    brandLabel: 'Brand',
+    priceLabel: 'Price (USD)',
+    descLabel: 'Description',
+    uploadMain: 'Main Image',
+    uploadOthers: 'Gallery Images',
+    saving: 'Saving...',
+    cancel: 'Cancel',
+    save: 'Save Listing',
+    uploading: 'Uploading...'
   },
   zh: {
     heroTitle: '让跨境电商更智能、更高效',
@@ -109,7 +121,6 @@ const translations: Record<UILanguage, Record<string, string>> = {
     step3Desc: '深度对接1688，快速匹配优质货源厂家。',
     step4Title: '多站刊登',
     step4Desc: '一键生成多语言模板，快速铺货至全球站点。',
-    // New translations for Auth and Detail
     saveAndNext: '保存并继续',
     translateAll: '一键生成全球站点',
     syncing: '同步中...',
@@ -125,7 +136,20 @@ const translations: Record<UILanguage, Record<string, string>> = {
     signUp: '注册',
     orEmail: '或使用邮箱继续',
     googleLogin: '使用 Google 登录',
-    wechatLogin: '使用微信登录'
+    wechatLogin: '使用微信登录',
+    // Manual Add Translations
+    addListing: '手动新增产品',
+    asinLabel: 'ASIN 编码',
+    titleLabel: '产品标题',
+    brandLabel: '品牌',
+    priceLabel: '价格 (美元)',
+    descLabel: '详情描述',
+    uploadMain: '上传主图',
+    uploadOthers: '上传附图',
+    saving: '正在保存...',
+    cancel: '取消',
+    save: '保存产品',
+    uploading: '正在上传图片...'
   },
   ja: {
     heroTitle: '越境ECをスマートに、効率的に',
@@ -182,7 +206,19 @@ const translations: Record<UILanguage, Record<string, string>> = {
     signUp: 'サインアップ',
     orEmail: 'またはメールで続行',
     googleLogin: 'Googleで続行',
-    wechatLogin: 'WeChatで続行'
+    wechatLogin: 'WeChatで続行',
+    addListing: '新規出品作成',
+    asinLabel: 'ASIN',
+    titleLabel: '製品タイトル',
+    brandLabel: 'ブランド',
+    priceLabel: '価格 (USD)',
+    descLabel: '説明',
+    uploadMain: 'メイン画像',
+    uploadOthers: 'ギャラリー画像',
+    saving: '保存中...',
+    cancel: 'キャンセル',
+    save: '出品を保存',
+    uploading: 'アップロード中...'
   },
   de: {
     heroTitle: 'Automatisieren Sie Ihr grenzüberschreitendes Imperium',
@@ -239,7 +275,19 @@ const translations: Record<UILanguage, Record<string, string>> = {
     signUp: 'Registrieren',
     orEmail: 'Oder per E-Mail fortfahren',
     googleLogin: 'Weiter mit Google',
-    wechatLogin: 'Weiter mit WeChat'
+    wechatLogin: 'Weiter mit WeChat',
+    addListing: 'Neues Listing hinzufügen',
+    asinLabel: 'ASIN',
+    titleLabel: 'Produkttitel',
+    brandLabel: 'Marke',
+    priceLabel: 'Preis (USD)',
+    descLabel: 'Beschreibung',
+    uploadMain: 'Hauptbild',
+    uploadOthers: 'Galeriebilder',
+    saving: 'Speichern...',
+    cancel: 'Abbrechen',
+    save: 'Listing speichern',
+    uploading: 'Hochladen...'
   },
   fr: {
     heroTitle: 'Automatisez votre empire transfrontalier',
@@ -296,7 +344,19 @@ const translations: Record<UILanguage, Record<string, string>> = {
     signUp: 'S\'inscrire',
     orEmail: 'Ou continuer par e-mail',
     googleLogin: 'Continuer avec Google',
-    wechatLogin: 'Continuer avec WeChat'
+    wechatLogin: 'Continuer avec WeChat',
+    addListing: 'Ajouter une annonce',
+    asinLabel: 'ASIN',
+    titleLabel: 'Titre du produit',
+    brandLabel: 'Marque',
+    priceLabel: 'Prix (USD)',
+    descLabel: 'Description',
+    uploadMain: 'Image principale',
+    uploadOthers: 'Galerie d\'images',
+    saving: 'Enregistrement...',
+    cancel: 'Annuler',
+    save: 'Enregistrer l\'annonce',
+    uploading: 'Téléchargement...'
   },
   es: {
     heroTitle: 'Automatice su imperio transfronterizo',
@@ -318,7 +378,7 @@ const translations: Record<UILanguage, Record<string, string>> = {
     searchPlaceholder: 'Buscar por título o ASIN...',
     simulateImport: 'Simular colecta',
     manualAdd: 'Añadir manual',
-    actions: 'Acciones',
+    actions: 'Actions',
     edit: 'Editar',
     back: 'Volver',
     aiOptimize: 'Optimización IA',
@@ -353,7 +413,19 @@ const translations: Record<UILanguage, Record<string, string>> = {
     signUp: 'Registrarse',
     orEmail: 'O continuar con email',
     googleLogin: 'Continuar con Google',
-    wechatLogin: 'Continuar con WeChat'
+    wechatLogin: 'Continuar con WeChat',
+    addListing: 'Agregar nuevo listado',
+    asinLabel: 'ASIN',
+    titleLabel: 'Título del producto',
+    brandLabel: 'Marca',
+    priceLabel: 'Precio (USD)',
+    descLabel: 'Descripción',
+    uploadMain: 'Imagen principal',
+    uploadOthers: 'Galería de imágenes',
+    saving: 'Guardando...',
+    cancel: 'Cancelar',
+    save: 'Guardar listado',
+    uploading: 'Subiendo...'
   }
 };
 

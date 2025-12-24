@@ -5,6 +5,7 @@ import { Listing, UILanguage } from '../types';
 import { MOCK_CLEANED_DATA } from '../constants';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { ManualListingModal } from './ManualListingModal';
 
 interface DashboardProps {
   onSelectListing: (listing: Listing) => void;
@@ -18,6 +19,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
   const t = useTranslation(lang);
   const [searchTerm, setSearchTerm] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
 
   const handleSimulateImport = async () => {
     if (!isSupabaseConfigured()) return;
@@ -64,6 +66,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
+      {isManualModalOpen && (
+        <ManualListingModal 
+          uiLang={lang} 
+          onClose={() => setIsManualModalOpen(false)} 
+          onSave={() => {
+            setIsManualModalOpen(false);
+            refreshListings();
+          }}
+        />
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h3 className="text-slate-400 text-xs font-black uppercase tracking-widest">{t('totalListings')}</h3>
@@ -104,7 +117,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectListing, listings,
             {isImporting ? <Loader2 size={18} className="animate-spin" /> : <Bot size={18} />}
             {t('simulateImport')}
            </button>
-           <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800 font-bold text-sm shadow-xl transition-all">
+           <button 
+             onClick={() => setIsManualModalOpen(true)}
+             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800 font-bold text-sm shadow-xl transition-all"
+           >
             <Plus size={18} /> {t('manualAdd')}
            </button>
         </div>
