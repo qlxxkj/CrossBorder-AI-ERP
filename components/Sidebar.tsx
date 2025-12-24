@@ -6,12 +6,13 @@ import { useTranslation } from '../lib/i18n';
 
 interface SidebarProps {
   onLogout: () => void;
+  onLogoClick: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   lang: UILanguage;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onLogout, activeTab, setActiveTab, lang }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeTab, setActiveTab, lang }) => {
   const t = useTranslation(lang);
   const menuItems = [
     { id: 'dashboard', label: t('dashboard'), icon: <LayoutDashboard size={20} /> },
@@ -22,9 +23,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, activeTab, setActive
   return (
     <div className="w-64 bg-slate-900 text-white h-screen flex flex-col fixed left-0 top-0 z-50">
       <div className="p-6 border-b border-slate-800 flex items-center justify-between">
-        <h1 className="text-xl font-black flex items-center gap-2">
+        <button onClick={onLogoClick} className="text-xl font-black flex items-center gap-2 hover:opacity-80 transition-opacity">
           <span className="bg-blue-600 px-2 py-0.5 rounded text-sm">ERP</span> AMZBot
-        </h1>
+        </button>
       </div>
 
       <nav className="flex-1 p-4 space-y-2">

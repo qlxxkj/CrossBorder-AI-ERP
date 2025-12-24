@@ -7,10 +7,11 @@ import { useTranslation } from '../lib/i18n';
 
 interface AuthPageProps {
   onBack: () => void;
+  onLogoClick: () => void;
   uiLang: UILanguage;
 }
 
-export const AuthPage: React.FC<AuthPageProps> = ({ onBack, uiLang }) => {
+export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang }) => {
   const t = useTranslation(uiLang);
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -71,9 +72,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack, uiLang }) => {
       <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden">
         <div className="p-10">
           <div className="text-center mb-10">
-            <div className="inline-flex items-center justify-center w-14 h-14 bg-blue-600 rounded-2xl text-white font-black text-2xl mb-6 shadow-xl shadow-blue-100">
+            <button 
+              onClick={onLogoClick}
+              className="inline-flex items-center justify-center w-14 h-14 bg-blue-600 rounded-2xl text-white font-black text-2xl mb-6 shadow-xl shadow-blue-100 hover:scale-105 transition-transform"
+            >
               A
-            </div>
+            </button>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">
               {isSignUp ? t('authCreate') : t('authWelcome')}
             </h2>

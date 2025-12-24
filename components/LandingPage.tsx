@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { 
   ArrowRight, Bot, Zap, Globe, Download, Sparkles, Check, 
@@ -9,11 +10,12 @@ import { useTranslation } from '../lib/i18n';
 
 interface LandingPageProps {
   onLogin: () => void;
+  onLogoClick: () => void;
   uiLang: UILanguage;
   onLanguageChange: (lang: UILanguage) => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, uiLang, onLanguageChange }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onLogoClick, uiLang, onLanguageChange }) => {
   const t = useTranslation(uiLang);
   
   return (
@@ -21,10 +23,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, uiLang, onLan
       {/* Navbar */}
       <nav className="border-b border-slate-100 fixed w-full bg-white/80 backdrop-blur-md z-[100]">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <button onClick={onLogoClick} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black">A</div>
             <span className="text-xl font-black text-slate-900">AMZBot ERP</span>
-          </div>
+          </button>
           
           <div className="hidden lg:flex items-center gap-8 text-sm font-bold text-slate-500">
             <a href="#features" className="hover:text-blue-600 transition-colors">{t('features')}</a>
@@ -370,10 +372,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, uiLang, onLan
          <div className="max-w-7xl mx-auto px-6">
             <div className="flex flex-col md:flex-row justify-between items-start gap-12 mb-20">
                <div className="max-w-xs">
-                  <div className="flex items-center gap-3 mb-6">
+                  <button onClick={onLogoClick} className="flex items-center gap-3 mb-6 hover:opacity-80 transition-opacity">
                      <div className="w-10 h-10 bg-slate-900 rounded-2xl flex items-center justify-center text-white font-black text-xl">A</div>
                      <span className="font-black text-2xl tracking-tighter text-slate-900 uppercase">AMZBot ERP</span>
-                  </div>
+                  </button>
                   <p className="text-slate-400 text-sm font-medium leading-relaxed">
                      {uiLang === 'zh' ? '全球领先的 AI 跨境电商 ERP 解决方案，助力铺货卖家一键出海。' : 'Global leader in AI commerce solutions, empowering sellers to scale worldwide.'}
                   </p>

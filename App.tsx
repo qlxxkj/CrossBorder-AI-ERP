@@ -113,6 +113,11 @@ const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleLogoClick = () => {
+    setView(AppView.LANDING);
+    setSelectedListing(null);
+  };
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
@@ -123,18 +128,20 @@ const App: React.FC = () => {
     return (
       <LandingPage 
         onLogin={() => setView(session ? AppView.DASHBOARD : AppView.AUTH)} 
+        onLogoClick={handleLogoClick}
         uiLang={lang} 
         onLanguageChange={handleLanguageChange} 
       />
     );
   }
 
-  if (view === AppView.AUTH) return <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} />;
+  if (view === AppView.AUTH) return <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={handleLogoClick} uiLang={lang} />;
 
   return (
     <div className="flex min-h-screen bg-slate-50">
       <Sidebar 
         onLogout={handleLogout} 
+        onLogoClick={handleLogoClick}
         activeTab={activeTab} 
         setActiveTab={setActiveTab}
         lang={lang}
