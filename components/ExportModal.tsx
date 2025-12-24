@@ -54,7 +54,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       csvRows.push(""); 
       csvRows.push("version=2023.1210"); 
       csvRows.push(`Marketplace=${selectedTemplate.marketplace || 'US'}`);
-      // 4-7. Headers & Empty Rows
+      // 4-7. Headers & Meta Rows
       csvRows.push(selectedTemplate.headers.join(','));
       csvRows.push(selectedTemplate.headers.map(() => "").join(','));
       csvRows.push(selectedTemplate.headers.map(() => "").join(','));
@@ -64,6 +64,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         const cleaned = listing.cleaned;
         const optimized = listing.optimized;
         const otherImages = cleaned.other_images || [];
+        const features = optimized?.optimized_features || cleaned.features || [];
 
         const row = selectedTemplate.headers.map(header => {
           const mapping = selectedTemplate.mappings?.[header];
@@ -79,12 +80,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               else if (field === 'description') value = optimized?.optimized_description || cleaned.description;
               else if (field === 'main_image') value = cleaned.main_image;
               else if (field?.startsWith('other_image')) {
-                const idx = parseInt(field.replace('other_image', '')) - 1;
-                value = otherImages[idx] || '';
+                // 提取索引 (other_image1 -> 0, other_image2 -> 1)
+                const match = field.match(/\d+/);
+                const idx = match ? parseInt(match[0]) - 1 : -1;
+                value = idx >= 0 ? (otherImages[idx] || '') : '';
               } else if (field?.startsWith('feature')) {
-                const idx = parseInt(field.replace('feature', '')) - 1;
-                const points = optimized?.optimized_features || cleaned.features || [];
-                value = points[idx] || '';
+                // 提取索引 (feature1 -> 0, feature2 -> 1)
+                const match = field.match(/\d+/);
+                const idx = match ? parseInt(match[0]) - 1 : -1;
+                value = idx >= 0 ? (features[idx] || '') : '';
               } else if (field === 'weight') value = cleaned.item_weight || '';
               else if (field === 'dimensions') value = cleaned.product_dimensions || '';
             } 
@@ -99,7 +103,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             }
           }
 
-          // 兜底：如果没映射到值，最后尝试 Row 8 原始值
+          // 最后的兜底逻辑：如果映射后的值依然为空，尝试使用 Row 8 原始值
           if (!value && mapping?.templateDefault) {
             value = mapping.templateDefault;
           }
