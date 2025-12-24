@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info } from 'lucide-react';
+import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info, Star } from 'lucide-react';
 import { ExportTemplate, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -57,68 +57,72 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const workbook = XLSX.read(data, { type: 'array' });
         
         let foundHeaders: string[] = [];
+        let requiredHeaders: string[] = [];
         let foundSheetName = "";
 
-        // 核心逻辑：遍历所有工作表，寻找包含亚马逊特征表头的行
-        // 亚马逊特征字段：item_sku, external_product_id, feed_product_type, item_name 等
-        const amazonKeywords = ['item_sku', 'sku', 'external_product_id', 'feed_product_type', 'item_name', 'product_id'];
+        // 1. Parse "Data Definitions" sheet to find mandatory fields
+        const definitionsSheet = workbook.SheetNames.find(n => n.includes('Data Definitions') || n.includes('数据定义'));
+        if (definitionsSheet) {
+          const sheet = workbook.Sheets[definitionsSheet];
+          const defData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          
+          // Find "Field Name" and "Required" column indices
+          let fieldNameIdx = -1;
+          let requiredIdx = -1;
+          
+          for (let i = 0; i < Math.min(defData.length, 10); i++) {
+            const row = defData[i];
+            if (!row) continue;
+            const fn = row.findIndex(c => String(c || '').toLowerCase().includes('field name'));
+            const req = row.findIndex(c => String(c || '').toLowerCase().includes('required'));
+            if (fn !== -1) fieldNameIdx = fn;
+            if (req !== -1) requiredIdx = req;
+            if (fieldNameIdx !== -1 && requiredIdx !== -1) break;
+          }
 
-        for (const sheetName of workbook.SheetNames) {
-          const worksheet = workbook.Sheets[sheetName];
-          // 只读取前 50 行，提高效率且亚马逊表头通常在 1-5 行
-          const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:ZZ50');
-          range.s.r = 0; 
-          range.e.r = Math.min(range.e.r, 50); 
-          const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { 
-            header: 1, 
-            defval: '', 
-            range: XLSX.utils.encode_range(range) 
-          });
+          if (fieldNameIdx !== -1 && requiredIdx !== -1) {
+            defData.forEach(row => {
+              const fieldName = String(row[fieldNameIdx] || '').trim();
+              const isReq = String(row[requiredIdx] || '').toLowerCase();
+              if (fieldName && (isReq === 'required' || isReq === 'yes' || isReq.includes('必填'))) {
+                requiredHeaders.push(fieldName);
+              }
+            });
+          }
+        }
 
-          for (let i = 0; i < jsonData.length; i++) {
+        // 2. Parse "Template" sheet for actual headers (Row 4)
+        const templateSheetName = workbook.SheetNames.find(n => 
+          n.toLowerCase().includes('template') || 
+          n.includes('模板') || 
+          n.includes('刊登')
+        ) || workbook.SheetNames[0];
+
+        const worksheet = workbook.Sheets[templateSheetName];
+        const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+        
+        // Amazon Standard: Row 1-3 are instructions/labels, Row 4 is Header, Data starts Row 8
+        const headerRowIndex = 3; // Index 3 is Row 4
+        const headerRow = jsonData[headerRowIndex];
+
+        if (headerRow && headerRow.length > 5) {
+          foundHeaders = headerRow.map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim()).filter(h => h !== '');
+          foundSheetName = templateSheetName;
+        } else {
+          // Fallback to keyword search if Row 4 is not standard
+          const keywords = ['item_sku', 'external_product_id', 'item_name'];
+          for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
             const row = jsonData[i];
-            if (!row || !Array.isArray(row)) continue;
-
-            // 检查这一行是否包含至少 2 个亚马逊核心关键字
-            const matchCount = row.filter(cell => {
-              const s = String(cell).toLowerCase();
-              return amazonKeywords.some(k => s === k || s.includes(k));
-            }).length;
-
-            if (matchCount >= 2) {
-              foundHeaders = row.map(h => String(h || '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim()).filter(h => h !== '');
-              foundSheetName = sheetName;
+            if (row && row.some(c => keywords.some(k => String(c).toLowerCase().includes(k)))) {
+              foundHeaders = row.map(h => String(h || '').trim()).filter(h => h !== '');
+              foundSheetName = templateSheetName;
               break;
             }
           }
-          if (foundHeaders.length > 0) break;
-        }
-
-        // 兜底方案：如果没找到关键字，但在名为 Template 的表中找到了数据行
-        if (foundHeaders.length === 0) {
-          const templateSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('template') || n.includes('模板'));
-          if (templateSheet) {
-            const worksheet = workbook.Sheets[templateSheet];
-            const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-            // 找列数最多的行
-            let maxCols = 0;
-            let bestRow: string[] = [];
-            jsonData.slice(0, 10).forEach(row => {
-              const cols = row.filter(c => String(c).trim() !== '').length;
-              if (cols > maxCols) {
-                maxCols = cols;
-                bestRow = row.map(h => String(h || '').trim());
-              }
-            });
-            if (bestRow.length > 5) {
-              foundHeaders = bestRow;
-              foundSheetName = templateSheet;
-            }
-          }
         }
 
         if (foundHeaders.length === 0) {
-          throw new Error(uiLang === 'zh' ? "在工作簿中未找到有效的亚马逊表头。请确保文件是原始的亚马逊批量上传模板。" : "No valid Amazon headers found in any sheet. Please ensure you upload the original macro-enabled template.");
+          throw new Error(uiLang === 'zh' ? "在工作簿中未找到有效的亚马逊表头（通常在第4行）。" : "No valid Amazon headers found (usually row 4).");
         }
 
         const { data: { session } } = await supabase.auth.getSession();
@@ -128,8 +132,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           user_id: session.user.id,
           name: `${file.name.replace(/\.[^/.]+$/, "")} (${foundSheetName})`,
           headers: foundHeaders,
+          required_headers: requiredHeaders,
           default_values: {},
-          marketplace: 'US',
+          marketplace: 'US', // Can be refined by parsing Template sheet if info exists
           created_at: new Date().toISOString()
         };
 
@@ -194,7 +199,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold">Smartly parses Amazon Official .xlsm files</p>
+            <p className="text-sm text-slate-400 font-bold">Standard Amazon Header (Row 4) & Data Definitions Support</p>
           </div>
         </div>
         <button 
@@ -209,7 +214,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           type="file" 
           ref={fileInputRef} 
           className="hidden" 
-          accept=".xlsm, .xlsx, .csv, application/vnd.ms-excel.sheet.macroEnabled.12" 
+          accept=".xlsm, .xlsx, .csv" 
           onChange={handleFileUpload} 
         />
       </div>
@@ -225,7 +230,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-320px)]">
-        {/* Left List */}
         <div className="lg:col-span-1 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
           <div className="p-6 border-b border-slate-50 bg-slate-50/50">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t('manageTemplates')}</span>
@@ -245,7 +249,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   onClick={() => setSelectedTemplate(tmp)}
                   className={`w-full p-5 rounded-3xl border text-left flex items-center justify-between transition-all group ${
                     selectedTemplate?.id === tmp.id 
-                      ? 'border-indigo-500 bg-indigo-50/40 text-indigo-900 shadow-sm ring-1 ring-indigo-500/10' 
+                      ? 'border-indigo-500 bg-indigo-50/40 text-indigo-900 shadow-sm' 
                       : 'border-slate-50 bg-white hover:border-slate-200 text-slate-600'
                   }`}
                 >
@@ -260,7 +264,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
         </div>
 
-        {/* Right Editor */}
         <div className="lg:col-span-2 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col overflow-hidden">
           {selectedTemplate ? (
             <>
@@ -280,27 +283,33 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                    <Info className="text-amber-500 shrink-0" size={20} />
                    <p className="text-[11px] font-bold text-amber-700 leading-relaxed uppercase tracking-wider">
                       {uiLang === 'zh' 
-                        ? '提示：为“品牌名”、“分类”或“配送方案”等重复性字段设置默认值，可在导出时自动填充，大幅提高铺货效率。' 
-                        : 'Tip: Set default values for repeated fields like Brand, Category, or Fulfillment. They will auto-fill during export.'}
+                        ? '红色星号标记的字段为亚马逊必填字段（由 Data Definitions 识别），请优先维护以确保成功刊登。' 
+                        : 'Fields with red stars are mandatory (from Data Definitions). Maintain these first to ensure successful listing.'}
                    </p>
                 </div>
                 <div className="grid grid-cols-1 gap-4">
-                  {selectedTemplate.headers.map((h, i) => (
-                    <div key={i} className="flex flex-col sm:flex-row gap-4 p-5 bg-slate-50/50 rounded-3xl border border-slate-50 hover:bg-white transition-all group">
-                      <div className="sm:w-1/3 flex items-center">
-                        <span className="text-xs font-black text-slate-500 break-all leading-tight">{h}</span>
+                  {selectedTemplate.headers.map((h, i) => {
+                    const isRequired = selectedTemplate.required_headers?.includes(h);
+                    return (
+                      <div key={i} className={`flex flex-col sm:flex-row gap-4 p-5 rounded-3xl border transition-all group ${isRequired ? 'bg-red-50/20 border-red-100' : 'bg-slate-50/50 border-slate-50 hover:bg-white'}`}>
+                        <div className="sm:w-1/3 flex items-center gap-2">
+                          <span className={`text-xs font-black break-all leading-tight ${isRequired ? 'text-red-600' : 'text-slate-500'}`}>
+                            {h}
+                          </span>
+                          {isRequired && <Star size={10} className="text-red-500 fill-red-500 shrink-0" />}
+                        </div>
+                        <div className="flex-1">
+                          <input 
+                            type="text" 
+                            value={selectedTemplate.default_values[h] || ''}
+                            onChange={(e) => updateDefaultValue(h, e.target.value)}
+                            placeholder={isRequired ? "Mandatory field..." : "Optional value..."}
+                            className={`w-full px-5 py-3 bg-white border rounded-2xl text-sm font-bold focus:ring-4 outline-none transition-all shadow-sm ${isRequired ? 'border-red-200 focus:ring-red-500/10 focus:border-red-500 text-red-900 placeholder:text-red-300' : 'border-slate-100 focus:ring-indigo-500/10 focus:border-indigo-500 text-slate-900'}`}
+                          />
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <input 
-                          type="text" 
-                          value={selectedTemplate.default_values[h] || ''}
-                          onChange={(e) => updateDefaultValue(h, e.target.value)}
-                          placeholder="设置默认值..."
-                          className="w-full px-5 py-3 bg-white border border-slate-100 rounded-2xl text-sm font-bold text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm"
-                        />
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </>
@@ -311,7 +320,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                </div>
                <h4 className="text-slate-900 font-black text-2xl mb-3 tracking-tight">{t('selectTemplate')}</h4>
                <p className="text-slate-400 text-sm font-bold max-w-xs leading-relaxed">
-                  {uiLang === 'zh' ? '请从左侧列表选择一个模板，或上传新的亚马逊官方刊登文件。' : 'Select a template from the list on the left or upload a new Amazon batch file.'}
+                  {uiLang === 'zh' ? '请从左侧列表选择一个模板。' : 'Select a template from the list on the left.'}
                </p>
             </div>
           )}

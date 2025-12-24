@@ -44,7 +44,28 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     setExporting(true);
 
     try {
-      const csvRows = [selectedTemplate.headers.join(',')];
+      // Amazon Flat File Structure: 
+      // Row 1: Instruction
+      // Row 2: Service Version
+      // Row 3: Marketplace
+      // Row 4: Header (the one we stored)
+      // Row 5-7: Labels/Instructions
+      // Row 8+: Data
+      
+      const csvRows = [];
+      
+      // Placeholder metadata rows for rows 1-3
+      csvRows.push(""); 
+      csvRows.push("version=2023.1210"); 
+      csvRows.push(`Marketplace=${selectedTemplate.marketplace || 'US'}`);
+      
+      // Row 4: Headers
+      csvRows.push(selectedTemplate.headers.join(','));
+      
+      // Row 5-7: Sub-headers / metadata
+      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
+      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
+      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
 
       selectedListings.forEach(listing => {
         const cleaned = listing.cleaned;
@@ -59,7 +80,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
           let value = '';
           
-          if (lowerH.includes('item_name') || lowerH.includes('product_name') || lowerH === 'title') {
+          // Improved mapping for Amazon standard headers
+          if (lowerH.includes('item_name') || lowerH.includes('product_name') || lowerH === 'title' || lowerH === 'product_title') {
              value = optimized?.optimized_title || cleaned.title;
           } else if (lowerH.includes('item_sku') || lowerH.includes('sku') || lowerH.includes('seller_sku')) {
              value = listing.asin;
@@ -77,8 +99,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              value = cleaned.main_image;
           } else if (lowerH.includes('other_image_url1')) {
              value = cleaned.other_images?.[0] || '';
-          } else if (lowerH.includes('other_image_url2')) {
-             value = cleaned.other_images?.[1] || '';
           } else if (lowerH.includes('bullet_point')) {
              const points = optimized?.optimized_features || cleaned.features || [];
              const idxMatch = lowerH.match(/bullet_point(\d+)/);
@@ -86,6 +106,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                const idx = parseInt(idxMatch[1]) - 1;
                value = points[idx] || '';
              }
+          } else if (lowerH.includes('update_delete')) {
+             value = 'Update';
           }
 
           return `"${cleanString(value)}"`;
@@ -127,7 +149,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              <CheckCircle2 size={24} className="text-indigo-600" />
              <div>
                 <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} Selected</p>
-                <p className="text-[10px] font-bold text-indigo-500 uppercase">Ready for export</p>
+                <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Format: Row 4 Headers, Row 8 Data</p>
              </div>
           </div>
 
@@ -135,11 +157,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('selectTemplate')}</label>
              <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto custom-scrollbar">
                 {loading ? <Loader2 className="animate-spin mx-auto" /> : templates.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-4">No templates found. Go to Template Manager.</p>
+                  <p className="text-xs text-slate-400 text-center py-4">No templates found.</p>
                 ) : templates.map(tmp => (
                   <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`flex items-center gap-4 p-4 rounded-2xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' : 'border-slate-100 hover:border-slate-200'}`}>
                     <FileSpreadsheet size={18} className={selectedTemplate?.id === tmp.id ? 'text-indigo-600' : 'text-slate-300'} />
-                    <span className="font-bold text-sm truncate">{tmp.name}</span>
+                    <div className="flex flex-col">
+                      <span className="font-black text-sm truncate">{tmp.name}</span>
+                      {tmp.required_headers && (
+                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">{tmp.required_headers.length} Mandatory Fields</span>
+                      )}
+                    </div>
                   </button>
                 ))}
              </div>
@@ -151,7 +178,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
            <button 
              disabled={!selectedTemplate || exporting}
              onClick={handleExport}
-             className="px-8 py-3 bg-slate-900 text-white rounded-xl font-black text-xs uppercase hover:bg-slate-800 transition-all flex items-center gap-2 disabled:opacity-50"
+             className="px-8 py-3 bg-slate-900 text-white rounded-xl font-black text-xs uppercase hover:bg-slate-800 transition-all flex items-center gap-2 disabled:opacity-50 shadow-xl"
            >
              {exporting ? <Loader2 className="animate-spin" size={14} /> : <Download size={14} />}
              {exporting ? 'Exporting...' : t('downloadCsv')}

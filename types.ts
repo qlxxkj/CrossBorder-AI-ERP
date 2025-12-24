@@ -43,6 +43,7 @@ export interface ExportTemplate {
   id: string;
   name: string;
   headers: string[];
+  required_headers?: string[]; // New: track mandatory fields from "Data Definitions"
   default_values: Record<string, string>;
   marketplace: string;
   created_at: string;
