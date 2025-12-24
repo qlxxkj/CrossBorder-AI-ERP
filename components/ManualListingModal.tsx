@@ -71,7 +71,6 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
   };
 
   const handleSave = async () => {
-    // Logic fix: Ensure state is read correctly for validation
     if (!formData.title.trim()) {
       alert(uiLang === 'zh' ? "请填写产品标题" : "Please fill in Product Title.");
       return;
@@ -89,7 +88,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
     setIsLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Please log in again.");
+      if (!session) throw new Error(uiLang === 'zh' ? "会话已过期，请重新登录" : "Session expired. Please log in again.");
 
       const cleanedData: CleanedData = {
         asin: formData.asin || `MANUAL-${Date.now()}`,
@@ -107,16 +106,15 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
           : '',
       };
 
-      const newListing = {
-        user_id: session.user.id, // Fixed RLS violation by providing user_id
+      const { error } = await supabase.from('listings').insert([{
+        user_id: session.user.id, 
         asin: cleanedData.asin,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'collected',
         cleaned: cleanedData
-      };
-
-      const { error } = await supabase.from('listings').insert([newListing]);
+      }]);
+      
       if (error) throw error;
       onSave();
     } catch (err: any) {
@@ -157,7 +155,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
 
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('titleLabel')}</label>
-                <textarea value={formData.title} onChange={(e) => setFormData(p => ({ ...p, title: e.target.value }))} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none min-h-[100px] font-bold" placeholder="Enter product title..." />
+                <textarea value={formData.title} onChange={(e) => setFormData(p => ({ ...p, title: e.target.value }))} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none min-h-[100px] font-bold leading-relaxed" placeholder="Enter product title..." />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -177,26 +175,36 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                 </div>
               </div>
 
-              {/* Improved Layout to prevent overlap */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {/* 彻底分栏，解决重叠问题 */}
+              <div className="space-y-4 pt-2">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1"><Weight size={12}/> {t('weightLabel')}</label>
                   <div className="flex gap-2">
                     <input type="number" value={formData.weightValue} onChange={(e) => setFormData(p => ({ ...p, weightValue: e.target.value }))} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" placeholder="0.00" />
-                    <select value={formData.weightUnit} onChange={(e) => setFormData(p => ({ ...p, weightUnit: e.target.value }))} className="w-24 px-2 py-3 bg-white border border-slate-200 rounded-2xl font-black text-xs uppercase">
+                    <select value={formData.weightUnit} onChange={(e) => setFormData(p => ({ ...p, weightUnit: e.target.value }))} className="w-24 px-2 py-3 bg-white border border-slate-200 rounded-2xl font-black text-xs uppercase cursor-pointer">
                       <option value="kg">kg</option>
                       <option value="lb">lb</option>
                       <option value="g">g</option>
                     </select>
                   </div>
                 </div>
+                
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1"><Ruler size={12}/> {t('dimensionsLabel')}</label>
-                  <div className="grid grid-cols-4 gap-1">
-                    <input type="number" placeholder="L" value={formData.dimL} onChange={(e) => setFormData(p => ({ ...p, dimL: e.target.value }))} className="w-full px-1 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" />
-                    <input type="number" placeholder="W" value={formData.dimW} onChange={(e) => setFormData(p => ({ ...p, dimW: e.target.value }))} className="w-full px-1 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" />
-                    <input type="number" placeholder="H" value={formData.dimH} onChange={(e) => setFormData(p => ({ ...p, dimH: e.target.value }))} className="w-full px-1 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" />
-                    <select value={formData.dimUnit} onChange={(e) => setFormData(p => ({ ...p, dimUnit: e.target.value }))} className="w-full px-1 py-3 bg-white border border-slate-200 rounded-xl font-black text-[9px] uppercase">
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="relative">
+                      <input type="number" placeholder="L" value={formData.dimL} onChange={(e) => setFormData(p => ({ ...p, dimL: e.target.value }))} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" />
+                      <span className="absolute -bottom-4 left-0 w-full text-center text-[8px] text-slate-300 font-black">LONG</span>
+                    </div>
+                    <div className="relative">
+                      <input type="number" placeholder="W" value={formData.dimW} onChange={(e) => setFormData(p => ({ ...p, dimW: e.target.value }))} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" />
+                      <span className="absolute -bottom-4 left-0 w-full text-center text-[8px] text-slate-300 font-black">WIDE</span>
+                    </div>
+                    <div className="relative">
+                      <input type="number" placeholder="H" value={formData.dimH} onChange={(e) => setFormData(p => ({ ...p, dimH: e.target.value }))} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" />
+                      <span className="absolute -bottom-4 left-0 w-full text-center text-[8px] text-slate-300 font-black">HIGH</span>
+                    </div>
+                    <select value={formData.dimUnit} onChange={(e) => setFormData(p => ({ ...p, dimUnit: e.target.value }))} className="w-full px-1 py-3 bg-white border border-slate-200 rounded-xl font-black text-[10px] uppercase cursor-pointer">
                       <option value="cm">cm</option>
                       <option value="in">in</option>
                     </select>
@@ -204,9 +212,9 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 pt-4">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('descLabel')}</label>
-                <textarea value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium text-slate-600 min-h-[120px]" />
+                <textarea value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium text-slate-600 min-h-[120px] leading-relaxed" />
               </div>
             </div>
 
@@ -216,15 +224,15 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                 <div className="relative aspect-square rounded-[2rem] bg-slate-50 border-2 border-dashed border-slate-200 overflow-hidden group shadow-inner">
                   {formData.main_image ? (
                     <>
-                      <img src={formData.main_image} className="w-full h-full object-contain p-4" />
-                      <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <button onClick={() => setFormData(p => ({ ...p, main_image: '' }))} className="px-6 py-2.5 bg-red-600 text-white rounded-xl font-black text-xs uppercase">Delete</button>
+                      <img src={formData.main_image} className="w-full h-full object-contain p-4" alt="Main" />
+                      <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                        <button onClick={() => setFormData(p => ({ ...p, main_image: '' }))} className="px-6 py-2.5 bg-red-600 text-white rounded-xl font-black text-xs uppercase tracking-widest">Delete Main</button>
                       </div>
                     </>
                   ) : (
                     <button onClick={() => mainImageInputRef.current?.click()} className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 hover:bg-slate-100 transition-all">
-                      {isUploading ? <Loader2 className="animate-spin" /> : <Upload size={32} className="mb-2" />}
-                      <span className="text-xs font-black uppercase tracking-widest">{isUploading ? 'Uploading...' : 'Click to upload'}</span>
+                      {isUploading ? <Loader2 className="animate-spin text-indigo-500" size={32} /> : <Upload size={32} className="mb-2" />}
+                      <span className="text-xs font-black uppercase tracking-widest">{isUploading ? t('uploading') : 'Click to upload'}</span>
                     </button>
                   )}
                   <input type="file" ref={mainImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, true)} />
@@ -232,16 +240,16 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
               </div>
 
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gallery Images</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gallery Images (Max 9)</label>
                 <div className="grid grid-cols-4 gap-3">
                   {formData.other_images.map((img, i) => (
-                    <div key={i} className="relative aspect-square rounded-2xl bg-slate-50 border border-slate-200 overflow-hidden group">
-                      <img src={img} className="w-full h-full object-cover" />
+                    <div key={i} className="relative aspect-square rounded-2xl bg-slate-50 border border-slate-200 overflow-hidden group shadow-sm">
+                      <img src={img} className="w-full h-full object-cover" alt={`Gallery ${i}`} />
                       <button onClick={() => setFormData(p => ({ ...p, other_images: p.other_images.filter(x => x !== img) }))} className="absolute inset-0 bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Trash2 size={16} /></button>
                     </div>
                   ))}
                   {formData.other_images.length < 9 && (
-                    <button onClick={() => otherImagesInputRef.current?.click()} className="aspect-square rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-300 hover:bg-slate-50 transition-all">
+                    <button onClick={() => otherImagesInputRef.current?.click()} disabled={isUploading} className="aspect-square rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-600 transition-all bg-slate-50">
                       {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={24} />}
                     </button>
                   )}
@@ -253,8 +261,8 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
         </div>
 
         <div className="p-8 border-t border-slate-100 bg-slate-50 flex justify-end gap-4">
-          <button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">{t('cancel')}</button>
-          <button onClick={handleSave} disabled={isLoading || isUploading} className="px-10 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 shadow-xl flex items-center gap-2 disabled:opacity-50">
+          <button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">{t('cancel')}</button>
+          <button onClick={handleSave} disabled={isLoading || isUploading} className="px-10 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 shadow-xl shadow-slate-200 transition-all flex items-center gap-2 disabled:opacity-50">
             {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
             {isLoading ? t('saving') : t('save')}
           </button>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check } from 'lucide-react';
+import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle } from 'lucide-react';
 import { ExportTemplate, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -17,6 +17,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ExportTemplate | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTemplates();
@@ -27,9 +28,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       setLoading(false);
       return;
     }
-    const { data, error } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
-    if (!error && data) setTemplates(data);
-    setLoading(false);
+    setError(null);
+    try {
+      const { data, error: dbError } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
+      if (dbError) throw dbError;
+      if (data) setTemplates(data);
+    } catch (err: any) {
+      console.error(err);
+      if (err.message.includes('public.templates')) {
+        setError(uiLang === 'zh' ? "数据库中缺少 'templates' 表，请运行 SQL 脚本创建。" : "Table 'templates' not found. Please run the SQL script in your Supabase dashboard.");
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,20 +58,28 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // Amazon templates usually have 3 rows of headers. We'll use the "Internal Name" row (often row 3)
-        // Or we just take the first row that looks like headers.
+        // 解析所有行
         const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
         
-        // Strategy: find a row with many columns to be the header row
-        // For Amazon, row 3 (index 2) is usually the "Feed Product Type" or "SKU" identifier row.
-        const headerRowIndex = jsonData.findIndex(row => row.includes('sku') || row.includes('item_sku') || row.length > 10);
+        // 亚马逊模板通常在前几行包含说明。
+        // 策略：寻找第一行包含超过 5 个非空单元格的行作为表头。
+        let headerRowIndex = jsonData.findIndex(row => row && Array.isArray(row) && row.filter(c => c !== null && c !== '').length > 5);
+        
+        // 特殊处理亚马逊官方模板：有时第3行才是真正的内部字段名
+        const potentialAmazonHeaderIdx = jsonData.findIndex(row => row && row.includes('item_sku') || row.includes('sku') || row.includes('item_name'));
+        if (potentialAmazonHeaderIdx !== -1) headerRowIndex = potentialAmazonHeaderIdx;
+
         const headers = (jsonData[headerRowIndex > -1 ? headerRowIndex : 0] || [])
           .map(h => String(h || '').trim())
           .filter(h => h !== '');
 
-        if (headers.length === 0) throw new Error("Could not find valid headers in file.");
+        if (headers.length === 0) throw new Error(uiLang === 'zh' ? "未能从文件中提取到有效的表头字段。" : "Could not find valid headers in file.");
 
-        const newTemplate: Partial<ExportTemplate> = {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("Please log in first.");
+
+        const newTemplatePayload = {
+          user_id: session.user.id,
           name: file.name.replace(/\.[^/.]+$/, ""),
           headers,
           default_values: {},
@@ -67,15 +88,14 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         };
 
         if (isSupabaseConfigured()) {
-          const { data: { session } } = await supabase.auth.getSession();
-          const { error } = await supabase.from('templates').insert([{ ...newTemplate, user_id: session?.user?.id }]);
-          if (error) throw error;
+          const { error: insError } = await supabase.from('templates').insert([newTemplatePayload]);
+          if (insError) throw insError;
           fetchTemplates();
         } else {
-          setTemplates(prev => [newTemplate as ExportTemplate, ...prev]);
+          setTemplates(prev => [newTemplatePayload as any as ExportTemplate, ...prev]);
         }
       } catch (err: any) {
-        alert("Template processing failed: " + err.message);
+        alert("Template upload failed: " + err.message);
       } finally {
         setIsUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -94,21 +114,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
   const saveTemplate = async () => {
     if (!selectedTemplate || !isSupabaseConfigured()) return;
-    const { error } = await supabase
+    const { error: updError } = await supabase
       .from('templates')
       .update({ default_values: selectedTemplate.default_values })
       .eq('id', selectedTemplate.id);
     
-    if (error) alert(error.message);
+    if (updError) alert(updError.message);
     else {
-      alert("Template default values saved!");
+      alert(uiLang === 'zh' ? "模板默认值已保存" : "Template saved successfully!");
       fetchTemplates();
     }
   };
 
   const deleteTemplate = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm("Delete template?")) return;
+    if (!window.confirm(uiLang === 'zh' ? "确定要删除此模板吗？" : "Delete template?")) return;
     if (isSupabaseConfigured()) {
       await supabase.from('templates').delete().eq('id', id);
       fetchTemplates();
@@ -127,7 +147,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-2xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-medium">Manage Amazon XLSM/CSV templates</p>
+            <p className="text-sm text-slate-400 font-medium">Manage Amazon Official XLSM Templates</p>
           </div>
         </div>
         <button 
@@ -141,16 +161,28 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         <input type="file" ref={fileInputRef} className="hidden" accept=".xlsm,.xlsx,.csv" onChange={handleFileUpload} />
       </div>
 
+      {error && (
+        <div className="bg-red-50 border border-red-100 p-6 rounded-3xl flex items-start gap-4">
+           <AlertCircle className="text-red-600 shrink-0" />
+           <div>
+              <p className="text-red-900 font-black text-sm">{uiLang === 'zh' ? '功能配置未完成' : 'Configuration Required'}</p>
+              <p className="text-red-600 text-xs font-medium mt-1 leading-relaxed">{error}</p>
+           </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-280px)]">
         <div className="lg:col-span-1 bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-          <div className="p-6 border-b border-slate-50 bg-slate-50/50 flex justify-between">
+          <div className="p-6 border-b border-slate-50 bg-slate-50/50">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('manageTemplates')}</span>
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
-            {templates.length === 0 ? (
+            {loading ? (
+               <div className="flex justify-center p-20"><Loader2 className="animate-spin text-slate-200" /></div>
+            ) : templates.length === 0 ? (
               <div className="p-8 text-center space-y-4">
                  <FileSpreadsheet className="mx-auto text-slate-100" size={48} />
-                 <p className="text-slate-400 text-xs font-bold">{t('noTemplates')}</p>
+                 <p className="text-slate-400 text-xs font-bold leading-relaxed">{t('noTemplates')}</p>
               </div>
             ) : (
               templates.map(tmp => (
@@ -158,7 +190,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   key={tmp.id}
                   onClick={() => setSelectedTemplate(tmp)}
                   className={`w-full p-4 rounded-2xl border text-left flex items-center justify-between transition-all group ${
-                    selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-50 bg-white'
+                    selectedTemplate?.id === tmp.id 
+                      ? 'border-indigo-500 bg-indigo-50/50 text-indigo-900 shadow-sm' 
+                      : 'border-slate-50 bg-white hover:border-slate-200 text-slate-600'
                   }`}
                 >
                   <div className="flex items-center gap-3 overflow-hidden">
@@ -176,15 +210,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           {selectedTemplate ? (
             <>
               <div className="px-8 py-5 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
-                <h3 className="font-black text-slate-900 text-sm">{selectedTemplate.name}</h3>
-                <button onClick={saveTemplate} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2">
+                <div className="flex items-center gap-3">
+                  <Settings2 className="text-indigo-500" size={18} />
+                  <h3 className="font-black text-slate-900 text-sm tracking-tight">{selectedTemplate.name}</h3>
+                </div>
+                <button onClick={saveTemplate} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-indigo-100 active:scale-95 transition-all">
                   <Save size={14} /> {t('save')}
                 </button>
               </div>
               <div className="p-8 flex-1 overflow-y-auto custom-scrollbar">
+                <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 text-[11px] font-bold text-amber-700 leading-relaxed mb-6">
+                   {uiLang === 'zh' ? '提示：为“品牌”、“分类”或“配送方案”等固定字段设置默认值，可极大减少导出后的手动修改工作。' : 'Tip: Setting default values for fixed columns like "Brand" or "Fulfillment" can save significant manual editing time.'}
+                </div>
                 <div className="space-y-4">
                   {selectedTemplate.headers.map((h, i) => (
-                    <div key={i} className="flex gap-4 p-4 bg-slate-50/50 rounded-2xl border border-slate-50 hover:bg-white transition-all">
+                    <div key={i} className="flex gap-4 p-4 bg-slate-50/50 rounded-2xl border border-slate-50 hover:bg-white hover:border-slate-200 transition-all">
                       <div className="flex-1">
                         <span className="text-xs font-bold text-slate-700">{h}</span>
                       </div>
@@ -194,7 +234,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                           value={selectedTemplate.default_values[h] || ''}
                           onChange={(e) => updateDefaultValue(h, e.target.value)}
                           placeholder="Default value..."
-                          className="w-full px-4 py-2 bg-white border border-slate-100 rounded-xl text-xs font-medium"
+                          className="w-full px-4 py-2 bg-white border border-slate-100 rounded-xl text-xs font-medium focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm"
                         />
                       </div>
                     </div>
@@ -203,13 +243,19 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-20 text-center text-slate-400">
-               <Settings2 size={40} className="mb-4 opacity-20" />
-               <h4 className="font-black">{t('selectTemplate')}</h4>
+            <div className="flex-1 flex flex-col items-center justify-center p-20 text-center bg-slate-50/20">
+               <Settings2 size={40} className="mb-4 opacity-20 text-slate-400" />
+               <h4 className="text-slate-900 font-black text-lg mb-2">{t('selectTemplate')}</h4>
+               <p className="text-slate-400 text-xs font-medium max-w-xs">{t('noTemplates')}</p>
             </div>
           )}
         </div>
       </div>
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+      `}</style>
     </div>
   );
 };
