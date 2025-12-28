@@ -32,7 +32,6 @@ const LISTING_SOURCE_FIELDS = [
   { value: 'other_image8', label: 'Other Image 8' },
 ];
 
-// 安全的编码函数，避免大文件栈溢出
 function safeEncode(bytes: Uint8Array): string {
   let binary = '';
   const len = bytes.byteLength;
@@ -110,7 +109,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const data = new Uint8Array(arrayBuffer);
         const workbook = XLSX.read(data, { type: 'array', cellNF: true, cellText: true, cellStyles: true });
         
-        // 使用安全的编码方法，修复 Maximum call stack size exceeded
         const base64File = safeEncode(data);
 
         let foundHeaders: string[] = [];
@@ -152,7 +150,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         foundHeaders = row4.map(h => String(h || '').trim());
         row8Defaults = row4.map((_, i) => String(row8?.[i] || '').trim());
 
-        const mappings: Record<string, FieldMapping> = {};
+        const mappings: Record<string, any> = {};
         let imgCount = 0, bulletCount = 0;
 
         foundHeaders.forEach((h, i) => {
@@ -185,16 +183,17 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           };
         });
 
+        // 将二进制文件存储在 mappings 中，以适配没有 file_data 字段的数据库
+        mappings['__binary'] = base64File;
+
         const { data: { session } } = await supabase.auth.getSession();
         
-        // 关键修复：检查并捕获插入错误
         const { data: inserted, error: insertError } = await supabase.from('templates').insert([{
           user_id: session?.user?.id,
           name: file.name,
           headers: foundHeaders,
           mappings: mappings,
           marketplace: "US",
-          file_data: base64File,
           created_at: new Date().toISOString()
         }]).select();
 

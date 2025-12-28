@@ -12,7 +12,6 @@ interface ExportModalProps {
   onClose: () => void;
 }
 
-// 安全的解码函数
 function safeDecode(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -69,24 +68,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   };
 
   const handleExport = async () => {
-    if (!selectedTemplate || !selectedTemplate.file_data) {
-        alert("Template file data missing!");
+    // 二进制文件现在存储在 mappings['__binary'] 中
+    const fileBinary = selectedTemplate?.mappings?.['__binary'];
+    
+    if (!selectedTemplate || !fileBinary) {
+        alert("Template binary data missing from database record!");
         return;
     }
     setExporting(true);
 
     try {
-      // 1. 使用安全解码方法，修复潜在的栈溢出问题
-      const bytes = safeDecode(selectedTemplate.file_data);
+      const bytes = safeDecode(fileBinary);
 
-      // 2. 加载 Workbook (保留所有 Sheet 和样式)
       const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true });
       const tplSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'template' || n.includes('模板'));
       if (!tplSheetName) throw new Error("Template sheet not found in original file!");
       
       const sheet = workbook.Sheets[tplSheetName];
 
-      // 3. 准备数据行 (从第 9 行开始写入，SheetJS 索引从 0 开始，即 row index 8)
       selectedListings.forEach((listing, rowIdx) => {
         const rowNum = 8 + rowIdx;
         const cleaned = listing.cleaned;
@@ -94,11 +93,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         const otherImages = cleaned.other_images || [];
         const features = optimized?.optimized_features || cleaned.features || [];
 
-        // 预计算该行所有列的值
         const rowData: Record<string, string> = {};
         selectedTemplate.headers.forEach((h, colIdx) => {
           const key = `col_${colIdx}`;
-          const mapping = selectedTemplate.mappings?.[key];
+          const mapping = selectedTemplate.mappings?.[key] as FieldMapping | undefined;
           let val = "";
 
           if (mapping) {
@@ -127,15 +125,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           rowData[key] = val;
         });
 
-        // 写入单元格
         selectedTemplate.headers.forEach((h, colIdx) => {
           const key = `col_${colIdx}`;
-          const mapping = selectedTemplate.mappings?.[key];
+          const mapping = selectedTemplate.mappings?.[key] as FieldMapping | undefined;
           let finalVal = rowData[key];
 
           if (mapping?.source === 'random') {
             if (h.toLowerCase().includes('product id') && !h.toLowerCase().includes('type')) {
-              // 寻找关联的 Type
               let typeVal = "";
               selectedTemplate.headers.forEach((h2, colIdx2) => {
                 if (h2.toLowerCase().includes('product id type')) typeVal = rowData[`col_${colIdx2}`];
@@ -151,7 +147,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         });
       });
 
-      // 4. 生成新文件 (保持原始格式)
       const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm', bookSST: false });
       const blob = new Blob([outData], { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
       const url = URL.createObjectURL(blob);

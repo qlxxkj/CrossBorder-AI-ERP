@@ -53,9 +53,10 @@ export interface ExportTemplate {
   name: string;
   headers: string[];
   required_headers?: string[];
-  mappings?: Record<string, FieldMapping>; // Key 为列索引 "col_0", "col_1" ...
+  // Key 为列索引 "col_0", "col_1" ... 
+  // 特殊键 "__binary" 用于存储原始文件的 Base64 数据，以适配无 file_data 字段的数据库
+  mappings?: Record<string, any>; 
   marketplace: string;
-  file_data?: string; // 存储原始文件的 Base64 数据
   created_at: string;
 }
 
