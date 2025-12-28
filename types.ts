@@ -44,8 +44,7 @@ export interface FieldMapping {
   source: 'listing' | 'custom' | 'random' | 'template_default';
   listingField?: string; 
   defaultValue?: string;
-  templateDefault?: string; // 来自 Row 8 的值
-  dataType?: string; 
+  templateDefault?: string;
   acceptedValues?: string[]; 
 }
 
@@ -54,9 +53,9 @@ export interface ExportTemplate {
   name: string;
   headers: string[];
   required_headers?: string[];
-  mappings?: Record<string, FieldMapping>;
-  default_values: Record<string, string>;
+  mappings?: Record<string, FieldMapping>; // Key 为列索引 "col_0", "col_1" ...
   marketplace: string;
+  file_data?: string; // 存储原始文件的 Base64 数据
   created_at: string;
 }
 

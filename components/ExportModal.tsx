@@ -4,6 +4,7 @@ import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Shuffle, Globe } f
 import { Listing, ExportTemplate, UILanguage, FieldMapping } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import * as XLSX from 'xlsx';
 
 interface ExportModalProps {
   uiLang: UILanguage;
@@ -23,27 +24,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   }, []);
 
   const fetchTemplates = async () => {
-    if (!isSupabaseConfigured()) {
-      setLoading(false);
-      return;
-    }
-    const { data, error } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
-    if (!error && data) setTemplates(data);
+    if (!isSupabaseConfigured()) return;
+    const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
+    if (data) setTemplates(data);
     setLoading(false);
   };
 
-  const generateEAN = () => {
-    // 前3位国家代码 (示例使用 608)
-    const country = "608";
-    // 4位企业码 (随机)
-    const enterprise = Math.floor(1000 + Math.random() * 9000).toString();
-    // 5位流水号 (随机)
-    const sequence = Math.floor(10000 + Math.random() * 90000).toString();
-    const base = country + enterprise + sequence;
-    
-    // 计算 EAN-13 校验位
-    let sumOdd = 0;
-    let sumEven = 0;
+  const calculateEANCheckDigit = (base: string) => {
+    let sumOdd = 0, sumEven = 0;
     for (let i = 0; i < 12; i++) {
       const digit = parseInt(base[i]);
       if (i % 2 === 0) sumOdd += digit;
@@ -51,66 +39,74 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     }
     const total = sumOdd + (sumEven * 3);
     const remainder = total % 10;
-    const checkDigit = remainder === 0 ? 0 : 10 - remainder;
-    
-    return base + checkDigit;
+    return remainder === 0 ? 0 : 10 - remainder;
   };
 
-  const generateRandomString = () => {
+  const generateEAN = () => {
+    const country = "608";
+    const enterprise = Math.floor(1000 + Math.random() * 9000).toString();
+    const sequence = Math.floor(10000 + Math.random() * 90000).toString();
+    const base = country + enterprise + sequence;
+    return base + calculateEANCheckDigit(base);
+  };
+
+  const generateRandomStr = () => {
     const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const prefix = Array(3).fill(0).map(() => letters[Math.floor(Math.random() * letters.length)]).join('');
     const suffix = Math.floor(1000 + Math.random() * 9000).toString();
     return prefix + suffix;
   };
 
-  const handleExport = () => {
-    if (!selectedTemplate) return;
+  const handleExport = async () => {
+    if (!selectedTemplate || !selectedTemplate.file_data) {
+        alert("Template file data missing!");
+        return;
+    }
     setExporting(true);
 
     try {
-      const csvRows = [];
-      // 模拟亚马逊多层表头/宏格式
-      csvRows.push(""); 
-      csvRows.push("version=2023.1210"); 
-      csvRows.push(`Marketplace=${selectedTemplate.marketplace || 'US'}`);
-      
-      // 保持原始表头，不修改
-      csvRows.push(selectedTemplate.headers.join(','));
-      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
-      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
-      csvRows.push(selectedTemplate.headers.map(() => "").join(','));
+      // 1. 将 Base64 还原为 Uint8Array
+      const binary = atob(selectedTemplate.file_data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-      selectedListings.forEach(listing => {
+      // 2. 加载 Workbook (保留所有 Sheet 和样式)
+      const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true });
+      const tplSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'template' || n.includes('模板'));
+      if (!tplSheetName) throw new Error("Template sheet not found in original file!");
+      
+      const sheet = workbook.Sheets[tplSheetName];
+
+      // 3. 准备数据行 (从第 9 行开始写入，SheetJS 索引从 0 开始，即 row index 8)
+      selectedListings.forEach((listing, rowIdx) => {
+        const rowNum = 8 + rowIdx;
         const cleaned = listing.cleaned;
         const optimized = listing.optimized;
         const otherImages = cleaned.other_images || [];
         const features = optimized?.optimized_features || cleaned.features || [];
 
-        // 首先预计算所有字段的值，以便解决字段依赖（如 Product Id 取决于 Product Id Type）
-        const rowValues: Record<string, string> = {};
-        
-        selectedTemplate.headers.forEach((h, i) => {
-          const key = `${h}_idx_${i}`;
+        // 预计算该行所有列的值
+        const rowData: Record<string, string> = {};
+        selectedTemplate.headers.forEach((h, colIdx) => {
+          const key = `col_${colIdx}`;
           const mapping = selectedTemplate.mappings?.[key];
           let val = "";
 
           if (mapping) {
             if (mapping.source === 'listing') {
-              const field = mapping.listingField;
-              if (field === 'asin') val = listing.asin;
-              else if (field === 'title') val = optimized?.optimized_title || cleaned.title;
-              else if (field === 'price') val = String(cleaned.price);
-              else if (field === 'brand') val = cleaned.brand;
-              else if (field === 'description') val = optimized?.optimized_description || cleaned.description;
-              else if (field === 'main_image') val = cleaned.main_image;
-              else if (field?.startsWith('other_image')) {
-                const match = field.match(/\d+/);
-                const idx = match ? parseInt(match[0]) - 1 : -1;
-                val = idx >= 0 ? (otherImages[idx] || '') : '';
-              } else if (field?.startsWith('feature')) {
-                const match = field.match(/\d+/);
-                const idx = match ? parseInt(match[0]) - 1 : -1;
-                val = idx >= 0 ? (features[idx] || '') : '';
+              const f = mapping.listingField;
+              if (f === 'asin') val = listing.asin;
+              else if (f === 'title') val = optimized?.optimized_title || cleaned.title;
+              else if (f === 'price') val = String(cleaned.price);
+              else if (f === 'brand') val = cleaned.brand;
+              else if (f === 'description') val = optimized?.optimized_description || cleaned.description;
+              else if (f === 'main_image') val = cleaned.main_image;
+              else if (f?.startsWith('other_image')) {
+                const idx = parseInt(f.match(/\d+/)?.[0] || "1") - 1;
+                val = otherImages[idx] || '';
+              } else if (f?.startsWith('feature')) {
+                const idx = parseInt(f.match(/\d+/)?.[0] || "1") - 1;
+                val = features[idx] || '';
               }
             } else if (mapping.source === 'custom') {
               val = mapping.defaultValue || '';
@@ -118,44 +114,48 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               val = mapping.templateDefault || '';
             }
           }
-          
           if (!val && mapping?.templateDefault) val = mapping.templateDefault;
-          rowValues[key] = val;
+          rowData[key] = val;
         });
 
-        // 第二轮：处理随机逻辑 (Random)
-        const finalRow = selectedTemplate.headers.map((h, i) => {
-          const key = `${h}_idx_${i}`;
+        // 写入单元格
+        selectedTemplate.headers.forEach((h, colIdx) => {
+          const key = `col_${colIdx}`;
           const mapping = selectedTemplate.mappings?.[key];
-          if (mapping?.source === 'random') {
-             // 特殊逻辑：如果是 Product Id 且 Product Id Type 是 EAN
-             if (h.toLowerCase().includes('product id') && !h.toLowerCase().includes('type')) {
-                // 寻找同一个行中的 Type 字段
-                let typeVal = "";
-                selectedTemplate.headers.forEach((h2, i2) => {
-                   if (h2.toLowerCase().includes('product id type')) typeVal = rowValues[`${h2}_idx_${i2}`];
-                });
-                return typeVal?.toUpperCase() === 'EAN' ? `"${generateEAN()}"` : `"${generateRandomString()}"`;
-             }
-             return `"${generateRandomString()}"`;
-          }
-          return `"${rowValues[key].replace(/"/g, '""')}"`;
-        });
+          let finalVal = rowData[key];
 
-        csvRows.push(finalRow.join(','));
+          if (mapping?.source === 'random') {
+            if (h.toLowerCase().includes('product id') && !h.toLowerCase().includes('type')) {
+              // 寻找关联的 Type
+              let typeVal = "";
+              selectedTemplate.headers.forEach((h2, colIdx2) => {
+                // Fixed typo: replace 'rowValues' with 'rowData'
+                if (h2.toLowerCase().includes('product id type')) typeVal = rowData[`col_${colIdx2}`];
+              });
+              finalVal = typeVal?.toUpperCase() === 'EAN' ? generateEAN() : generateRandomStr();
+            } else {
+              finalVal = generateRandomStr();
+            }
+          }
+
+          const cellRef = XLSX.utils.encode_cell({ r: rowNum, c: colIdx });
+          sheet[cellRef] = { v: finalVal, t: 's' };
+        });
       });
 
-      const csvContent = "\ufeff" + csvRows.join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      // 4. 生成新文件 (保持原始格式)
+      const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm', bookSST: false });
+      const blob = new Blob([outData], { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `AMZ_Export_${selectedTemplate.marketplace}_${new Date().getTime()}.csv`;
+      link.download = `Export_${selectedTemplate.marketplace}_${Date.now()}.xlsm`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+
     } catch (err: any) {
-      alert(err.message);
+      alert("Export failed: " + err.message);
     } finally {
       setExporting(false);
       onClose();
@@ -174,15 +174,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
         <div className="p-8 space-y-6">
           <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex items-center gap-4">
-             <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600"><CheckCircle2 size={24} /></div>
-             <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} Selected</p>
+             <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm">
+                <CheckCircle2 size={24} />
+             </div>
+             <div>
+                <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} Selected</p>
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Original Excel Format Preserved</p>
+             </div>
           </div>
 
           <div className="space-y-3">
-             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('selectTemplate')}</label>
+             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('selectTemplate')}</label>
              <div className="grid grid-cols-1 gap-3 max-h-64 overflow-y-auto p-1">
                 {templates.map(tmp => (
-                  <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`flex items-center gap-4 p-5 rounded-[1.5rem] border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-md' : 'border-slate-100 bg-white hover:border-slate-300'}`}>
+                  <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`flex items-center gap-4 p-5 rounded-[1.5rem] border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-md ring-2 ring-indigo-500/10' : 'border-slate-100 bg-white hover:border-slate-300'}`}>
                     <div className="flex flex-col flex-1 overflow-hidden">
                       <span className="font-black text-sm truncate">{tmp.name}</span>
                       <span className="text-[8px] font-black text-slate-500 uppercase">{tmp.marketplace}</span>
@@ -198,7 +203,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
            <button 
              disabled={!selectedTemplate || exporting}
              onClick={handleExport}
-             className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase flex items-center gap-3 disabled:opacity-50 shadow-2xl"
+             className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase flex items-center gap-3 disabled:opacity-50 shadow-2xl active:scale-95 transition-all"
            >
              {exporting ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
              {exporting ? 'Exporting...' : t('downloadCsv')}

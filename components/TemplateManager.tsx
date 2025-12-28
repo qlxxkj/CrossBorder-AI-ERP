@@ -30,18 +30,6 @@ const LISTING_SOURCE_FIELDS = [
   { value: 'other_image6', label: 'Other Image 6' },
   { value: 'other_image7', label: 'Other Image 7' },
   { value: 'other_image8', label: 'Other Image 8' },
-  { value: 'weight', label: 'Item Weight' },
-  { value: 'dimensions', label: 'Dimensions' },
-];
-
-const MARKETPLACES = [
-  { code: 'US', name: 'United States', flag: '🇺🇸' },
-  { code: 'UK', name: 'United Kingdom', flag: '🇬🇧' },
-  { code: 'DE', name: 'Germany', flag: '🇩🇪' },
-  { code: 'FR', name: 'France', flag: '🇫🇷' },
-  { code: 'JP', name: 'Japan', flag: '🇯🇵' },
-  { code: 'IT', name: 'Italy', flag: '🇮🇹' },
-  { code: 'ES', name: 'Spain', flag: '🇪🇸' },
 ];
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -52,7 +40,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ExportTemplate | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterRequired, setFilterRequired] = useState(false);
 
   useEffect(() => {
     fetchTemplates();
@@ -63,22 +50,17 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       setLoading(false);
       return;
     }
-    try {
-      const { data, error } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
-      if (data) {
-        setTemplates(data);
-        if (selectId) {
-          const found = data.find(t => t.id === selectId);
-          if (found) setSelectedTemplate(found);
-        } else if (!selectedTemplate && data.length > 0) {
-          setSelectedTemplate(data[0]);
-        }
+    const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
+    if (data) {
+      setTemplates(data);
+      if (selectId) {
+        const found = data.find(t => t.id === selectId);
+        if (found) setSelectedTemplate(found);
+      } else if (!selectedTemplate && data.length > 0) {
+        setSelectedTemplate(data[0]);
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -89,132 +71,101 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const data = new Uint8Array(event.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const arrayBuffer = event.target?.result as ArrayBuffer;
+        const data = new Uint8Array(arrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array', cellNF: true, cellText: true, cellStyles: true });
         
+        // 存储原始文件的 Base64
+        const base64File = btoa(String.fromCharCode(...data));
+
         let foundHeaders: string[] = [];
-        let row8Defaults: Record<string, string> = {};
+        let row8Defaults: string[] = [];
         let requiredHeaders: string[] = [];
         let fieldDefinitions: Record<string, string[]> = {};
-        
-        // 1. Valid Values 解析 (深度递归解析合并单元格)
-        const vvSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('valid values') || n.includes('有效值'));
-        if (vvSheetName) {
-          const sheet = workbook.Sheets[vvSheetName];
-          const rawData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-          let fieldCol = -1, valCol = -1;
-          
+
+        // 1. Valid Values 解析
+        const vvSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('valid values') || n.includes('有效值'));
+        if (vvSheet) {
+          const rawData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[vvSheet], { header: 1 });
+          let fCol = -1, vCol = -1;
           for (let i = 0; i < Math.min(rawData.length, 25); i++) {
             const row = rawData[i];
-            if (!row) continue;
-            const fIdx = row.findIndex(c => String(c || '').toLowerCase().includes('field name') || String(c || '').includes('字段名称'));
-            const vIdx = row.findIndex(c => String(c || '').toLowerCase().includes('valid value') || String(c || '').includes('有效值'));
-            if (fIdx !== -1 && vIdx !== -1) { fieldCol = fIdx; valCol = vIdx; break; }
+            const fIdx = row?.findIndex(c => String(c || '').toLowerCase().includes('field name') || String(c || '').includes('字段名称'));
+            const vIdx = row?.findIndex(c => String(c || '').toLowerCase().includes('valid value') || String(c || '').includes('有效值'));
+            if (fIdx !== -1 && vIdx !== -1) { fCol = fIdx; vCol = vIdx; break; }
           }
-
-          if (fieldCol !== -1 && valCol !== -1) {
-            let lastFieldName = "";
+          if (fCol !== -1) {
+            let lastF = "";
             rawData.forEach(row => {
-              if (!row) return;
-              const fName = String(row[fieldCol] || '').trim();
-              const vVal = String(row[valCol] || '').trim();
-              if (fName && fName.toLowerCase() !== 'field name' && fName !== '字段名称') {
-                lastFieldName = fName;
-              }
-              if (lastFieldName && vVal && vVal.toLowerCase() !== 'valid value' && vVal !== '有效值' && vVal.toLowerCase() !== 'none') {
-                if (!fieldDefinitions[lastFieldName]) fieldDefinitions[lastFieldName] = [];
-                if (!fieldDefinitions[lastFieldName].includes(vVal)) fieldDefinitions[lastFieldName].push(vVal);
+              const f = String(row[fCol] || '').trim();
+              const v = String(row[vCol] || '').trim();
+              if (f && f.toLowerCase() !== 'field name' && f !== '字段名称') lastF = f;
+              if (lastF && v && v.toLowerCase() !== 'valid value' && v !== '有效值' && v.toLowerCase() !== 'none') {
+                if (!fieldDefinitions[lastF]) fieldDefinitions[lastF] = [];
+                if (!fieldDefinitions[lastF].includes(v)) fieldDefinitions[lastF].push(v);
               }
             });
           }
         }
 
-        // 2. Data Definitions 解析 (必填项)
-        const defSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('data definitions') || n.includes('数据定义'));
-        if (defSheetName) {
-          const sheet = workbook.Sheets[defSheetName];
-          const defData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-          let nameIdx = -1, reqIdx = -1;
-          for (let i = 0; i < Math.min(defData.length, 10); i++) {
-            const row = defData[i];
-            if (!row) continue;
-            const nIdx = row.findIndex(c => String(c || '').toLowerCase().includes('field name') || String(c || '').includes('字段名称'));
-            const rIdx = row.findIndex(c => String(c || '').toLowerCase().includes('required') || String(c || '').includes('必填'));
-            if (nIdx !== -1) { nameIdx = nIdx; reqIdx = rIdx; break; }
-          }
-          if (nameIdx !== -1 && reqIdx !== -1) {
-            defData.forEach(row => {
-              const n = String(row[nameIdx] || '').trim();
-              const r = String(row[reqIdx] || '').toLowerCase();
-              if (n && (r.includes('required') || r.includes('yes') || r.includes('必填'))) requiredHeaders.push(n);
-            });
-          }
-        }
-
-        // 3. Template 解析 (保持原始表头，不增加后缀)
-        const tplSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'template' || n.includes('模板'));
-        if (!tplSheetName) throw new Error("Template sheet not found");
-        const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[tplSheetName], { header: 1, defval: '' });
-        const row4 = jsonData[3];
-        if (!row4) throw new Error("Row 4 headers not found");
+        // 2. Template 解析
+        const tplSheet = workbook.SheetNames.find(n => n.toLowerCase() === 'template' || n.includes('模板'));
+        if (!tplSheet) throw new Error("Template sheet not found!");
+        const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[tplSheet], { header: 1, defval: '' });
         
-        foundHeaders = row4.map(h => String(h || '').trim()).filter(h => h !== '');
-        const row8 = jsonData[7];
+        const row4 = jsonData[3]; // 表头行
+        const row8 = jsonData[7]; // 默认值行
+        if (!row4) throw new Error("Could not find headers in Row 4");
+
+        foundHeaders = row4.map(h => String(h || '').trim());
+        row8Defaults = row4.map((_, i) => String(row8?.[i] || '').trim());
 
         const mappings: Record<string, FieldMapping> = {};
-        let otherImageIdx = 0;
-        let bulletIdx = 0;
+        let imgCount = 0, bulletCount = 0;
 
-        // 使用 index 确保唯一映射
         foundHeaders.forEach((h, i) => {
-          const tplDefault = row8?.[i] ? String(row8[i]).trim() : '';
+          if (!h) return;
           const lowerH = h.toLowerCase();
-          const mappingKey = `${h}_idx_${i}`; // 关键：使用带索引的Key
-
-          let source: any = tplDefault ? 'template_default' : 'custom';
+          const key = `col_${i}`; // 绝对列索引
+          let source: any = row8Defaults[i] ? 'template_default' : 'custom';
           let field = '';
 
-          // 自动识别
           if (lowerH.includes('sku') || lowerH.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (lowerH.includes('item_name') || lowerH === 'title' || lowerH.includes('product_name')) { source = 'listing'; field = 'title'; }
-          else if (lowerH.includes('brand')) { source = 'listing'; field = 'brand'; }
-          else if (lowerH.match(/main_image_url|main_image_location|main.image|主图/)) { source = 'listing'; field = 'main_image'; }
-          else if (lowerH.match(/other_image_url|other_image_location|other.image|附图/)) { 
-            otherImageIdx++;
+          else if (lowerH.match(/image_url|image_location|附图/)) { 
+            imgCount++;
             source = 'listing'; 
-            field = `other_image${otherImageIdx}`; 
+            field = `other_image${imgCount}`; 
           }
-          else if (lowerH.match(/bullet_point|bullet.point|商品要点/)) {
-            bulletIdx++;
+          else if (lowerH.match(/bullet_point|商品要点/)) {
+            bulletCount++;
             source = 'listing';
-            field = `feature${bulletIdx}`;
+            field = `feature${bulletCount}`;
           }
 
-          mappings[mappingKey] = {
+          mappings[key] = {
             header: h,
             source,
             listingField: field,
-            defaultValue: tplDefault,
-            templateDefault: tplDefault,
+            defaultValue: row8Defaults[i],
+            templateDefault: row8Defaults[i],
             acceptedValues: fieldDefinitions[h] || []
           };
         });
 
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) throw new Error("Auth required");
-
         const { data: inserted } = await supabase.from('templates').insert([{
-          user_id: session.user.id,
+          user_id: session?.user.id,
           name: file.name,
           headers: foundHeaders,
-          required_headers: requiredHeaders,
           mappings: mappings,
           marketplace: "US",
+          file_data: base64File,
           created_at: new Date().toISOString()
         }]).select();
 
         if (inserted) fetchTemplates(inserted[0].id);
-        alert(uiLang === 'zh' ? "模板上传解析成功！" : "Upload Success!");
+        alert(uiLang === 'zh' ? "模板上传并解析成功！已保留完整格式与宏。" : "Template uploaded successfully! Formatting and macros preserved.");
       } catch (err: any) {
         alert(err.message);
       } finally {
@@ -224,13 +175,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     reader.readAsArrayBuffer(file);
   };
 
-  const updateSelectedTemplate = async (updates: Partial<ExportTemplate>) => {
-    if (!selectedTemplate) return;
-    const newTpl = { ...selectedTemplate, ...updates };
-    setSelectedTemplate(newTpl);
-    await supabase.from('templates').update(updates).eq('id', selectedTemplate.id);
-  };
-
   const updateMapping = (key: string, updates: Partial<FieldMapping>) => {
     if (!selectedTemplate) return;
     const newMappings = { ...(selectedTemplate.mappings || {}) };
@@ -238,15 +182,14 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     setSelectedTemplate({ ...selectedTemplate, mappings: newMappings });
   };
 
-  const filteredItems = useMemo(() => {
-    if (!selectedTemplate) return [];
-    return selectedTemplate.headers.map((h, i) => ({ header: h, index: i, key: `${h}_idx_${i}` }))
-      .filter(item => {
-        const matchSearch = item.header.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchRequired = filterRequired ? selectedTemplate.required_headers?.includes(item.header) : true;
-        return matchSearch && matchRequired;
-      });
-  }, [selectedTemplate, searchQuery, filterRequired]);
+  const saveMappings = async () => {
+    if (!selectedTemplate) return;
+    await supabase.from('templates').update({ 
+        mappings: selectedTemplate.mappings,
+        marketplace: selectedTemplate.marketplace 
+    }).eq('id', selectedTemplate.id);
+    alert("Saved!");
+  };
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 font-inter">
@@ -257,10 +200,10 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Marketplace Template Engine</p>
+            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Macro-Enabled Engine</p>
           </div>
         </div>
-        <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 hover:bg-indigo-700 transition-all shadow-xl active:scale-95 disabled:opacity-50">
+        <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all">
           {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
           {t('uploadTemplate')}
         </button>
@@ -274,23 +217,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
             {templates.map(tmp => (
-              <div key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`group relative w-full p-5 rounded-3xl border cursor-pointer transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/30 ring-1 ring-indigo-500/10' : 'border-slate-50 bg-white hover:border-slate-200'}`}>
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${selectedTemplate?.id === tmp.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                    <Database size={18} />
-                  </div>
-                  <div className="flex-1 overflow-hidden">
-                    <p className="font-black text-xs truncate">{tmp.name}</p>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-tighter">{tmp.marketplace} &bull; {tmp.headers.length} Cols</p>
-                  </div>
-                  <button onClick={async (e) => {
-                    e.stopPropagation();
-                    if(confirm("Delete?")) {
-                       await supabase.from('templates').delete().eq('id', tmp.id);
-                       fetchTemplates();
-                    }
-                  }} className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={14}/></button>
-                </div>
+              <div key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`p-5 rounded-3xl border cursor-pointer transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/30 ring-1 ring-indigo-500/10' : 'border-slate-50 bg-white hover:border-slate-200'}`}>
+                <p className="font-black text-xs truncate">{tmp.name}</p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">{tmp.marketplace}</p>
               </div>
             ))}
           </div>
@@ -299,54 +228,26 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         <div className="lg:col-span-3 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col overflow-hidden">
           {selectedTemplate ? (
             <>
-              <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
-                    <div className="flex items-center bg-white border border-slate-200 rounded-xl px-3 py-1 gap-2">
-                       <Globe size={14} className="text-slate-400" />
-                       <select 
-                         value={selectedTemplate.marketplace} 
-                         onChange={(e) => updateSelectedTemplate({ marketplace: e.target.value })}
-                         className="text-[10px] font-black bg-transparent outline-none cursor-pointer uppercase"
-                       >
-                         {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.code}</option>)}
-                       </select>
-                    </div>
-                  </div>
-                  <button onClick={async () => {
-                    await supabase.from('templates').update({ mappings: selectedTemplate.mappings }).eq('id', selectedTemplate.id);
-                    alert("Saved!");
-                  }} className="px-10 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all">
-                    <Save size={16} /> {t('save')}
-                  </button>
-                </div>
-
-                <div className="flex gap-4">
-                  <div className="flex-1 relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-                    <input type="text" placeholder="Search fields..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all" />
-                  </div>
-                  <button onClick={() => setFilterRequired(!filterRequired)} className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase flex items-center gap-2 border transition-all ${filterRequired ? 'bg-amber-500 text-white border-amber-600' : 'bg-white text-slate-400 border-slate-200'}`}>
-                    <Filter size={14} /> {filterRequired ? 'Required Only' : 'All Fields'}
-                  </button>
-                </div>
+              <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
+                <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
+                <button onClick={saveMappings} className="px-10 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all">
+                  <Save size={16} /> {t('save')}
+                </button>
               </div>
 
               <div className="p-8 flex-1 overflow-y-auto custom-scrollbar space-y-4">
-                {filteredItems.map(({ header, key }) => {
-                  const isRequired = selectedTemplate.required_headers?.includes(header);
-                  const mapping = selectedTemplate.mappings?.[key] || { header, source: 'custom', defaultValue: '' };
+                {selectedTemplate.headers.map((h, i) => {
+                  if (!h) return null;
+                  const key = `col_${i}`;
+                  const mapping = selectedTemplate.mappings?.[key] || { header: h, source: 'custom', defaultValue: '' };
                   const hasOptions = mapping.acceptedValues && mapping.acceptedValues.length > 0;
 
                   return (
-                    <div key={key} className={`p-6 rounded-[2rem] border transition-all ${isRequired ? 'bg-red-50/10 border-red-100' : 'bg-slate-50/30 border-slate-50'}`}>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                    <div key={key} className="p-6 rounded-[2rem] border bg-slate-50/30 border-slate-50 transition-all hover:border-indigo-100">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                             <span className={`text-[11px] font-black break-all ${isRequired ? 'text-red-700' : 'text-slate-600'}`}>{header}</span>
-                             {isRequired && <Star size={10} className="text-red-500 fill-red-500" />}
-                          </div>
+                          <span className="text-[11px] font-black text-slate-600 break-all">{h}</span>
+                          <p className="text-[8px] font-black text-slate-400 uppercase">Column Index: {i + 1}</p>
                         </div>
 
                         <select 
@@ -354,29 +255,36 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                           onChange={(e) => updateMapping(key, { source: e.target.value as any })}
                           className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none"
                         >
-                          <option value="custom">Manual Value / Choice</option>
-                          <option value="template_default">Template Default (Row 8)</option>
-                          <option value="listing">Map to Listing Field</option>
+                          <option value="custom">Manual Value</option>
+                          <option value="template_default">Template Default</option>
+                          <option value="listing">Listing Data</option>
                           <option value="random">🎲 Random Generate</option>
                         </select>
 
                         <div className="flex-1">
                           {mapping.source === 'listing' ? (
-                            <select value={mapping.listingField} onChange={(e) => updateMapping(key, { listingField: e.target.value })} className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black shadow-sm">
+                            <select 
+                              value={mapping.listingField}
+                              onChange={(e) => updateMapping(key, { listingField: e.target.value })}
+                              className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black"
+                            >
                               <option value="">-- Choose Data --</option>
                               {LISTING_SOURCE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                             </select>
-                          ) : mapping.source === 'custom' && hasOptions ? (
-                            <select value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl text-[11px] font-black shadow-sm">
-                                <option value="">-- Select Option --</option>
-                                {mapping.acceptedValues?.map((v, idx) => <option key={idx} value={v}>{v}</option>)}
+                          ) : (mapping.source === 'custom' && hasOptions) ? (
+                            <select
+                              value={mapping.defaultValue || ''}
+                              onChange={(e) => updateMapping(key, { defaultValue: e.target.value })}
+                              className="w-full px-4 py-3 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl text-[11px] font-black"
+                            >
+                              <option value="">-- Select Option --</option>
+                              {mapping.acceptedValues?.map((v, idx) => <option key={idx} value={v}>{v}</option>)}
                             </select>
                           ) : mapping.source === 'custom' ? (
-                            <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} placeholder="Value..." className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold" />
+                            <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold" />
                           ) : (
-                            <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-400 uppercase flex items-center gap-2">
-                               {mapping.source === 'random' ? <Shuffle size={14} /> : <Database size={14} />}
-                               {mapping.source === 'random' ? 'Smart Generator' : `Default: ${mapping.templateDefault || 'EMPTY'}`}
+                            <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-400 uppercase">
+                               {mapping.source === 'random' ? 'Smart AI Random' : `Default: ${mapping.templateDefault || 'None'}`}
                             </div>
                           )}
                         </div>
@@ -387,7 +295,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center opacity-20"><Layout size={64} className="mb-4" /></div>
+            <div className="flex-1 flex flex-col items-center justify-center opacity-20"><Layout size={64} /></div>
           )}
         </div>
       </div>
