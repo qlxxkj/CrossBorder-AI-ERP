@@ -13,7 +13,7 @@ interface ExportModalProps {
 }
 
 /**
- * 安全的 Base64 解码为 Uint8Array
+ * 安全的 Base64 解码函数
  */
 function safeDecode(base64: string): Uint8Array {
   const binaryString = atob(base64);
@@ -71,14 +71,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const handleExport = async () => {
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     if (!selectedTemplate || !fileBinary) {
-      alert(uiLang === 'zh' ? "错误：找不到模板文件数据，请尝试重新上传模板。" : "Error: Template file data not found.");
+      alert(uiLang === 'zh' ? "模板数据丢失，请重新上传模板。" : "Template binary missing!");
       return;
     }
     setExporting(true);
 
     try {
       const bytes = safeDecode(fileBinary);
-      // 读取原始文件，关键点：开启 cellStyles 以读取样式元数据
       const workbook = XLSX.read(bytes, { 
         type: 'array', 
         cellStyles: true, 
@@ -87,7 +86,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         cellText: true
       });
 
-      // 1. 获取工作表名称并解决 TS 类型报错
+      // 1. 获取工作表 (修复 TS 类型 literal 报错)
       const sheetNames = workbook.SheetNames;
       const tplSheetName = (sheetNames.find(n => n === 'Template') || 
                           sheetNames.find(n => n.toLowerCase() === 'template') ||
@@ -95,28 +94,29 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                           sheetNames[0]) as string;
       
       const sheet = workbook.Sheets[tplSheetName];
-      if (!sheet) throw new Error("Could not find worksheet in the file.");
+      if (!sheet) throw new Error("Target worksheet not found");
 
-      // 2. 定位数据起始行 (探测 Row 1-20)
-      let startDataRowIdx = 8; // 默认 Row 9
+      // 2. 定位数据起始行
+      // 您提到数据应该从第 8 行填充（索引 8 即 Excel 的第 9 行）
+      let startDataRowIdx = 8; 
       for (let r = 0; r < 20; r++) {
         for (let c = 0; c < 15; c++) {
           const cell = sheet[XLSX.utils.encode_cell({ r, c })];
           if (cell && cell.v) {
             const val = String(cell.v).toLowerCase();
             if (val === 'sku' || val === 'item_sku' || val.includes('external_product_id')) {
-              startDataRowIdx = r + 1; // 标题行的下一行
+              startDataRowIdx = r + 1; 
               break;
             }
           }
         }
       }
 
-      // 3. 填充 Listing 数据
+      // 3. 开始注入 Listing 数据
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
         
-        // 类型安全提取
+        // 类型安全提取字段
         const cleaned = (listing.cleaned || {}) as CleanedData;
         const optimized = (listing.optimized || {}) as OptimizedData;
         
@@ -128,13 +128,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         const displayTitle = optimized.optimized_title || cleaned.title || '';
         const displayDesc = optimized.optimized_description || cleaned.description || '';
 
-        // 遍历所有映射过的列
         selectedTemplate.headers.forEach((h, colIdx) => {
           const mappingKey = `col_${colIdx}`;
           const mapping = selectedTemplate.mappings?.[mappingKey] as FieldMapping | undefined;
+          
           if (!mapping) return;
 
           let val: any = "";
+
+          // 字段映射核心逻辑
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
             if (f === 'asin') val = listing.asin;
@@ -160,40 +162,41 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else val = generateRandomStr();
           }
 
+          // 如果没有值，使用模板默认值兜底
           if (!val && mapping.templateDefault) val = mapping.templateDefault;
 
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
-          
+
           /**
-           * 样式保留黑科技：克隆单元格对象
-           * 如果该列在 startDataRowIdx (即第一行数据) 已经存在单元格对象（带样式），
-           * 我们就克隆该对象并只修改其值 v。
+           * 样式保留与填充关键逻辑：
+           * 我们尝试寻找“原型单元格”（通常在 startDataRowIdx 这一行）。
+           * 如果模板在起始行定义了样式（背景颜色、字体），我们将其克隆。
            */
           const prototypeCellRef = XLSX.utils.encode_cell({ r: startDataRowIdx, c: colIdx });
           const prototypeCell = sheet[prototypeCellRef];
 
           if (prototypeCell) {
-            // 克隆对象并更新值
+            // 原地克隆：保留 .s (style) 属性，只改值
             sheet[cellRef] = { ...prototypeCell, v: val, t: typeof val === 'number' ? 'n' : 's' };
-            delete (sheet[cellRef] as any).w; // 清除缓存的格式化字符串
+            delete (sheet[cellRef] as any).w; // 强制重新格式化
           } else {
-            // 普通写入
+            // 兜底：如果原型单元格不存在，创建一个简单的单元格
             sheet[cellRef] = { v: val, t: typeof val === 'number' ? 'n' : 's' };
           }
         });
       });
 
-      // 4. 重要：计算并强制更新工作表范围 (!ref)
-      const currentRef = sheet['!ref'] || 'A1:A1';
-      const range = XLSX.utils.decode_range(currentRef);
-      const lastRowIdx = startDataRowIdx + selectedListings.length - 1;
-      const lastColIdx = selectedTemplate.headers.length - 1;
+      // 4. 核心：强制更新工作表范围 (!ref)
+      // 如果 !ref 不更新，Excel 会认为工作表只有表头，导致新写入的行不可见。
+      const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+      const finalMaxRow = startDataRowIdx + selectedListings.length - 1;
+      const finalMaxCol = selectedTemplate.headers.length - 1;
       
-      range.e.r = Math.max(range.e.r, lastRowIdx);
-      range.e.c = Math.max(range.e.c, lastColIdx);
+      range.e.r = Math.max(range.e.r, finalMaxRow);
+      range.e.c = Math.max(range.e.c, finalMaxCol);
       sheet['!ref'] = XLSX.utils.encode_range(range);
 
-      // 5. 导出为带宏的 .xlsm 文件
+      // 5. 导出为 .xlsm (支持宏)
       const outData = XLSX.write(workbook, { 
         type: 'array', 
         bookType: 'xlsm', 
@@ -213,7 +216,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       URL.revokeObjectURL(url);
 
     } catch (err: any) {
-      console.error("Export Error:", err);
+      console.error("Export Fail:", err);
       alert(uiLang === 'zh' ? `导出失败: ${err.message}` : `Export failed: ${err.message}`);
     } finally {
       setExporting(false);
@@ -238,7 +241,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              </div>
              <div>
                 <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} {uiLang === 'zh' ? '项已选' : 'Selected'}</p>
-                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Formatting & Macros Preserved</p>
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Styles & Macros Protected</p>
              </div>
           </div>
 
@@ -276,7 +279,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 disabled:opacity-50 shadow-2xl active:scale-95 transition-all"
            >
              {exporting ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
-             {exporting ? (uiLang === 'zh' ? '数据注入中...' : 'Writing Data...') : t('downloadCsv')}
+             {exporting ? (uiLang === 'zh' ? '正在写入数据...' : 'Writing Data...') : t('downloadCsv')}
            </button>
         </div>
       </div>
