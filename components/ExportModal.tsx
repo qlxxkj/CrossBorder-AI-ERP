@@ -13,7 +13,7 @@ interface ExportModalProps {
 }
 
 /**
- * 安全的 Base64 解码函数
+ * 安全的 Base64 解码
  */
 function safeDecode(base64: string): Uint8Array {
   const binaryString = atob(base64);
@@ -71,13 +71,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const handleExport = async () => {
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     if (!selectedTemplate || !fileBinary) {
-      alert(uiLang === 'zh' ? "模板数据丢失，请重新上传模板。" : "Template binary missing!");
+      alert(uiLang === 'zh' ? "模板数据丢失，请重新上传模板。" : "Template binary data missing!");
       return;
     }
     setExporting(true);
 
     try {
       const bytes = safeDecode(fileBinary);
+      // 必须开启 cellStyles 和 bookVBA 才能读入样式和宏
       const workbook = XLSX.read(bytes, { 
         type: 'array', 
         cellStyles: true, 
@@ -86,7 +87,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         cellText: true
       });
 
-      // 1. 获取工作表 (修复 TS 类型 literal 报错)
+      // 1. 获取目标工作表 (修复 TS 类型 literal 报错)
       const sheetNames = workbook.SheetNames;
       const tplSheetName = (sheetNames.find(n => n === 'Template') || 
                           sheetNames.find(n => n.toLowerCase() === 'template') ||
@@ -94,29 +95,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                           sheetNames[0]) as string;
       
       const sheet = workbook.Sheets[tplSheetName];
-      if (!sheet) throw new Error("Target worksheet not found");
+      if (!sheet) throw new Error("Could not find Template worksheet");
 
-      // 2. 定位数据起始行
-      // 您提到数据应该从第 8 行填充（索引 8 即 Excel 的第 9 行）
-      let startDataRowIdx = 8; 
-      for (let r = 0; r < 20; r++) {
-        for (let c = 0; c < 15; c++) {
-          const cell = sheet[XLSX.utils.encode_cell({ r, c })];
-          if (cell && cell.v) {
-            const val = String(cell.v).toLowerCase();
-            if (val === 'sku' || val === 'item_sku' || val.includes('external_product_id')) {
-              startDataRowIdx = r + 1; 
-              break;
-            }
-          }
-        }
-      }
+      // 2. 固定起始行：Excel 第 8 行（索引为 7）
+      // 亚马逊模板前 7 行包含：说明、数据定义、属性名、本地化标签等
+      const startDataRowIdx = 7; 
 
-      // 3. 开始注入 Listing 数据
+      // 3. 填充数据
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
         
-        // 类型安全提取字段
+        // 显式转换类型以修复 TS 报错
         const cleaned = (listing.cleaned || {}) as CleanedData;
         const optimized = (listing.optimized || {}) as OptimizedData;
         
@@ -131,12 +120,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         selectedTemplate.headers.forEach((h, colIdx) => {
           const mappingKey = `col_${colIdx}`;
           const mapping = selectedTemplate.mappings?.[mappingKey] as FieldMapping | undefined;
-          
           if (!mapping) return;
 
           let val: any = "";
-
-          // 字段映射核心逻辑
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
             if (f === 'asin') val = listing.asin;
@@ -162,41 +148,43 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else val = generateRandomStr();
           }
 
-          // 如果没有值，使用模板默认值兜底
           if (!val && mapping.templateDefault) val = mapping.templateDefault;
 
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
 
-          /**
-           * 样式保留与填充关键逻辑：
-           * 我们尝试寻找“原型单元格”（通常在 startDataRowIdx 这一行）。
-           * 如果模板在起始行定义了样式（背景颜色、字体），我们将其克隆。
-           */
-          const prototypeCellRef = XLSX.utils.encode_cell({ r: startDataRowIdx, c: colIdx });
-          const prototypeCell = sheet[prototypeCellRef];
+          // 样式保留技巧：
+          // 尝试从第 5-7 行（表头或示例行）寻找“原型单元格”
+          // 如果原型单元格有样式属性 .s，我们将其复制到新单元格
+          let prototypeCell = null;
+          for (let pr = 4; pr < 8; pr++) {
+            const prRef = XLSX.utils.encode_cell({ r: pr, c: colIdx });
+            if (sheet[prRef]) {
+               prototypeCell = sheet[prRef];
+               break;
+            }
+          }
 
           if (prototypeCell) {
-            // 原地克隆：保留 .s (style) 属性，只改值
+            // 克隆对象并替换值，从而保留样式
             sheet[cellRef] = { ...prototypeCell, v: val, t: typeof val === 'number' ? 'n' : 's' };
-            delete (sheet[cellRef] as any).w; // 强制重新格式化
+            delete (sheet[cellRef] as any).w; // 清除旧的显示字符串缓存
           } else {
-            // 兜底：如果原型单元格不存在，创建一个简单的单元格
             sheet[cellRef] = { v: val, t: typeof val === 'number' ? 'n' : 's' };
           }
         });
       });
 
-      // 4. 核心：强制更新工作表范围 (!ref)
-      // 如果 !ref 不更新，Excel 会认为工作表只有表头，导致新写入的行不可见。
+      // 4. 重要：强制重写工作表范围 (!ref)
+      // 如果 !ref 不更新到最后一行，Excel 会认为文件只有前几行
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
-      const finalMaxRow = startDataRowIdx + selectedListings.length - 1;
-      const finalMaxCol = selectedTemplate.headers.length - 1;
+      const lastRowIdx = startDataRowIdx + selectedListings.length - 1;
+      const lastColIdx = selectedTemplate.headers.length - 1;
       
-      range.e.r = Math.max(range.e.r, finalMaxRow);
-      range.e.c = Math.max(range.e.c, finalMaxCol);
+      range.e.r = Math.max(range.e.r, lastRowIdx);
+      range.e.c = Math.max(range.e.c, lastColIdx);
       sheet['!ref'] = XLSX.utils.encode_range(range);
 
-      // 5. 导出为 .xlsm (支持宏)
+      // 5. 写入文件，必须开启 bookVBA 和 cellStyles
       const outData = XLSX.write(workbook, { 
         type: 'array', 
         bookType: 'xlsm', 
@@ -216,7 +204,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       URL.revokeObjectURL(url);
 
     } catch (err: any) {
-      console.error("Export Fail:", err);
+      console.error("Export Critical Error:", err);
       alert(uiLang === 'zh' ? `导出失败: ${err.message}` : `Export failed: ${err.message}`);
     } finally {
       setExporting(false);
@@ -240,8 +228,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                 <CheckCircle2 size={24} />
              </div>
              <div>
-                <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} {uiLang === 'zh' ? '项已选' : 'Selected'}</p>
-                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Styles & Macros Protected</p>
+                <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} 已选</p>
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Data start at Row 8 &bull; Macros Protected</p>
              </div>
           </div>
 
@@ -250,13 +238,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              <div className="grid grid-cols-1 gap-3 max-h-64 overflow-y-auto p-1 custom-scrollbar">
                 {templates.length === 0 ? (
                   <div className="p-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                    <p className="text-xs font-bold text-slate-400 uppercase">No templates found</p>
+                    <p className="text-xs font-bold text-slate-400 uppercase">No templates available</p>
                   </div>
                 ) : templates.map(tmp => (
                   <button 
                     key={tmp.id} 
                     onClick={() => setSelectedTemplate(tmp)} 
-                    className={`flex items-center gap-4 p-5 rounded-[1.5rem] border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-md ring-2 ring-indigo-500/10' : 'border-slate-100 bg-white hover:border-slate-300'}`}
+                    className={`flex items-center gap-4 p-5 rounded-[1.5rem] border text-left transition-all group ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-md ring-2 ring-indigo-500/10' : 'border-slate-100 bg-white hover:border-slate-300'}`}
                   >
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${selectedTemplate?.id === tmp.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
                        <FileSpreadsheet size={20} />
