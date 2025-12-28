@@ -61,7 +61,14 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       setLoading(false);
       return;
     }
-    const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error("Error fetching templates:", error);
+      setLoading(false);
+      return;
+    }
+
     if (data) {
       setTemplates(data);
       if (selectId) {
@@ -179,8 +186,10 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         });
 
         const { data: { session } } = await supabase.auth.getSession();
-        const { data: inserted } = await supabase.from('templates').insert([{
-          user_id: session?.user.id,
+        
+        // 关键修复：检查并捕获插入错误
+        const { data: inserted, error: insertError } = await supabase.from('templates').insert([{
+          user_id: session?.user?.id,
           name: file.name,
           headers: foundHeaders,
           mappings: mappings,
@@ -189,10 +198,19 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           created_at: new Date().toISOString()
         }]).select();
 
-        if (inserted) fetchTemplates(inserted[0].id);
-        alert(uiLang === 'zh' ? "模板上传并解析成功！" : "Template uploaded successfully!");
+        if (insertError) {
+          throw new Error(`Database insert failed: ${insertError.message}`);
+        }
+
+        if (inserted && inserted.length > 0) {
+          await fetchTemplates(inserted[0].id);
+          alert(uiLang === 'zh' ? "模板上传并解析成功！" : "Template uploaded successfully!");
+        } else {
+          throw new Error("Template was not saved correctly.");
+        }
       } catch (err: any) {
-        alert(err.message);
+        console.error("Upload error details:", err);
+        alert(uiLang === 'zh' ? `上传失败: ${err.message}` : `Upload failed: ${err.message}`);
       } finally {
         setIsUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -210,11 +228,16 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
   const saveMappings = async () => {
     if (!selectedTemplate) return;
-    await supabase.from('templates').update({ 
+    const { error } = await supabase.from('templates').update({ 
         mappings: selectedTemplate.mappings,
         marketplace: selectedTemplate.marketplace 
     }).eq('id', selectedTemplate.id);
-    alert("Saved!");
+    
+    if (error) {
+      alert("Save failed: " + error.message);
+    } else {
+      alert("Saved!");
+    }
   };
 
   const filteredTemplates = useMemo(() => {
