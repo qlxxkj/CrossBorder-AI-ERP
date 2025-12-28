@@ -32,6 +32,16 @@ const LISTING_SOURCE_FIELDS = [
   { value: 'other_image8', label: 'Other Image 8' },
 ];
 
+// 安全的编码函数，避免大文件栈溢出
+function safeEncode(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -93,7 +103,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const data = new Uint8Array(arrayBuffer);
         const workbook = XLSX.read(data, { type: 'array', cellNF: true, cellText: true, cellStyles: true });
         
-        const base64File = btoa(String.fromCharCode(...data));
+        // 使用安全的编码方法，修复 Maximum call stack size exceeded
+        const base64File = safeEncode(data);
 
         let foundHeaders: string[] = [];
         let row8Defaults: string[] = [];

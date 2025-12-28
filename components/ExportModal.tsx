@@ -12,6 +12,17 @@ interface ExportModalProps {
   onClose: () => void;
 }
 
+// 安全的解码函数
+function safeDecode(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListings, onClose }) => {
   const t = useTranslation(uiLang);
   const [templates, setTemplates] = useState<ExportTemplate[]>([]);
@@ -65,10 +76,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     setExporting(true);
 
     try {
-      // 1. 将 Base64 还原为 Uint8Array
-      const binary = atob(selectedTemplate.file_data);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      // 1. 使用安全解码方法，修复潜在的栈溢出问题
+      const bytes = safeDecode(selectedTemplate.file_data);
 
       // 2. 加载 Workbook (保留所有 Sheet 和样式)
       const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true });
@@ -129,7 +138,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               // 寻找关联的 Type
               let typeVal = "";
               selectedTemplate.headers.forEach((h2, colIdx2) => {
-                // Fixed typo: replace 'rowValues' with 'rowData'
                 if (h2.toLowerCase().includes('product id type')) typeVal = rowData[`col_${colIdx2}`];
               });
               finalVal = typeVal?.toUpperCase() === 'EAN' ? generateEAN() : generateRandomStr();
