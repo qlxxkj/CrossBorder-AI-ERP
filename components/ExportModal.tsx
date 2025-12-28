@@ -12,6 +12,7 @@ interface ExportModalProps {
   onClose: () => void;
 }
 
+// 安全的解码函数
 function safeDecode(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -68,11 +69,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   };
 
   const handleExport = async () => {
-    // 二进制文件现在存储在 mappings['__binary'] 中
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     
     if (!selectedTemplate || !fileBinary) {
-        alert("Template binary data missing from database record!");
+        alert("Template binary data missing!");
         return;
     }
     setExporting(true);
@@ -80,20 +80,35 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     try {
       const bytes = safeDecode(fileBinary);
 
-      const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true });
+      // 读取时开启 cellStyles 和 bookVBA 以加载样式和宏
+      const workbook = XLSX.read(bytes, { 
+        type: 'array', 
+        cellStyles: true, 
+        bookVBA: true,
+        cellNF: true,
+        cellText: true
+      });
+
       const tplSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'template' || n.includes('模板'));
-      if (!tplSheetName) throw new Error("Template sheet not found in original file!");
+      if (!tplSheetName) throw new Error("Template sheet not found!");
       
       const sheet = workbook.Sheets[tplSheetName];
 
+      // 确定起始行。亚马逊标准模板通常从第 4 行或第 9 行开始
+      // 这里的逻辑是从第 9 行写入（索引为 8）
       selectedListings.forEach((listing, rowIdx) => {
         const rowNum = 8 + rowIdx;
-        const cleaned = listing.cleaned;
-        const optimized = listing.optimized;
+        const cleaned = listing.cleaned || {};
+        const optimized = listing.optimized || {};
         const otherImages = cleaned.other_images || [];
-        const features = optimized?.optimized_features || cleaned.features || [];
+        // 优先使用优化后的 Feature，如果没有则回退到采集的
+        const features = (optimized.optimized_features && optimized.optimized_features.length > 0) 
+          ? optimized.optimized_features 
+          : (cleaned.features || []);
 
-        const rowData: Record<string, string> = {};
+        // 预计算该行所有列的值，确保映射逻辑正确
+        const rowDataValues: Record<string, string> = {};
+        
         selectedTemplate.headers.forEach((h, colIdx) => {
           const key = `col_${colIdx}`;
           const mapping = selectedTemplate.mappings?.[key] as FieldMapping | undefined;
@@ -102,52 +117,69 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           if (mapping) {
             if (mapping.source === 'listing') {
               const f = mapping.listingField;
-              if (f === 'asin') val = listing.asin;
-              else if (f === 'title') val = optimized?.optimized_title || cleaned.title;
-              else if (f === 'price') val = String(cleaned.price);
-              else if (f === 'brand') val = cleaned.brand;
-              else if (f === 'description') val = optimized?.optimized_description || cleaned.description;
-              else if (f === 'main_image') val = cleaned.main_image;
+              // 核心数据提取逻辑优化
+              if (f === 'asin') val = listing.asin || '';
+              else if (f === 'title') val = optimized.optimized_title || cleaned.title || '';
+              else if (f === 'price') val = String(cleaned.price || '');
+              else if (f === 'brand') val = cleaned.brand || '';
+              else if (f === 'description') val = optimized.optimized_description || cleaned.description || '';
+              else if (f === 'main_image') val = cleaned.main_image || '';
               else if (f?.startsWith('other_image')) {
-                const idx = parseInt(f.match(/\d+/)?.[0] || "1") - 1;
+                const idx = parseInt(f.replace('other_image', '')) - 1;
                 val = otherImages[idx] || '';
               } else if (f?.startsWith('feature')) {
-                const idx = parseInt(f.match(/\d+/)?.[0] || "1") - 1;
+                const idx = parseInt(f.replace('feature', '')) - 1;
                 val = features[idx] || '';
               }
             } else if (mapping.source === 'custom') {
               val = mapping.defaultValue || '';
             } else if (mapping.source === 'template_default') {
               val = mapping.templateDefault || '';
+            } else if (mapping.source === 'random') {
+              // 随机值逻辑
+              if (h.toLowerCase().includes('product id') && !h.toLowerCase().includes('type')) {
+                val = generateEAN();
+              } else {
+                val = generateRandomStr();
+              }
             }
           }
-          if (!val && mapping?.templateDefault) val = mapping.templateDefault;
-          rowData[key] = val;
+
+          // 如果没有值，尝试使用模板自带的默认值
+          if (!val && mapping?.templateDefault) {
+            val = mapping.templateDefault;
+          }
+          
+          rowDataValues[key] = val;
         });
 
+        // 将数据写入单元格
         selectedTemplate.headers.forEach((h, colIdx) => {
           const key = `col_${colIdx}`;
-          const mapping = selectedTemplate.mappings?.[key] as FieldMapping | undefined;
-          let finalVal = rowData[key];
-
-          if (mapping?.source === 'random') {
-            if (h.toLowerCase().includes('product id') && !h.toLowerCase().includes('type')) {
-              let typeVal = "";
-              selectedTemplate.headers.forEach((h2, colIdx2) => {
-                if (h2.toLowerCase().includes('product id type')) typeVal = rowData[`col_${colIdx2}`];
-              });
-              finalVal = typeVal?.toUpperCase() === 'EAN' ? generateEAN() : generateRandomStr();
-            } else {
-              finalVal = generateRandomStr();
-            }
-          }
-
+          const finalVal = rowDataValues[key] || "";
           const cellRef = XLSX.utils.encode_cell({ r: rowNum, c: colIdx });
-          sheet[cellRef] = { v: finalVal, t: 's' };
+
+          if (!sheet[cellRef]) {
+            // 如果单元格不存在，创建一个基本的单元格对象
+            sheet[cellRef] = { v: finalVal, t: 's' };
+          } else {
+            // 重要：原地修改单元格的 v (value)，保留 s (style) 以保留背景颜色
+            sheet[cellRef].v = finalVal;
+            sheet[cellRef].t = 's'; // 强制作为字符串处理
+          }
         });
       });
 
-      const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm', bookSST: false });
+      // 写入文件，开启 bookVBA 和 bookStyles 尝试保留原始环境
+      // 注意：bookType 必须为 xlsm 才能保留宏
+      const outData = XLSX.write(workbook, { 
+        type: 'array', 
+        bookType: 'xlsm', 
+        bookSST: false,
+        bookVBA: true, // 保留宏
+        cellStyles: true // 尝试保留样式
+      });
+
       const blob = new Blob([outData], { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -156,8 +188,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
     } catch (err: any) {
+      console.error("Export process error:", err);
       alert("Export failed: " + err.message);
     } finally {
       setExporting(false);
@@ -182,15 +216,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              </div>
              <div>
                 <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} Selected</p>
-                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Original Excel Format Preserved</p>
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Excel Formatting & Macros Maintained</p>
              </div>
           </div>
 
           <div className="space-y-3">
              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('selectTemplate')}</label>
-             <div className="grid grid-cols-1 gap-3 max-h-64 overflow-y-auto p-1">
+             <div className="grid grid-cols-1 gap-3 max-h-64 overflow-y-auto p-1 custom-scrollbar">
                 {templates.map(tmp => (
-                  <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`flex items-center gap-4 p-5 rounded-[1.5rem] border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-md ring-2 ring-indigo-500/10' : 'border-slate-100 bg-white hover:border-slate-300'}`}>
+                  <button 
+                    key={tmp.id} 
+                    onClick={() => setSelectedTemplate(tmp)} 
+                    className={`flex items-center gap-4 p-5 rounded-[1.5rem] border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-md ring-2 ring-indigo-500/10' : 'border-slate-100 bg-white hover:border-slate-300'}`}
+                  >
+                    <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400">
+                       <FileSpreadsheet size={20} />
+                    </div>
                     <div className="flex flex-col flex-1 overflow-hidden">
                       <span className="font-black text-sm truncate">{tmp.name}</span>
                       <span className="text-[8px] font-black text-slate-500 uppercase">{tmp.marketplace}</span>
