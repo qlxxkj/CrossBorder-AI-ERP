@@ -81,20 +81,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     }
   };
 
-  const handleDeleteTemplate = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm(uiLang === 'zh' ? "确定要删除该模板吗？" : "Delete this template?")) return;
-    try {
-      const { error } = await supabase.from('templates').delete().eq('id', id);
-      if (!error) {
-        if (selectedTemplate?.id === id) setSelectedTemplate(null);
-        fetchTemplates();
-      }
-    } catch (err: any) {
-      alert(err.message);
-    }
-  };
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -109,58 +95,44 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         let foundHeaders: string[] = [];
         let row8Defaults: Record<string, string> = {};
         let requiredHeaders: string[] = [];
-        let fieldDefinitions: Record<string, { dataType?: string; acceptedValues?: string[] }> = {};
+        let fieldDefinitions: Record<string, string[]> = {};
         
-        // 1. Valid Values 解析 - 修复无法提取选项值的问题
-        const validValuesSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('valid values') || n.includes('有效值'));
-        if (validValuesSheet) {
-          const sheet = workbook.Sheets[validValuesSheet];
+        // 1. Valid Values 解析 (深度递归解析合并单元格)
+        const vvSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('valid values') || n.includes('有效值'));
+        if (vvSheetName) {
+          const sheet = workbook.Sheets[vvSheetName];
           const rawData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
           let fieldCol = -1, valCol = -1;
           
           for (let i = 0; i < Math.min(rawData.length, 25); i++) {
             const row = rawData[i];
             if (!row) continue;
-            const fieldIdx = row.findIndex(cell => {
-               const s = String(cell || '').toLowerCase();
-               return s.includes('field name') || s.includes('字段名称');
-            });
-            const valIdx = row.findIndex(cell => {
-               const s = String(cell || '').toLowerCase();
-               return s.includes('valid value') || s.includes('有效值');
-            });
-            if (fieldIdx !== -1 && valIdx !== -1) {
-              fieldCol = fieldIdx;
-              valCol = valIdx;
-              break;
-            }
+            const fIdx = row.findIndex(c => String(c || '').toLowerCase().includes('field name') || String(c || '').includes('字段名称'));
+            const vIdx = row.findIndex(c => String(c || '').toLowerCase().includes('valid value') || String(c || '').includes('有效值'));
+            if (fIdx !== -1 && vIdx !== -1) { fieldCol = fIdx; valCol = vIdx; break; }
           }
 
           if (fieldCol !== -1 && valCol !== -1) {
-            let currentField = "";
-            rawData.forEach((row) => {
+            let lastFieldName = "";
+            rawData.forEach(row => {
               if (!row) return;
               const fName = String(row[fieldCol] || '').trim();
               const vVal = String(row[valCol] || '').trim();
-              
               if (fName && fName.toLowerCase() !== 'field name' && fName !== '字段名称') {
-                currentField = fName;
+                lastFieldName = fName;
               }
-
-              if (currentField && vVal && vVal.toLowerCase() !== 'valid value' && vVal !== '有效值' && vVal.toLowerCase() !== 'none') {
-                if (!fieldDefinitions[currentField]) fieldDefinitions[currentField] = { acceptedValues: [] };
-                if (!fieldDefinitions[currentField].acceptedValues?.includes(vVal)) {
-                  fieldDefinitions[currentField].acceptedValues?.push(vVal);
-                }
+              if (lastFieldName && vVal && vVal.toLowerCase() !== 'valid value' && vVal !== '有效值' && vVal.toLowerCase() !== 'none') {
+                if (!fieldDefinitions[lastFieldName]) fieldDefinitions[lastFieldName] = [];
+                if (!fieldDefinitions[lastFieldName].includes(vVal)) fieldDefinitions[lastFieldName].push(vVal);
               }
             });
           }
         }
 
         // 2. Data Definitions 解析 (必填项)
-        const definitionsSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('data definitions') || n.includes('数据定义'));
-        if (definitionsSheet) {
-          const sheet = workbook.Sheets[definitionsSheet];
+        const defSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('data definitions') || n.includes('数据定义'));
+        if (defSheetName) {
+          const sheet = workbook.Sheets[defSheetName];
           const defData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
           let nameIdx = -1, reqIdx = -1;
           for (let i = 0; i < Math.min(defData.length, 10); i++) {
@@ -174,82 +146,62 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             defData.forEach(row => {
               const n = String(row[nameIdx] || '').trim();
               const r = String(row[reqIdx] || '').toLowerCase();
-              if (n && (r.includes('required') || r.includes('yes') || r.includes('必填'))) {
-                requiredHeaders.push(n);
-              }
+              if (n && (r.includes('required') || r.includes('yes') || r.includes('必填'))) requiredHeaders.push(n);
             });
           }
         }
 
-        // 3. Template 解析
-        const templateSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'template' || n.includes('模板'));
-        if (templateSheetName) {
-          const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[templateSheetName], { header: 1, defval: '' });
-          const row4 = jsonData[3];
-          if (row4) {
-            // 处理重复表头的情况，通过加后缀使其唯一
-            const headerCounts: Record<string, number> = {};
-            foundHeaders = row4.map(h => String(h || '').trim()).filter(h => h !== '').map(h => {
-               if (headerCounts[h]) {
-                 headerCounts[h]++;
-                 return `${h} (${headerCounts[h]})`;
-               } else {
-                 headerCounts[h] = 1;
-                 return h;
-               }
-            });
-
-            const row8 = jsonData[7];
-            if (row8) {
-              foundHeaders.forEach((h, idx) => { 
-                 if (row8[idx]) row8Defaults[h] = String(row8[idx]).trim(); 
-              });
-            }
-          }
-        }
-
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) throw new Error("Auth required");
+        // 3. Template 解析 (保持原始表头，不增加后缀)
+        const tplSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'template' || n.includes('模板'));
+        if (!tplSheetName) throw new Error("Template sheet not found");
+        const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[tplSheetName], { header: 1, defval: '' });
+        const row4 = jsonData[3];
+        if (!row4) throw new Error("Row 4 headers not found");
+        
+        foundHeaders = row4.map(h => String(h || '').trim()).filter(h => h !== '');
+        const row8 = jsonData[7];
 
         const mappings: Record<string, FieldMapping> = {};
-        let otherImageCount = 0;
-        let bulletCount = 0;
+        let otherImageIdx = 0;
+        let bulletIdx = 0;
 
-        foundHeaders.forEach(h => {
-          const tplDefault = row8Defaults[h] || '';
-          // 映射检查时去掉我们加的后缀
-          const rawH = h.replace(/\s\(\d+\)$/, "");
-          const lowerH = rawH.toLowerCase();
-          
+        // 使用 index 确保唯一映射
+        foundHeaders.forEach((h, i) => {
+          const tplDefault = row8?.[i] ? String(row8[i]).trim() : '';
+          const lowerH = h.toLowerCase();
+          const mappingKey = `${h}_idx_${i}`; // 关键：使用带索引的Key
+
           let source: any = tplDefault ? 'template_default' : 'custom';
           let field = '';
 
-          // 识别 Amazon 各种变体字段名
+          // 自动识别
           if (lowerH.includes('sku') || lowerH.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (lowerH.includes('item_name') || lowerH === 'title' || lowerH.includes('product_name')) { source = 'listing'; field = 'title'; }
-          else if (lowerH.includes('standard_price') || lowerH === 'price') { source = 'listing'; field = 'price'; }
           else if (lowerH.includes('brand')) { source = 'listing'; field = 'brand'; }
           else if (lowerH.match(/main_image_url|main_image_location|main.image|主图/)) { source = 'listing'; field = 'main_image'; }
           else if (lowerH.match(/other_image_url|other_image_location|other.image|附图/)) { 
-            otherImageCount++;
+            otherImageIdx++;
             source = 'listing'; 
-            field = `other_image${otherImageCount}`; 
+            field = `other_image${otherImageIdx}`; 
           }
           else if (lowerH.match(/bullet_point|bullet.point|商品要点/)) {
-            bulletCount++;
+            bulletIdx++;
             source = 'listing';
-            field = `feature${bulletCount}`;
+            field = `feature${bulletIdx}`;
           }
 
-          mappings[h] = {
+          mappings[mappingKey] = {
             header: h,
             source,
             listingField: field,
             defaultValue: tplDefault,
             templateDefault: tplDefault,
-            acceptedValues: fieldDefinitions[rawH]?.acceptedValues // 使用原始表头获取 Valid Values
+            acceptedValues: fieldDefinitions[h] || []
           };
         });
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("Auth required");
 
         const { data: inserted } = await supabase.from('templates').insert([{
           user_id: session.user.id,
@@ -262,13 +214,11 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         }]).select();
 
         if (inserted) fetchTemplates(inserted[0].id);
-        alert(uiLang === 'zh' ? "模板上传解析成功！" : "Upload & Parse Success!");
-
+        alert(uiLang === 'zh' ? "模板上传解析成功！" : "Upload Success!");
       } catch (err: any) {
         alert(err.message);
       } finally {
         setIsUploading(false);
-        if (fileInputRef.current) fileInputRef.current.value = '';
       }
     };
     reader.readAsArrayBuffer(file);
@@ -281,20 +231,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     await supabase.from('templates').update(updates).eq('id', selectedTemplate.id);
   };
 
-  const updateMapping = (header: string, updates: Partial<FieldMapping>) => {
+  const updateMapping = (key: string, updates: Partial<FieldMapping>) => {
     if (!selectedTemplate) return;
     const newMappings = { ...(selectedTemplate.mappings || {}) };
-    newMappings[header] = { ...newMappings[header], ...updates };
+    newMappings[key] = { ...newMappings[key], ...updates };
     setSelectedTemplate({ ...selectedTemplate, mappings: newMappings });
   };
 
-  const filteredHeaders = useMemo(() => {
+  const filteredItems = useMemo(() => {
     if (!selectedTemplate) return [];
-    return selectedTemplate.headers.filter(h => {
-      const matchSearch = h.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchRequired = filterRequired ? selectedTemplate.required_headers?.includes(h.replace(/\s\(\d+\)$/, "")) : true;
-      return matchSearch && matchRequired;
-    });
+    return selectedTemplate.headers.map((h, i) => ({ header: h, index: i, key: `${h}_idx_${i}` }))
+      .filter(item => {
+        const matchSearch = item.header.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchRequired = filterRequired ? selectedTemplate.required_headers?.includes(item.header) : true;
+        return matchSearch && matchRequired;
+      });
   }, [selectedTemplate, searchQuery, filterRequired]);
 
   return (
@@ -332,7 +283,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                     <p className="font-black text-xs truncate">{tmp.name}</p>
                     <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-tighter">{tmp.marketplace} &bull; {tmp.headers.length} Cols</p>
                   </div>
-                  <button onClick={(e) => handleDeleteTemplate(tmp.id, e)} className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={14}/></button>
+                  <button onClick={async (e) => {
+                    e.stopPropagation();
+                    if(confirm("Delete?")) {
+                       await supabase.from('templates').delete().eq('id', tmp.id);
+                       fetchTemplates();
+                    }
+                  }} className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={14}/></button>
                 </div>
               </div>
             ))}
@@ -359,7 +316,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   </div>
                   <button onClick={async () => {
                     await supabase.from('templates').update({ mappings: selectedTemplate.mappings }).eq('id', selectedTemplate.id);
-                    alert("Settings Synchronized!");
+                    alert("Saved!");
                   }} className="px-10 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all">
                     <Save size={16} /> {t('save')}
                   </button>
@@ -368,13 +325,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                 <div className="flex gap-4">
                   <div className="flex-1 relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-                    <input 
-                      type="text" 
-                      placeholder="Search field name (e.g. image, price, action)..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
-                    />
+                    <input type="text" placeholder="Search fields..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all" />
                   </div>
                   <button onClick={() => setFilterRequired(!filterRequired)} className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase flex items-center gap-2 border transition-all ${filterRequired ? 'bg-amber-500 text-white border-amber-600' : 'bg-white text-slate-400 border-slate-200'}`}>
                     <Filter size={14} /> {filterRequired ? 'Required Only' : 'All Fields'}
@@ -383,91 +334,60 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               </div>
 
               <div className="p-8 flex-1 overflow-y-auto custom-scrollbar space-y-4">
-                {filteredHeaders.map((h) => {
-                  const rawH = h.replace(/\s\(\d+\)$/, "");
-                  const isRequired = selectedTemplate.required_headers?.includes(rawH);
-                  const mapping = selectedTemplate.mappings?.[h] || { header: h, source: 'custom', defaultValue: '' };
+                {filteredItems.map(({ header, key }) => {
+                  const isRequired = selectedTemplate.required_headers?.includes(header);
+                  const mapping = selectedTemplate.mappings?.[key] || { header, source: 'custom', defaultValue: '' };
                   const hasOptions = mapping.acceptedValues && mapping.acceptedValues.length > 0;
 
                   return (
-                    <div key={h} className={`p-6 rounded-[2rem] border transition-all ${isRequired ? 'bg-red-50/10 border-red-100 shadow-[inset_0_0_20px_rgba(239,68,68,0.01)]' : 'bg-slate-50/30 border-slate-50'}`}>
+                    <div key={key} className={`p-6 rounded-[2rem] border transition-all ${isRequired ? 'bg-red-50/10 border-red-100' : 'bg-slate-50/30 border-slate-50'}`}>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                             <span className={`text-[11px] font-black break-all ${isRequired ? 'text-red-700' : 'text-slate-600'}`}>{h}</span>
+                             <span className={`text-[11px] font-black break-all ${isRequired ? 'text-red-700' : 'text-slate-600'}`}>{header}</span>
                              {isRequired && <Star size={10} className="text-red-500 fill-red-500" />}
                           </div>
-                          {mapping.templateDefault && <p className="text-[8px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 inline-block uppercase mt-1">Row 8 Default: {mapping.templateDefault}</p>}
                         </div>
 
                         <select 
                           value={mapping.source}
-                          onChange={(e) => updateMapping(h, { source: e.target.value as any })}
-                          className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10"
+                          onChange={(e) => updateMapping(key, { source: e.target.value as any })}
+                          className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none"
                         >
                           <option value="custom">Manual Value / Choice</option>
                           <option value="template_default">Template Default (Row 8)</option>
                           <option value="listing">Map to Listing Field</option>
-                          <option value="random">🎲 Random Choice (Valid Only)</option>
+                          <option value="random">🎲 Random Generate</option>
                         </select>
 
                         <div className="flex-1">
                           {mapping.source === 'listing' ? (
-                            <select 
-                              value={mapping.listingField}
-                              onChange={(e) => updateMapping(h, { listingField: e.target.value })}
-                              className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black shadow-sm"
-                            >
+                            <select value={mapping.listingField} onChange={(e) => updateMapping(key, { listingField: e.target.value })} className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black shadow-sm">
                               <option value="">-- Choose Data --</option>
                               {LISTING_SOURCE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                             </select>
-                          ) : mapping.source === 'custom' ? (
-                            hasOptions ? (
-                              <select
-                                value={mapping.defaultValue || ''}
-                                onChange={(e) => updateMapping(h, { defaultValue: e.target.value })}
-                                className="w-full px-4 py-3 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl text-[11px] font-black shadow-sm"
-                              >
-                                <option value="">-- Select Valid Option --</option>
+                          ) : mapping.source === 'custom' && hasOptions ? (
+                            <select value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl text-[11px] font-black shadow-sm">
+                                <option value="">-- Select Option --</option>
                                 {mapping.acceptedValues?.map((v, idx) => <option key={idx} value={v}>{v}</option>)}
-                              </select>
-                            ) : (
-                              <input 
-                                type="text" 
-                                value={mapping.defaultValue || ''} 
-                                onChange={(e) => updateMapping(h, { defaultValue: e.target.value })}
-                                placeholder="Manual value..."
-                                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold"
-                              />
-                            )
+                            </select>
+                          ) : mapping.source === 'custom' ? (
+                            <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} placeholder="Value..." className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold" />
                           ) : (
                             <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-400 uppercase flex items-center gap-2">
                                {mapping.source === 'random' ? <Shuffle size={14} /> : <Database size={14} />}
-                               {mapping.source === 'random' ? 'Validated AI Choice' : `Using "${mapping.templateDefault || 'EMPTY'}"`}
+                               {mapping.source === 'random' ? 'Smart Generator' : `Default: ${mapping.templateDefault || 'EMPTY'}`}
                             </div>
                           )}
                         </div>
                       </div>
-                      
-                      {hasOptions && (
-                        <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100/50 mt-4">
-                           <span className="text-[8px] font-black text-slate-300 uppercase flex items-center gap-1"><Tag size={8}/> Valid Options:</span>
-                           {mapping.acceptedValues?.slice(0, 20).map((v, idx) => (
-                             <span key={idx} className="text-[8px] px-2 py-0.5 bg-slate-100 text-slate-500 rounded font-bold border border-slate-200/50">{v}</span>
-                           ))}
-                           {(mapping.acceptedValues?.length || 0) > 20 && <span className="text-[8px] text-slate-300 font-bold">... +{mapping.acceptedValues!.length - 20} more</span>}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center opacity-20">
-              <Layout size={64} className="mb-4" />
-              <h4 className="font-black text-xl uppercase tracking-widest">Select a template to configure</h4>
-            </div>
+            <div className="flex-1 flex flex-col items-center justify-center opacity-20"><Layout size={64} className="mb-4" /></div>
           )}
         </div>
       </div>
