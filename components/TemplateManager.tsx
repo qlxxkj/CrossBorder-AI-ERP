@@ -118,12 +118,17 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           const rawData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
           let fieldCol = -1, valCol = -1;
           
-          // 查找表头：亚马逊模板的 Valid Values 通常前几行是说明
-          for (let i = 0; i < Math.min(rawData.length, 20); i++) {
+          for (let i = 0; i < Math.min(rawData.length, 25); i++) {
             const row = rawData[i];
             if (!row) continue;
-            const fieldIdx = row.findIndex(cell => String(cell || '').toLowerCase().includes('field name') || String(cell || '').includes('字段名称'));
-            const valIdx = row.findIndex(cell => String(cell || '').toLowerCase().includes('valid value') || String(cell || '').includes('有效值'));
+            const fieldIdx = row.findIndex(cell => {
+               const s = String(cell || '').toLowerCase();
+               return s.includes('field name') || s.includes('字段名称');
+            });
+            const valIdx = row.findIndex(cell => {
+               const s = String(cell || '').toLowerCase();
+               return s.includes('valid value') || s.includes('有效值');
+            });
             if (fieldIdx !== -1 && valIdx !== -1) {
               fieldCol = fieldIdx;
               valCol = valIdx;
@@ -132,23 +137,20 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           }
 
           if (fieldCol !== -1 && valCol !== -1) {
-            let lastFieldName = "";
-            rawData.forEach((row, idx) => {
+            let currentField = "";
+            rawData.forEach((row) => {
               if (!row) return;
-              let fName = String(row[fieldCol] || '').trim();
+              const fName = String(row[fieldCol] || '').trim();
               const vVal = String(row[valCol] || '').trim();
               
-              // 亚马逊模板中，字段名可能只在第一行出现，后续行只有 Valid Value
               if (fName && fName.toLowerCase() !== 'field name' && fName !== '字段名称') {
-                lastFieldName = fName;
-              } else {
-                fName = lastFieldName;
+                currentField = fName;
               }
 
-              if (fName && vVal && vVal.toLowerCase() !== 'valid value' && vVal !== '有效值' && vVal.toLowerCase() !== 'none') {
-                if (!fieldDefinitions[fName]) fieldDefinitions[fName] = { acceptedValues: [] };
-                if (!fieldDefinitions[fName].acceptedValues?.includes(vVal)) {
-                  fieldDefinitions[fName].acceptedValues?.push(vVal);
+              if (currentField && vVal && vVal.toLowerCase() !== 'valid value' && vVal !== '有效值' && vVal.toLowerCase() !== 'none') {
+                if (!fieldDefinitions[currentField]) fieldDefinitions[currentField] = { acceptedValues: [] };
+                if (!fieldDefinitions[currentField].acceptedValues?.includes(vVal)) {
+                  fieldDefinitions[currentField].acceptedValues?.push(vVal);
                 }
               }
             });
@@ -185,10 +187,23 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[templateSheetName], { header: 1, defval: '' });
           const row4 = jsonData[3];
           if (row4) {
-            foundHeaders = row4.map(h => String(h || '').trim()).filter(h => h !== '');
+            // 处理重复表头的情况，通过加后缀使其唯一
+            const headerCounts: Record<string, number> = {};
+            foundHeaders = row4.map(h => String(h || '').trim()).filter(h => h !== '').map(h => {
+               if (headerCounts[h]) {
+                 headerCounts[h]++;
+                 return `${h} (${headerCounts[h]})`;
+               } else {
+                 headerCounts[h] = 1;
+                 return h;
+               }
+            });
+
             const row8 = jsonData[7];
             if (row8) {
-              foundHeaders.forEach((h, idx) => { if (row8[idx]) row8Defaults[h] = String(row8[idx]).trim(); });
+              foundHeaders.forEach((h, idx) => { 
+                 if (row8[idx]) row8Defaults[h] = String(row8[idx]).trim(); 
+              });
             }
           }
         }
@@ -202,16 +217,19 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
         foundHeaders.forEach(h => {
           const tplDefault = row8Defaults[h] || '';
-          const lowerH = h.toLowerCase();
+          // 映射检查时去掉我们加的后缀
+          const rawH = h.replace(/\s\(\d+\)$/, "");
+          const lowerH = rawH.toLowerCase();
+          
           let source: any = tplDefault ? 'template_default' : 'custom';
           let field = '';
 
-          // 修复：识别 Other Image Location 为 Other Image URL
+          // 识别 Amazon 各种变体字段名
           if (lowerH.includes('sku') || lowerH.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (lowerH.includes('item_name') || lowerH === 'title' || lowerH.includes('product_name')) { source = 'listing'; field = 'title'; }
           else if (lowerH.includes('standard_price') || lowerH === 'price') { source = 'listing'; field = 'price'; }
           else if (lowerH.includes('brand')) { source = 'listing'; field = 'brand'; }
-          else if (lowerH.match(/main_image_url|main.image|主图/)) { source = 'listing'; field = 'main_image'; }
+          else if (lowerH.match(/main_image_url|main_image_location|main.image|主图/)) { source = 'listing'; field = 'main_image'; }
           else if (lowerH.match(/other_image_url|other_image_location|other.image|附图/)) { 
             otherImageCount++;
             source = 'listing'; 
@@ -229,7 +247,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             listingField: field,
             defaultValue: tplDefault,
             templateDefault: tplDefault,
-            acceptedValues: fieldDefinitions[h]?.acceptedValues
+            acceptedValues: fieldDefinitions[rawH]?.acceptedValues // 使用原始表头获取 Valid Values
           };
         });
 
@@ -244,7 +262,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         }]).select();
 
         if (inserted) fetchTemplates(inserted[0].id);
-        alert(uiLang === 'zh' ? "模板上传并解析成功！已自动提取选项值并配置映射。" : "Upload & Parse Success! Options extracted and mappings configured.");
+        alert(uiLang === 'zh' ? "模板上传解析成功！" : "Upload & Parse Success!");
 
       } catch (err: any) {
         alert(err.message);
@@ -274,14 +292,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     if (!selectedTemplate) return [];
     return selectedTemplate.headers.filter(h => {
       const matchSearch = h.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchRequired = filterRequired ? selectedTemplate.required_headers?.includes(h) : true;
+      const matchRequired = filterRequired ? selectedTemplate.required_headers?.includes(h.replace(/\s\(\d+\)$/, "")) : true;
       return matchSearch && matchRequired;
     });
   }, [selectedTemplate, searchQuery, filterRequired]);
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 font-inter">
-      {/* Top Bar */}
       <div className="flex items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
         <div className="flex items-center gap-5">
           <div className="w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-xl">
@@ -300,7 +317,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 h-[calc(100vh-320px)]">
-        {/* Sidebar: Template List */}
         <div className="lg:col-span-1 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col overflow-hidden">
           <div className="p-6 border-b border-slate-50 bg-slate-50/50">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('manageTemplates')}</span>
@@ -323,7 +339,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
         </div>
 
-        {/* Main Editor */}
         <div className="lg:col-span-3 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col overflow-hidden">
           {selectedTemplate ? (
             <>
@@ -368,14 +383,14 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               </div>
 
               <div className="p-8 flex-1 overflow-y-auto custom-scrollbar space-y-4">
-                {filteredHeaders.map((h, i) => {
-                  const isRequired = selectedTemplate.required_headers?.includes(h);
-                  // 修复：确保每个字段的映射状态是独立的
+                {filteredHeaders.map((h) => {
+                  const rawH = h.replace(/\s\(\d+\)$/, "");
+                  const isRequired = selectedTemplate.required_headers?.includes(rawH);
                   const mapping = selectedTemplate.mappings?.[h] || { header: h, source: 'custom', defaultValue: '' };
                   const hasOptions = mapping.acceptedValues && mapping.acceptedValues.length > 0;
 
                   return (
-                    <div key={`${selectedTemplate.id}-${h}`} className={`p-6 rounded-[2rem] border transition-all ${isRequired ? 'bg-red-50/10 border-red-100 shadow-[inset_0_0_20px_rgba(239,68,68,0.01)]' : 'bg-slate-50/30 border-slate-50'}`}>
+                    <div key={h} className={`p-6 rounded-[2rem] border transition-all ${isRequired ? 'bg-red-50/10 border-red-100 shadow-[inset_0_0_20px_rgba(239,68,68,0.01)]' : 'bg-slate-50/30 border-slate-50'}`}>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
@@ -437,10 +452,10 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                       {hasOptions && (
                         <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100/50 mt-4">
                            <span className="text-[8px] font-black text-slate-300 uppercase flex items-center gap-1"><Tag size={8}/> Valid Options:</span>
-                           {mapping.acceptedValues?.slice(0, 15).map((v, idx) => (
+                           {mapping.acceptedValues?.slice(0, 20).map((v, idx) => (
                              <span key={idx} className="text-[8px] px-2 py-0.5 bg-slate-100 text-slate-500 rounded font-bold border border-slate-200/50">{v}</span>
                            ))}
-                           {(mapping.acceptedValues?.length || 0) > 15 && <span className="text-[8px] text-slate-300 font-bold">... +{mapping.acceptedValues!.length - 15} more</span>}
+                           {(mapping.acceptedValues?.length || 0) > 20 && <span className="text-[8px] text-slate-300 font-bold">... +{mapping.acceptedValues!.length - 20} more</span>}
                         </div>
                       )}
                     </div>

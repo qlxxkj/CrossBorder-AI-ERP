@@ -54,8 +54,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       csvRows.push(""); 
       csvRows.push("version=2023.1210"); 
       csvRows.push(`Marketplace=${selectedTemplate.marketplace || 'US'}`);
-      // 4-7. Headers & Meta Rows
-      csvRows.push(selectedTemplate.headers.join(','));
+      
+      // 4. Headers - 注意去掉我们加的后缀 "(n)" 还原原始表头
+      const cleanHeaders = selectedTemplate.headers.map(h => h.replace(/\s\(\d+\)$/, ""));
+      csvRows.push(cleanHeaders.join(','));
+      
+      // 5-7. Meta Rows
       csvRows.push(selectedTemplate.headers.map(() => "").join(','));
       csvRows.push(selectedTemplate.headers.map(() => "").join(','));
       csvRows.push(selectedTemplate.headers.map(() => "").join(','));
@@ -101,7 +105,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             }
           }
 
-          // 兜底逻辑：如果映射后的值依然为空，尝试使用 Row 8 原始值
+          // 兜底逻辑
           if (!value && mapping?.templateDefault) {
             value = mapping.templateDefault;
           }
