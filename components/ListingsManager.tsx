@@ -1,0 +1,223 @@
+
+import React, { useState } from 'react';
+import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2 } from 'lucide-react';
+import { Listing, UILanguage } from '../types';
+import { useTranslation } from '../lib/i18n';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { ManualListingModal } from './ManualListingModal';
+import { ExportModal } from './ExportModal';
+
+interface ListingsManagerProps {
+  onSelectListing: (listing: Listing) => void;
+  listings: Listing[];
+  setListings: React.Dispatch<React.SetStateAction<Listing[]>>;
+  lang: UILanguage;
+  refreshListings: () => void;
+}
+
+export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListing, listings, setListings, lang, refreshListings }) => {
+  const t = useTranslation(lang);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this listing?")) return;
+    
+    if (isSupabaseConfigured()) {
+      const { error } = await supabase.from('listings').delete().eq('id', id);
+      if (error) alert(error.message);
+      else refreshListings();
+    } else {
+      setListings(prev => prev.filter(l => l.id !== id));
+    }
+  };
+
+  const filteredListings = listings.filter(l => {
+    const displayTitle = (l.status === 'optimized' && l.optimized?.optimized_title) 
+      ? l.optimized.optimized_title 
+      : l.cleaned.title;
+    return displayTitle.toLowerCase().includes(searchTerm.toLowerCase()) || 
+           l.asin.toLowerCase().includes(searchTerm.toLowerCase());
+  });
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredListings.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredListings.map(l => l.id)));
+    }
+  };
+
+  const toggleSelectOne = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  return (
+    <div className="p-8 max-w-7xl mx-auto space-y-8">
+      {isManualModalOpen && (
+        <ManualListingModal 
+          uiLang={lang} 
+          onClose={() => setIsManualModalOpen(false)} 
+          onSave={() => {
+            setIsManualModalOpen(false);
+            refreshListings();
+          }}
+        />
+      )}
+
+      {isExportModalOpen && (
+        <ExportModal 
+          uiLang={lang} 
+          selectedListings={listings.filter(l => selectedIds.has(l.id))}
+          onClose={() => setIsExportModalOpen(false)} 
+        />
+      )}
+
+      <div className="flex flex-col gap-2">
+        <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('listings')}</h2>
+        <p className="text-slate-400 font-medium text-sm">Manage your product catalog and optimize for marketplaces.</p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div className="relative w-full sm:w-96">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+          <input 
+            type="text" 
+            placeholder={t('searchPlaceholder')} 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all shadow-sm font-bold text-sm"
+          />
+        </div>
+        <div className="flex gap-3 w-full sm:w-auto">
+           {selectedIds.size > 0 && (
+             <button 
+               onClick={() => setIsExportModalOpen(true)}
+               className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-8 py-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 font-black text-xs transition-all border border-indigo-100 shadow-sm uppercase tracking-widest"
+             >
+               <Download size={18} /> {t('export')} ({selectedIds.size})
+             </button>
+           )}
+           <button 
+             onClick={() => setIsManualModalOpen(true)}
+             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-8 py-3.5 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 font-black text-xs shadow-xl transition-all uppercase tracking-widest"
+           >
+            <Plus size={18} /> {t('manualAdd')}
+           </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] uppercase text-slate-400 font-black tracking-[0.2em]">
+                <th className="p-6 w-12">
+                   <input 
+                     type="checkbox" 
+                     className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                     checked={selectedIds.size === filteredListings.length && filteredListings.length > 0}
+                     onChange={toggleSelectAll}
+                   />
+                </th>
+                <th className="p-6 w-24 text-center">Preview</th>
+                <th className="p-6">ASIN / SKU</th>
+                <th className="p-6 w-1/2">Product Info</th>
+                <th className="p-6">Pricing</th>
+                <th className="p-6">Status</th>
+                <th className="p-6 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {filteredListings.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-32 text-center text-slate-200 flex flex-col items-center gap-4">
+                    <Package size={48} className="opacity-20" />
+                    <p className="font-black uppercase tracking-widest text-xs opacity-50">No products found</p>
+                  </td>
+                </tr>
+              ) : (
+                filteredListings.map((listing) => (
+                  <tr 
+                    key={listing.id} 
+                    className={`hover:bg-slate-50 transition-colors group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/30' : ''}`}
+                    onClick={() => onSelectListing(listing)}
+                  >
+                    <td className="p-6" onClick={(e) => e.stopPropagation()}>
+                       <input 
+                         type="checkbox" 
+                         className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                         checked={selectedIds.has(listing.id)}
+                         onChange={(e) => { e.stopPropagation(); toggleSelectOne(listing.id, e as any); }}
+                       />
+                    </td>
+                    <td className="p-6">
+                      <div className="w-14 h-14 mx-auto rounded-xl bg-white border border-slate-200 overflow-hidden shadow-sm flex items-center justify-center p-1">
+                        <img src={listing.cleaned.main_image} alt="" className="max-w-full max-h-full object-contain" />
+                      </div>
+                    </td>
+                    <td className="p-6">
+                       <span className="font-mono text-xs font-black text-slate-400 bg-slate-100 px-2 py-1 rounded tracking-tighter">{listing.asin}</span>
+                    </td>
+                    <td className="p-6">
+                      <p className="text-sm font-black text-slate-800 line-clamp-1 leading-relaxed">
+                        {(listing.status === 'optimized' && listing.optimized?.optimized_title) 
+                          ? listing.optimized.optimized_title 
+                          : listing.cleaned.title}
+                      </p>
+                      <div className="flex gap-1.5 mt-2">
+                        {listing.translations && Object.keys(listing.translations).map(k => (
+                          <span key={k} className="text-[8px] px-1.5 py-0.5 bg-slate-100 rounded-md uppercase font-black text-slate-400 border border-slate-200">{k}</span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="p-6">
+                       <div className="flex flex-col">
+                          <span className="text-sm font-black text-slate-900">${listing.cleaned.price}</span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">FOB / EXW</span>
+                       </div>
+                    </td>
+                    <td className="p-6">
+                      {listing.status === 'optimized' ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black uppercase bg-green-50 text-green-600 border border-green-100 shadow-sm">
+                          <CheckCircle size={10} /> Optimized
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[9px] font-black uppercase bg-slate-100 text-slate-400 border border-slate-200">
+                          Raw Capture
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-6 text-right">
+                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); onSelectListing(listing); }}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-100"
+                        >
+                          {t('edit')}
+                        </button>
+                        <button 
+                          onClick={(e) => handleDelete(listing.id, e)}
+                          className="p-2 text-slate-300 hover:text-red-500 transition-colors transform hover:scale-110"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};

@@ -39,7 +39,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ExportTemplate | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [fieldSearchQuery, setFieldSearchQuery] = useState('');
+  const [templateSearchQuery, setTemplateSearchQuery] = useState('');
 
   useEffect(() => {
     fetchTemplates();
@@ -63,6 +64,23 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     setLoading(false);
   };
 
+  const handleDeleteTemplate = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!window.confirm(uiLang === 'zh' ? "确定要删除该模板吗？" : "Are you sure you want to delete this template?")) return;
+    
+    try {
+      const { error } = await supabase.from('templates').delete().eq('id', id);
+      if (error) throw error;
+      
+      setTemplates(prev => prev.filter(t => t.id !== id));
+      if (selectedTemplate?.id === id) {
+        setSelectedTemplate(null);
+      }
+    } catch (err: any) {
+      alert("Delete failed: " + err.message);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -75,15 +93,12 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const data = new Uint8Array(arrayBuffer);
         const workbook = XLSX.read(data, { type: 'array', cellNF: true, cellText: true, cellStyles: true });
         
-        // 存储原始文件的 Base64
         const base64File = btoa(String.fromCharCode(...data));
 
         let foundHeaders: string[] = [];
         let row8Defaults: string[] = [];
-        let requiredHeaders: string[] = [];
         let fieldDefinitions: Record<string, string[]> = {};
 
-        // 1. Valid Values 解析
         const vvSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('valid values') || n.includes('有效值'));
         if (vvSheet) {
           const rawData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[vvSheet], { header: 1 });
@@ -108,13 +123,12 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           }
         }
 
-        // 2. Template 解析
         const tplSheet = workbook.SheetNames.find(n => n.toLowerCase() === 'template' || n.includes('模板'));
         if (!tplSheet) throw new Error("Template sheet not found!");
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[tplSheet], { header: 1, defval: '' });
         
-        const row4 = jsonData[3]; // 表头行
-        const row8 = jsonData[7]; // 默认值行
+        const row4 = jsonData[3];
+        const row8 = jsonData[7];
         if (!row4) throw new Error("Could not find headers in Row 4");
 
         foundHeaders = row4.map(h => String(h || '').trim());
@@ -126,7 +140,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         foundHeaders.forEach((h, i) => {
           if (!h) return;
           const lowerH = h.toLowerCase();
-          const key = `col_${i}`; // 绝对列索引
+          const key = `col_${i}`;
           let source: any = row8Defaults[i] ? 'template_default' : 'custom';
           let field = '';
 
@@ -165,11 +179,12 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         }]).select();
 
         if (inserted) fetchTemplates(inserted[0].id);
-        alert(uiLang === 'zh' ? "模板上传并解析成功！已保留完整格式与宏。" : "Template uploaded successfully! Formatting and macros preserved.");
+        alert(uiLang === 'zh' ? "模板上传并解析成功！" : "Template uploaded successfully!");
       } catch (err: any) {
         alert(err.message);
       } finally {
         setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
       }
     };
     reader.readAsArrayBuffer(file);
@@ -191,6 +206,16 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     alert("Saved!");
   };
 
+  const filteredTemplates = useMemo(() => {
+    return templates.filter(tmp => tmp.name.toLowerCase().includes(templateSearchQuery.toLowerCase()));
+  }, [templates, templateSearchQuery]);
+
+  const filteredFields = useMemo(() => {
+    if (!selectedTemplate) return [];
+    return selectedTemplate.headers.map((h, i) => ({ header: h, index: i }))
+      .filter(item => item.header && item.header.toLowerCase().includes(fieldSearchQuery.toLowerCase()));
+  }, [selectedTemplate, fieldSearchQuery]);
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 font-inter">
       <div className="flex items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
@@ -211,39 +236,93 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 h-[calc(100vh-320px)]">
+        {/* Sidebar */}
         <div className="lg:col-span-1 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col overflow-hidden">
           <div className="p-6 border-b border-slate-50 bg-slate-50/50">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('manageTemplates')}</span>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">{t('manageTemplates')}</span>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
+              <input 
+                type="text" 
+                placeholder={uiLang === 'zh' ? "搜索模板..." : "Search templates..."}
+                value={templateSearchQuery}
+                onChange={(e) => setTemplateSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-white border border-slate-100 rounded-xl text-xs font-bold focus:border-indigo-500 outline-none transition-all shadow-sm"
+              />
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
-            {templates.map(tmp => (
-              <div key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`p-5 rounded-3xl border cursor-pointer transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/30 ring-1 ring-indigo-500/10' : 'border-slate-50 bg-white hover:border-slate-200'}`}>
-                <p className="font-black text-xs truncate">{tmp.name}</p>
-                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">{tmp.marketplace}</p>
+            {filteredTemplates.length === 0 ? (
+              <div className="p-10 text-center opacity-20 flex flex-col items-center">
+                <FileSpreadsheet size={32} className="mb-2" />
+                <p className="text-[10px] font-black uppercase">No templates</p>
+              </div>
+            ) : filteredTemplates.map(tmp => (
+              <div 
+                key={tmp.id} 
+                onClick={() => setSelectedTemplate(tmp)} 
+                className={`group relative p-5 rounded-3xl border cursor-pointer transition-all ${
+                  selectedTemplate?.id === tmp.id 
+                    ? 'border-indigo-500 bg-indigo-50/30 ring-1 ring-indigo-500/10' 
+                    : 'border-slate-50 bg-white hover:border-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 overflow-hidden pr-2">
+                    <p className="font-black text-xs truncate">{tmp.name}</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">{tmp.marketplace}</p>
+                  </div>
+                  <button 
+                    onClick={(e) => handleDeleteTemplate(e, tmp.id)}
+                    className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all transform hover:scale-110"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         </div>
 
+        {/* Content */}
         <div className="lg:col-span-3 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col overflow-hidden">
           {selectedTemplate ? (
             <>
-              <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
-                <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
-                <button onClick={saveMappings} className="px-10 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all">
-                  <Save size={16} /> {t('save')}
-                </button>
+              <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex flex-col">
+                  <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Configure Field Mappings</p>
+                </div>
+                <div className="flex items-center gap-4 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
+                    <input 
+                      type="text" 
+                      placeholder={uiLang === 'zh' ? "搜索字段..." : "Search fields..."}
+                      value={fieldSearchQuery}
+                      onChange={(e) => setFieldSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                    />
+                  </div>
+                  <button onClick={saveMappings} className="px-8 py-2.5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all">
+                    <Save size={16} /> {t('save')}
+                  </button>
+                </div>
               </div>
 
               <div className="p-8 flex-1 overflow-y-auto custom-scrollbar space-y-4">
-                {selectedTemplate.headers.map((h, i) => {
-                  if (!h) return null;
+                {filteredFields.length === 0 ? (
+                  <div className="p-20 text-center opacity-20">
+                    <Layout size={48} className="mx-auto mb-4" />
+                    <p className="font-black uppercase tracking-widest text-xs">No matching fields</p>
+                  </div>
+                ) : filteredFields.map(({ header: h, index: i }) => {
                   const key = `col_${i}`;
                   const mapping = selectedTemplate.mappings?.[key] || { header: h, source: 'custom', defaultValue: '' };
                   const hasOptions = mapping.acceptedValues && mapping.acceptedValues.length > 0;
 
                   return (
-                    <div key={key} className="p-6 rounded-[2rem] border bg-slate-50/30 border-slate-50 transition-all hover:border-indigo-100">
+                    <div key={key} className="p-6 rounded-[2rem] border bg-slate-50/30 border-slate-50 transition-all hover:border-indigo-100 group/field">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
                         <div className="space-y-1">
                           <span className="text-[11px] font-black text-slate-600 break-all">{h}</span>
@@ -253,7 +332,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                         <select 
                           value={mapping.source}
                           onChange={(e) => updateMapping(key, { source: e.target.value as any })}
-                          className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none"
+                          className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
                         >
                           <option value="custom">Manual Value</option>
                           <option value="template_default">Template Default</option>
@@ -281,7 +360,12 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                               {mapping.acceptedValues?.map((v, idx) => <option key={idx} value={v}>{v}</option>)}
                             </select>
                           ) : mapping.source === 'custom' ? (
-                            <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold" />
+                            <input 
+                              type="text" 
+                              value={mapping.defaultValue || ''} 
+                              onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} 
+                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" 
+                            />
                           ) : (
                             <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-400 uppercase">
                                {mapping.source === 'random' ? 'Smart AI Random' : `Default: ${mapping.templateDefault || 'None'}`}
@@ -295,7 +379,10 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center opacity-20"><Layout size={64} /></div>
+            <div className="flex-1 flex flex-col items-center justify-center opacity-20">
+              <Layout size={64} className="mb-4" />
+              <p className="font-black uppercase tracking-widest text-sm">Select a template from the list</p>
+            </div>
           )}
         </div>
       </div>

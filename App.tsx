@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
+import { ListingsManager } from './components/ListingsManager';
 import { LandingPage } from './components/LandingPage';
 import { ListingDetail } from './components/ListingDetail';
 import { AuthPage } from './components/AuthPage';
@@ -137,6 +138,44 @@ const App: React.FC = () => {
 
   if (view === AppView.AUTH) return <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={handleLogoClick} uiLang={lang} />;
 
+  const renderContent = () => {
+    if (view === AppView.LISTING_DETAIL && selectedListing) {
+      return (
+        <ListingDetail 
+          listing={selectedListing} 
+          onBack={() => { setView(AppView.DASHBOARD); fetchListings(); }}
+          onUpdate={(updated) => {
+            setListings(prev => prev.map(l => l.id === updated.id ? updated : l));
+            setSelectedListing(updated);
+          }}
+          onNext={handleNextListing}
+          uiLang={lang}
+        />
+      );
+    }
+
+    switch (activeTab) {
+      case 'dashboard':
+        return <Dashboard listings={listings} lang={lang} />;
+      case 'listings':
+        return (
+          <ListingsManager 
+            onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }}
+            listings={listings}
+            setListings={setListings}
+            lang={lang}
+            refreshListings={fetchListings}
+          />
+        );
+      case 'templates':
+        return <TemplateManager uiLang={lang} />;
+      case 'settings':
+        return <div className="p-10 text-slate-400 font-black uppercase text-xs tracking-widest text-center py-40">System Settings - Restricted Access</div>;
+      default:
+        return <Dashboard listings={listings} lang={lang} />;
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-slate-50">
       <Sidebar 
@@ -148,36 +187,7 @@ const App: React.FC = () => {
       />
       
       <main className="ml-64 flex-1">
-        {activeTab === 'dashboard' && (
-          <Dashboard 
-            onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }}
-            listings={listings}
-            setListings={setListings}
-            lang={lang}
-            refreshListings={fetchListings}
-          />
-        )}
-
-        {activeTab === 'templates' && (
-          <TemplateManager uiLang={lang} />
-        )}
-
-        {activeTab === 'settings' && (
-           <div className="p-10 text-slate-400 font-bold">Settings View - Coming Soon</div>
-        )}
-
-        {view === AppView.LISTING_DETAIL && selectedListing && activeTab === 'dashboard' && (
-          <ListingDetail 
-            listing={selectedListing} 
-            onBack={() => { setView(AppView.DASHBOARD); fetchListings(); }}
-            onUpdate={(updated) => {
-              setListings(prev => prev.map(l => l.id === updated.id ? updated : l));
-              setSelectedListing(updated);
-            }}
-            onNext={handleNextListing}
-            uiLang={lang}
-          />
-        )}
+        {renderContent()}
       </main>
     </div>
   );
