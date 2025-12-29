@@ -9,6 +9,7 @@ import { AuthPage } from './components/AuthPage';
 import { TemplateManager } from './components/TemplateManager';
 import { AppView, Listing, UILanguage } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
+import { AlertTriangle } from 'lucide-react';
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.LANDING);
@@ -16,74 +17,36 @@ const App: React.FC = () => {
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [lang, setLang] = useState<UILanguage>('en');
+  const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
+  const [initError, setInitError] = useState<string | null>(null);
 
   useEffect(() => {
-    const detectLang = async () => {
-      const savedLang = localStorage.getItem('app_lang') as UILanguage;
-      if (savedLang) {
-        setLang(savedLang);
-        return;
-      }
-
-      try {
-        const browserLang = navigator.language.split('-')[0];
-        const supported = ['en', 'zh', 'ja', 'de', 'fr', 'es'];
-        if (supported.includes(browserLang)) {
-          setLang(browserLang as UILanguage);
-        }
-
-        const res = await fetch('https://ipapi.co/json/');
-        const data = await res.json();
-        const country = data.country_code?.toUpperCase();
-        
-        const geoMap: Record<string, UILanguage> = {
-          'CN': 'zh', 'JP': 'ja', 'DE': 'de', 'FR': 'fr', 'ES': 'es',
-          'MX': 'es', 'AT': 'de', 'CH': 'de'
-        };
-
-        if (country && geoMap[country]) {
-          setLang(geoMap[country]);
-        }
-      } catch (e) {
-        console.warn("Language auto-detection via IP failed.");
-      }
-    };
-    detectLang();
-  }, []);
-
-  const handleLanguageChange = (newLang: UILanguage) => {
-    setLang(newLang);
-    localStorage.setItem('app_lang', newLang);
-  };
-
-  const fetchListings = async () => {
-    if (!isSupabaseConfigured()) return;
-    const { data, error } = await supabase
-      .from('listings')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const savedLang = localStorage.getItem('app_lang') as UILanguage;
+    if (savedLang) setLang(savedLang);
     
-    if (!error && data) {
-      setListings(data);
-    }
-  };
-
-  useEffect(() => {
     if (!isSupabaseConfigured()) {
+      setInitError("Supabase configuration is missing. Please check your environment variables.");
       setLoading(false);
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) {
-        setView(AppView.DASHBOARD);
-        fetchListings();
+    const initAuth = async () => {
+      try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        setSession(currentSession);
+        if (currentSession) {
+          setView(AppView.DASHBOARD);
+          fetchListings();
+        }
+      } catch (err: any) {
+        setInitError(err.message);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    };
+
+    initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
@@ -92,36 +55,52 @@ const App: React.FC = () => {
         fetchListings();
       } else {
         setView(AppView.LANDING);
-        setListings([]);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
+  const handleLanguageChange = (newLang: UILanguage) => {
+    setLang(newLang);
+    localStorage.setItem('app_lang', newLang);
+  };
+
+  const fetchListings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('listings')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (data) setListings(data);
+      if (error) throw error;
+    } catch (e) {
+      console.error("Listing fetch error:", e);
+    }
+  };
+
   const handleLogout = async () => {
-    if (isSupabaseConfigured()) await supabase.auth.signOut();
+    await supabase.auth.signOut();
     setView(AppView.LANDING);
-    setSelectedListing(null);
     setSession(null);
   };
 
-  const handleNextListing = () => {
-    if (!selectedListing || listings.length === 0) return;
-    const currentIndex = listings.findIndex(l => l.id === selectedListing.id);
-    const nextIndex = (currentIndex + 1) % listings.length;
-    setSelectedListing(listings[nextIndex]);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleLogoClick = () => {
-    setView(AppView.LANDING);
-    setSelectedListing(null);
-  };
+  if (initError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-red-50 p-6 text-center">
+        <div className="max-w-md space-y-4">
+          <AlertTriangle className="mx-auto text-red-500" size={48} />
+          <h1 className="text-xl font-black text-red-900 uppercase tracking-tighter">System Initialization Error</h1>
+          <p className="text-red-700 font-medium text-sm">{initError}</p>
+          <p className="text-xs text-red-500">Check your Browser Console and Environment Variables.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
+    <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="animate-spin rounded-full h-10 w-10 border-4 border-indigo-600 border-t-transparent"></div>
     </div>
   );
 
@@ -129,14 +108,14 @@ const App: React.FC = () => {
     return (
       <LandingPage 
         onLogin={() => setView(session ? AppView.DASHBOARD : AppView.AUTH)} 
-        onLogoClick={handleLogoClick}
+        onLogoClick={() => setView(AppView.LANDING)}
         uiLang={lang} 
         onLanguageChange={handleLanguageChange} 
       />
     );
   }
 
-  if (view === AppView.AUTH) return <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={handleLogoClick} uiLang={lang} />;
+  if (view === AppView.AUTH) return <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} />;
 
   const renderContent = () => {
     if (view === AppView.LISTING_DETAIL && selectedListing) {
@@ -148,44 +127,28 @@ const App: React.FC = () => {
             setListings(prev => prev.map(l => l.id === updated.id ? updated : l));
             setSelectedListing(updated);
           }}
-          onNext={handleNextListing}
+          onNext={() => {
+            const idx = listings.findIndex(l => l.id === selectedListing.id);
+            const next = listings[(idx + 1) % listings.length];
+            setSelectedListing(next);
+            window.scrollTo(0,0);
+          }}
           uiLang={lang}
         />
       );
     }
 
     switch (activeTab) {
-      case 'dashboard':
-        return <Dashboard listings={listings} lang={lang} />;
-      case 'listings':
-        return (
-          <ListingsManager 
-            onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }}
-            listings={listings}
-            setListings={setListings}
-            lang={lang}
-            refreshListings={fetchListings}
-          />
-        );
-      case 'templates':
-        return <TemplateManager uiLang={lang} />;
-      case 'settings':
-        return <div className="p-10 text-slate-400 font-black uppercase text-xs tracking-widest text-center py-40">System Settings - Restricted Access</div>;
-      default:
-        return <Dashboard listings={listings} lang={lang} />;
+      case 'dashboard': return <Dashboard listings={listings} lang={lang} />;
+      case 'listings': return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={fetchListings} />;
+      case 'templates': return <TemplateManager uiLang={lang} />;
+      default: return <Dashboard listings={listings} lang={lang} />;
     }
   };
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      <Sidebar 
-        onLogout={handleLogout} 
-        onLogoClick={handleLogoClick}
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab}
-        lang={lang}
-      />
-      
+      <Sidebar onLogout={handleLogout} onLogoClick={() => setView(AppView.LANDING)} activeTab={activeTab} setActiveTab={setActiveTab} lang={lang} />
       <main className="ml-64 flex-1">
         {renderContent()}
       </main>
