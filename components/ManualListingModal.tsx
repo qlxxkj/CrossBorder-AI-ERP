@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { X, Upload, Plus, Trash2, Loader2, Save, Image as ImageIcon, Ruler, Weight, ListFilter, Search, Info } from 'lucide-react';
+import { X, Upload, Plus, Trash2, Loader2, Save, Image as ImageIcon, Ruler, Weight, ListFilter, Search, Info, Globe } from 'lucide-react';
 import { UILanguage, CleanedData } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -16,6 +16,14 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
+const MARKETPLACES = [
+  { code: 'US', name: 'USA', flag: '🇺🇸' },
+  { code: 'UK', name: 'UK', flag: '🇬🇧' },
+  { code: 'DE', name: 'Germany', flag: '🇩🇪' },
+  { code: 'FR', name: 'France', flag: '🇫🇷' },
+  { code: 'JP', name: 'Japan', flag: '🇯🇵' },
+];
+
 export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, onClose, onSave }) => {
   const t = useTranslation(uiLang);
   const mainImageInputRef = useRef<HTMLInputElement>(null);
@@ -26,12 +34,13 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
   
   const [formData, setFormData] = useState({
     asin: '',
+    marketplace: 'US',
     title: '',
     brand: '',
     price: 0,
     shipping: 0,
     description: '',
-    features: ['', '', '', '', ''], // 默认初始化五点
+    features: ['', '', '', '', ''],
     search_keywords: '',
     weightValue: '',
     weightUnit: 'kg',
@@ -127,6 +136,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
       const { error } = await supabase.from('listings').insert([{
         user_id: session.user.id, 
         asin: cleanedData.asin,
+        marketplace: formData.marketplace,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'collected',
@@ -159,14 +169,27 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
 
         <div className="flex-1 overflow-y-auto p-10 custom-scrollbar bg-slate-50/30">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-            {/* Left Column: Basic Info & Specs */}
+            {/* Left Column */}
             <div className="lg:col-span-4 space-y-8">
               <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
-                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Basic Information</h3>
+                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Market & ASIN</h3>
                 <div className="space-y-4">
                   <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Target Marketplace</label>
+                    <div className="relative">
+                      <select 
+                        value={formData.marketplace}
+                        onChange={(e) => setFormData(p => ({ ...p, marketplace: e.target.value }))}
+                        className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold appearance-none cursor-pointer focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                      >
+                        {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.name}</option>)}
+                      </select>
+                      <Globe className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={16} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">{t('asinLabel')}</label>
-                    <input type="text" value={formData.asin} onChange={(e) => setFormData(p => ({ ...p, asin: e.target.value }))} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-bold" placeholder="e.g. B0XXXXXX" />
+                    <input type="text" value={formData.asin} onChange={(e) => setFormData(p => ({ ...p, asin: e.target.value }))} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-bold" placeholder="B0XXXXXX" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">{t('brandLabel')}</label>
@@ -214,7 +237,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
               </section>
             </div>
 
-            {/* Middle Column: Title, Bullets & SEO */}
+            {/* Middle Column */}
             <div className="lg:col-span-5 space-y-8">
               <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
                 <div className="flex items-center justify-between">
@@ -230,7 +253,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] flex items-center gap-2"><ListFilter size={14} /> Product Features (Bullet Points)</h3>
+                    <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] flex items-center gap-2"><ListFilter size={14} /> Product Features</h3>
                     <button onClick={addFeature} className="p-1 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Plus size={16} /></button>
                   </div>
                   <div className="space-y-3">
@@ -254,15 +277,14 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                   <textarea 
                     value={formData.search_keywords}
                     onChange={(e) => setFormData(p => ({ ...p, search_keywords: e.target.value }))}
-                    placeholder="Enter keywords, separated by commas..."
+                    placeholder="Enter keywords..."
                     className="w-full px-6 py-4 bg-amber-50/30 border border-amber-100 rounded-3xl text-xs font-bold text-slate-600 focus:bg-white focus:border-amber-400 outline-none transition-all min-h-[100px]"
                   />
-                  <p className="text-[9px] font-bold text-slate-400 flex items-center gap-1"><Info size={10} /> Maximum 250 bytes. Use relevant terms only.</p>
                 </div>
               </section>
             </div>
 
-            {/* Right Column: Images */}
+            {/* Right Column */}
             <div className="lg:col-span-3 space-y-8">
               <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t('uploadMain')}</h3>
@@ -303,15 +325,6 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
               </section>
 
               <div className="bg-indigo-600 p-8 rounded-[2.5rem] shadow-2xl shadow-indigo-200 text-white space-y-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md">
-                    <Save size={20} />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-black uppercase tracking-widest">Ready to save?</h4>
-                    <p className="text-[10px] font-bold text-indigo-200">Data will be stored in cloud.</p>
-                  </div>
-                </div>
                 <button 
                   onClick={handleSave} 
                   disabled={isLoading || isUploading} 
@@ -322,19 +335,6 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                 </button>
               </div>
             </div>
-          </div>
-
-          <div className="mt-12 pt-8 border-t border-slate-100">
-             <div className="flex items-center gap-4 mb-6">
-                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('descLabel')}</h3>
-                <div className="h-px flex-1 bg-slate-100"></div>
-             </div>
-             <textarea 
-                value={formData.description} 
-                onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} 
-                className="w-full px-8 py-6 bg-white border border-slate-200 rounded-[2rem] text-sm font-medium text-slate-600 min-h-[150px] leading-relaxed shadow-sm focus:ring-4 focus:ring-indigo-500/5 outline-none transition-all" 
-                placeholder="Detailed product story and technical specifications..."
-             />
           </div>
         </div>
       </div>

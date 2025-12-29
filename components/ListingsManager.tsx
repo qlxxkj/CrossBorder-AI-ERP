@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2, Zap } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2, Zap, Globe } from 'lucide-react';
 import { Listing, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -16,9 +16,19 @@ interface ListingsManagerProps {
   refreshListings: () => void;
 }
 
+const MARKETPLACES_LIST = [
+  { code: 'ALL', name: 'All Sites', flag: '🌍' },
+  { code: 'US', name: 'USA', flag: '🇺🇸' },
+  { code: 'UK', name: 'UK', flag: '🇬🇧' },
+  { code: 'DE', name: 'Germany', flag: '🇩🇪' },
+  { code: 'FR', name: 'France', flag: '🇫🇷' },
+  { code: 'JP', name: 'Japan', flag: '🇯🇵' },
+];
+
 export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListing, listings, setListings, lang, refreshListings }) => {
   const t = useTranslation(lang);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterMarketplace, setFilterMarketplace] = useState('ALL');
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isBulkScrapeOpen, setIsBulkScrapeOpen] = useState(false);
@@ -37,13 +47,20 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
     }
   };
 
-  const filteredListings = listings.filter(l => {
-    const displayTitle = (l.status === 'optimized' && l.optimized?.optimized_title) 
-      ? l.optimized.optimized_title 
-      : l.cleaned.title;
-    return displayTitle.toLowerCase().includes(searchTerm.toLowerCase()) || 
-           l.asin.toLowerCase().includes(searchTerm.toLowerCase());
-  });
+  const filteredListings = useMemo(() => {
+    return listings.filter(l => {
+      const displayTitle = (l.status === 'optimized' && l.optimized?.optimized_title) 
+        ? l.optimized.optimized_title 
+        : l.cleaned.title;
+      
+      const matchesSearch = displayTitle.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                             l.asin.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesMarketplace = filterMarketplace === 'ALL' || l.marketplace === filterMarketplace;
+      
+      return matchesSearch && matchesMarketplace;
+    });
+  }, [listings, searchTerm, filterMarketplace]);
 
   const toggleSelectAll = () => {
     if (selectedIds.size === filteredListings.length) {
@@ -59,6 +76,10 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
     if (next.has(id)) next.delete(id);
     else next.add(id);
     setSelectedIds(next);
+  };
+
+  const getMarketplaceFlag = (code: string) => {
+    return MARKETPLACES_LIST.find(m => m.code === code)?.flag || '📦';
   };
 
   return (
@@ -95,38 +116,51 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
 
       <div className="flex flex-col gap-2">
         <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('listings')}</h2>
-        <p className="text-slate-400 font-medium text-sm">Manage your product catalog and optimize for marketplaces.</p>
+        <p className="text-slate-400 font-medium text-sm">Organize and filter your cross-border inventory.</p>
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div className="relative w-full sm:w-96">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-          <input 
-            type="text" 
-            placeholder={t('searchPlaceholder')} 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all shadow-sm font-bold text-sm"
-          />
+      <div className="flex flex-col lg:flex-row justify-between items-center gap-4">
+        <div className="flex flex-1 gap-3 w-full">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+            <input 
+              type="text" 
+              placeholder={t('searchPlaceholder')} 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all shadow-sm font-bold text-sm"
+            />
+          </div>
+          <div className="relative min-w-[160px]">
+            <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+            <select 
+              value={filterMarketplace}
+              onChange={(e) => setFilterMarketplace(e.target.value)}
+              className="w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all shadow-sm font-bold text-sm appearance-none cursor-pointer"
+            >
+              {MARKETPLACES_LIST.map(m => <option key={m.code} value={m.code}>{m.flag} {m.name}</option>)}
+            </select>
+          </div>
         </div>
-        <div className="flex gap-3 w-full sm:w-auto">
+
+        <div className="flex gap-3 w-full lg:w-auto">
            {selectedIds.size > 0 && (
              <button 
                onClick={() => setIsExportModalOpen(true)}
-               className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-8 py-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 font-black text-xs transition-all border border-indigo-100 shadow-sm uppercase tracking-widest"
+               className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-8 py-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 font-black text-xs transition-all border border-indigo-100 shadow-sm uppercase tracking-widest"
              >
                <Download size={18} /> {t('export')} ({selectedIds.size})
              </button>
            )}
            <button 
              onClick={() => setIsBulkScrapeOpen(true)}
-             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3.5 bg-amber-500 text-white rounded-2xl hover:bg-amber-600 font-black text-xs shadow-xl shadow-amber-100 transition-all uppercase tracking-widest border border-amber-400"
+             className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-3.5 bg-amber-500 text-white rounded-2xl hover:bg-amber-600 font-black text-xs shadow-xl shadow-amber-100 transition-all uppercase tracking-widest border border-amber-400"
            >
             <Zap size={18} /> {t('bulkScrape')}
            </button>
            <button 
              onClick={() => setIsManualModalOpen(true)}
-             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-8 py-3.5 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 font-black text-xs shadow-xl transition-all uppercase tracking-widest"
+             className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-8 py-3.5 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 font-black text-xs shadow-xl transition-all uppercase tracking-widest"
            >
             <Plus size={18} /> {t('manualAdd')}
            </button>
@@ -147,9 +181,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
                    />
                 </th>
                 <th className="p-6 w-24 text-center">Preview</th>
+                <th className="p-6">Market</th>
                 <th className="p-6">ASIN / SKU</th>
                 <th className="p-6 w-1/2">Product Info</th>
-                <th className="p-6">Pricing</th>
                 <th className="p-6">Status</th>
                 <th className="p-6 text-right">Actions</th>
               </tr>
@@ -159,14 +193,14 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
                 <tr>
                   <td colSpan={7} className="p-32 text-center text-slate-200 flex flex-col items-center gap-4">
                     <Package size={48} className="opacity-20" />
-                    <p className="font-black uppercase tracking-widest text-xs opacity-50">No products found</p>
+                    <p className="font-black uppercase tracking-widest text-xs opacity-50">No matching products found</p>
                   </td>
                 </tr>
               ) : (
                 filteredListings.map((listing) => (
                   <tr 
                     key={listing.id} 
-                    className={`hover:bg-slate-50 transition-colors group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/30' : ''}`}
+                    className={`hover:bg-slate-50/80 transition-colors group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/40' : ''}`}
                     onClick={() => onSelectListing(listing)}
                   >
                     <td className="p-6" onClick={(e) => e.stopPropagation()}>
@@ -178,12 +212,18 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
                        />
                     </td>
                     <td className="p-6">
-                      <div className="w-14 h-14 mx-auto rounded-xl bg-white border border-slate-200 overflow-hidden shadow-sm flex items-center justify-center p-1">
+                      <div className="w-14 h-14 mx-auto rounded-xl bg-white border border-slate-200 overflow-hidden shadow-sm flex items-center justify-center p-1 group-hover:scale-105 transition-transform">
                         <img src={listing.cleaned.main_image} alt="" className="max-w-full max-h-full object-contain" />
                       </div>
                     </td>
                     <td className="p-6">
-                       <span className="font-mono text-xs font-black text-slate-400 bg-slate-100 px-2 py-1 rounded tracking-tighter">{listing.asin}</span>
+                       <div className="flex flex-col items-center gap-1">
+                          <span className="text-2xl">{getMarketplaceFlag(listing.marketplace)}</span>
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{listing.marketplace || 'Manual'}</span>
+                       </div>
+                    </td>
+                    <td className="p-6">
+                       <span className="font-mono text-[11px] font-black text-slate-500 bg-slate-100 px-2 py-1 rounded tracking-tighter border border-slate-200">{listing.asin}</span>
                     </td>
                     <td className="p-6">
                       <p className="text-sm font-black text-slate-800 line-clamp-1 leading-relaxed">
@@ -192,16 +232,11 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
                           : listing.cleaned.title}
                       </p>
                       <div className="flex gap-1.5 mt-2">
+                        <span className="text-[9px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded font-black uppercase border border-blue-100">${listing.cleaned.price}</span>
                         {listing.translations && Object.keys(listing.translations).map(k => (
                           <span key={k} className="text-[8px] px-1.5 py-0.5 bg-slate-100 rounded-md uppercase font-black text-slate-400 border border-slate-200">{k}</span>
                         ))}
                       </div>
-                    </td>
-                    <td className="p-6">
-                       <div className="flex flex-col">
-                          <span className="text-sm font-black text-slate-900">${listing.cleaned.price}</span>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">FOB / EXW</span>
-                       </div>
                     </td>
                     <td className="p-6">
                       {listing.status === 'optimized' ? (

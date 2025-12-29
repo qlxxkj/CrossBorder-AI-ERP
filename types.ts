@@ -30,6 +30,7 @@ export interface Listing {
   id: string;
   user_id?: string;
   asin: string;
+  marketplace: string; // 新增字段：所属站点 (US, UK, DE, JP 等)
   url?: string;
   created_at: string;
   updated_at?: string;
@@ -53,8 +54,6 @@ export interface ExportTemplate {
   name: string;
   headers: string[];
   required_headers?: string[];
-  // Key 为列索引 "col_0", "col_1" ... 
-  // 特殊键 "__binary" 用于存储原始文件的 Base64 数据，以适配无 file_data 字段的数据库
   mappings?: Record<string, any>; 
   marketplace: string;
   created_at: string;
