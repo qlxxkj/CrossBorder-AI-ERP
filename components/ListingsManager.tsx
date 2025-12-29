@@ -1,6 +1,6 @@
 
-import React, { useState, useMemo } from 'react';
-import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2, Zap, Globe, Trash } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2, Zap, Globe, Trash, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Listing, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -34,6 +34,15 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
   const [isBulkScrapeOpen, setIsBulkScrapeOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterMarketplace]);
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -95,6 +104,13 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
     });
   }, [listings, searchTerm, filterMarketplace]);
 
+  // Paginated Data
+  const totalPages = Math.ceil(filteredListings.length / itemsPerPage);
+  const paginatedListings = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredListings.slice(start, start + itemsPerPage);
+  }, [filteredListings, currentPage]);
+
   const toggleSelectAll = () => {
     if (selectedIds.size === filteredListings.length) {
       setSelectedIds(new Set());
@@ -113,6 +129,99 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
 
   const getMarketplaceFlag = (code: string) => {
     return MARKETPLACES_LIST.find(m => m.code === code)?.flag || '📦';
+  };
+
+  // Pagination Controls Component
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
+
+    const pages = [];
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+
+    return (
+      <div className="px-8 py-6 bg-white border-t border-slate-100 flex items-center justify-between">
+        <div className="flex-1 flex justify-between sm:hidden">
+          <button
+            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+            disabled={currentPage === 1}
+            className="relative inline-flex items-center px-4 py-2 border border-slate-200 text-sm font-black rounded-xl text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-30 transition-all"
+          >
+            Previous
+          </button>
+          <button
+            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            disabled={currentPage === totalPages}
+            className="ml-3 relative inline-flex items-center px-4 py-2 border border-slate-200 text-sm font-black rounded-xl text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-30 transition-all"
+          >
+            Next
+          </button>
+        </div>
+        <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+              Showing <span className="text-slate-900">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="text-slate-900">{Math.min(currentPage * itemsPerPage, filteredListings.length)}</span> of <span className="text-slate-900">{filteredListings.length}</span> results
+            </p>
+          </div>
+          <div>
+            <nav className="relative z-0 inline-flex gap-2 rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="relative inline-flex items-center p-2 rounded-xl border border-slate-100 bg-white text-sm font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-30 transition-all"
+              >
+                <ChevronsLeft size={16} />
+              </button>
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="relative inline-flex items-center p-2 rounded-xl border border-slate-100 bg-white text-sm font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-30 transition-all"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              
+              {pages.map(p => (
+                <button
+                  key={p}
+                  onClick={() => setCurrentPage(p)}
+                  className={`relative inline-flex items-center px-4 py-2 rounded-xl border text-xs font-black uppercase tracking-tighter transition-all shadow-sm ${
+                    currentPage === p
+                      ? 'z-10 bg-indigo-600 border-indigo-600 text-white shadow-indigo-100 scale-110'
+                      : 'bg-white border-slate-100 text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="relative inline-flex items-center p-2 rounded-xl border border-slate-100 bg-white text-sm font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-30 transition-all"
+              >
+                <ChevronRight size={16} />
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="relative inline-flex items-center p-2 rounded-xl border border-slate-100 bg-white text-sm font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-30 transition-all"
+              >
+                <ChevronsRight size={16} />
+              </button>
+            </nav>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -232,7 +341,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filteredListings.length === 0 ? (
+              {paginatedListings.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-32 text-center text-slate-200 flex flex-col items-center gap-4">
                     <Package size={48} className="opacity-20" />
@@ -240,7 +349,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
                   </td>
                 </tr>
               ) : (
-                filteredListings.map((listing) => (
+                paginatedListings.map((listing) => (
                   <tr 
                     key={listing.id} 
                     className={`hover:bg-slate-50/80 transition-colors group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/40' : ''}`}
@@ -314,6 +423,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
             </tbody>
           </table>
         </div>
+        
+        {/* Pagination Rendering */}
+        {renderPagination()}
       </div>
     </div>
   );
