@@ -1,11 +1,12 @@
 
 import React, { useState } from 'react';
-import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2 } from 'lucide-react';
+import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2, Zap } from 'lucide-react';
 import { Listing, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { ManualListingModal } from './ManualListingModal';
 import { ExportModal } from './ExportModal';
+import { BulkScrapeModal } from './BulkScrapeModal';
 
 interface ListingsManagerProps {
   onSelectListing: (listing: Listing) => void;
@@ -20,6 +21,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
   const [searchTerm, setSearchTerm] = useState('');
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isBulkScrapeOpen, setIsBulkScrapeOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
@@ -72,6 +74,17 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
         />
       )}
 
+      {isBulkScrapeOpen && (
+        <BulkScrapeModal 
+          uiLang={lang}
+          onClose={() => setIsBulkScrapeOpen(false)}
+          onFinished={() => {
+            setIsBulkScrapeOpen(false);
+            refreshListings();
+          }}
+        />
+      )}
+
       {isExportModalOpen && (
         <ExportModal 
           uiLang={lang} 
@@ -105,6 +118,12 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
                <Download size={18} /> {t('export')} ({selectedIds.size})
              </button>
            )}
+           <button 
+             onClick={() => setIsBulkScrapeOpen(true)}
+             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3.5 bg-amber-500 text-white rounded-2xl hover:bg-amber-600 font-black text-xs shadow-xl shadow-amber-100 transition-all uppercase tracking-widest border border-amber-400"
+           >
+            <Zap size={18} /> {t('bulkScrape')}
+           </button>
            <button 
              onClick={() => setIsManualModalOpen(true)}
              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-8 py-3.5 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 font-black text-xs shadow-xl transition-all uppercase tracking-widest"
