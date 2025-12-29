@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2, Zap, Globe } from 'lucide-react';
+import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2, Zap, Globe, Trash } from 'lucide-react';
 import { Listing, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -33,6 +33,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isBulkScrapeOpen, setIsBulkScrapeOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -47,14 +48,46 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    const confirmMsg = lang === 'zh' 
+      ? `确定要删除选中的 ${selectedIds.size} 个产品吗？此操作不可撤销。`
+      : `Are you sure you want to delete the ${selectedIds.size} selected items? This cannot be undone.`;
+    
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsBatchDeleting(true);
+    try {
+      if (isSupabaseConfigured()) {
+        const { error } = await supabase
+          .from('listings')
+          .delete()
+          .in('id', Array.from(selectedIds));
+        
+        if (error) throw error;
+        
+        setSelectedIds(new Set());
+        refreshListings();
+      } else {
+        const ids = Array.from(selectedIds);
+        setListings(prev => prev.filter(l => !ids.includes(l.id)));
+        setSelectedIds(new Set());
+      }
+    } catch (err: any) {
+      alert("Delete failed: " + err.message);
+    } finally {
+      setIsBatchDeleting(false);
+    }
+  };
+
   const filteredListings = useMemo(() => {
     return listings.filter(l => {
       const displayTitle = (l.status === 'optimized' && l.optimized?.optimized_title) 
         ? l.optimized.optimized_title 
         : l.cleaned.title;
       
-      const matchesSearch = displayTitle.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                             l.asin.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSearch = (displayTitle || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
+                             (l.asin || "").toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchesMarketplace = filterMarketplace === 'ALL' || l.marketplace === filterMarketplace;
       
@@ -145,12 +178,22 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
 
         <div className="flex gap-3 w-full lg:w-auto">
            {selectedIds.size > 0 && (
-             <button 
-               onClick={() => setIsExportModalOpen(true)}
-               className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-8 py-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 font-black text-xs transition-all border border-indigo-100 shadow-sm uppercase tracking-widest"
-             >
-               <Download size={18} /> {t('export')} ({selectedIds.size})
-             </button>
+             <>
+               <button 
+                 onClick={handleBulkDelete}
+                 disabled={isBatchDeleting}
+                 className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-3.5 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 font-black text-xs transition-all border border-red-100 shadow-sm uppercase tracking-widest disabled:opacity-50"
+               >
+                 {isBatchDeleting ? <Loader2 className="animate-spin" size={18} /> : <Trash2 size={18} />}
+                 {lang === 'zh' ? '批量删除' : 'Delete'} ({selectedIds.size})
+               </button>
+               <button 
+                 onClick={() => setIsExportModalOpen(true)}
+                 className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-8 py-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 font-black text-xs transition-all border border-indigo-100 shadow-sm uppercase tracking-widest"
+               >
+                 <Download size={18} /> {t('export')} ({selectedIds.size})
+               </button>
+             </>
            )}
            <button 
              onClick={() => setIsBulkScrapeOpen(true)}
@@ -213,7 +256,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
                     </td>
                     <td className="p-6">
                       <div className="w-14 h-14 mx-auto rounded-xl bg-white border border-slate-200 overflow-hidden shadow-sm flex items-center justify-center p-1 group-hover:scale-105 transition-transform">
-                        <img src={listing.cleaned.main_image} alt="" className="max-w-full max-h-full object-contain" />
+                        <img src={listing.cleaned?.main_image || "https://picsum.photos/200/200?grayscale"} alt="" className="max-w-full max-h-full object-contain" />
                       </div>
                     </td>
                     <td className="p-6">
@@ -229,10 +272,10 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
                       <p className="text-sm font-black text-slate-800 line-clamp-1 leading-relaxed">
                         {(listing.status === 'optimized' && listing.optimized?.optimized_title) 
                           ? listing.optimized.optimized_title 
-                          : listing.cleaned.title}
+                          : (listing.cleaned?.title || "No Title")}
                       </p>
                       <div className="flex gap-1.5 mt-2">
-                        <span className="text-[9px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded font-black uppercase border border-blue-100">${listing.cleaned.price}</span>
+                        <span className="text-[9px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded font-black uppercase border border-blue-100">${listing.cleaned?.price || 0}</span>
                         {listing.translations && Object.keys(listing.translations).map(k => (
                           <span key={k} className="text-[8px] px-1.5 py-0.5 bg-slate-100 rounded-md uppercase font-black text-slate-400 border border-slate-200">{k}</span>
                         ))}
