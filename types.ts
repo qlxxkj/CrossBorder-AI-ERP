@@ -4,6 +4,7 @@ export interface CleanedData {
   title: string;
   brand: string;
   price: number;
+  strike_price?: number;
   shipping?: number;
   features: string[];
   description: string;
@@ -12,8 +13,12 @@ export interface CleanedData {
   reviews?: string;
   ratings?: string;
   category?: string;
+  BSR?: string;
   item_weight?: string;
   product_dimensions?: string;
+  OEM_Part_Number?: string;
+  Date_First_Available?: string;
+  bought_in_past_month?: string;
   sourcing_links?: string[];
   updated_at?: string;
   [key: string]: any;
@@ -30,7 +35,7 @@ export interface Listing {
   id: string;
   user_id?: string;
   asin: string;
-  marketplace: string; // 新增字段：所属站点 (US, UK, DE, JP 等)
+  marketplace: string; 
   url?: string;
   created_at: string;
   updated_at?: string;
