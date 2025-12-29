@@ -62,7 +62,12 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
   const handleStartScrape = async () => {
     if (!keywords.trim()) return;
 
-    // 检查 AI Studio 环境 API Key 状态
+    // 检查 API KEY
+    if (!process.env.API_KEY) {
+      alert("Missing API_KEY. Please check your environment variables.");
+      return;
+    }
+
     try {
       const aistudio = (window as any).aistudio;
       if (aistudio && !(await aistudio.hasSelectedApiKey())) {
@@ -84,12 +89,13 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
       
       addLog(`Grounding: Accessing live marketplace nodes for "${keywords}"...`, 'process');
       
-      const prompt = `Act as an e-commerce scraper. Use Google Search to find 5 REAL products currently on Amazon ${marketplace} for "${keywords}". 
-      Hallucination is strictly forbidden. 
-      For each product, return:
-      1. RAW_DUMP: The literal unedited text snippets found on the page.
-      2. STRUCTURED: Normalized data including asin, title, brand, price, image_url, bullet_points[], description, bsr, ratings.
-      Return ONLY a JSON array.`;
+      const prompt = `Act as an e-commerce scraper. Use Google Search to find exactly 5 REAL products currently listed on Amazon ${marketplace} that match "${keywords}". 
+      Instructions:
+      1. For each product, extract real data. 
+      2. Format as a JSON array where each object has:
+         - RAW_DUMP: literal text snippet from the page.
+         - STRUCTURED: { asin, title, brand, price, image_url, bullet_points[], description, bsr, ratings }.
+      Return ONLY the raw JSON array. No conversational text.`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3-pro-image-preview",
@@ -100,14 +106,27 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
         },
       });
 
-      const rawJsonText = response.text || "[]";
-      const products = JSON.parse(rawJsonText);
+      let rawJsonText = response.text || "[]";
+      // 清洗 Markdown 代码块，防止 JSON 解析报错
+      rawJsonText = rawJsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+      
+      let products;
+      try {
+        products = JSON.parse(rawJsonText);
+      } catch (pErr) {
+        addLog("Data structure corruption detected. Retrying with loose extraction...", 'error');
+        // 尝试通过正则找数组
+        const match = rawJsonText.match(/\[[\s\S]*\]/);
+        if (match) products = JSON.parse(match[0]);
+        else throw new Error("Invalid AI Response format.");
+      }
 
       if (!Array.isArray(products) || products.length === 0) throw new Error("Empty marketplace response.");
 
       addLog(`Captured ${products.length} entities. Commencing purification...`, 'success');
       setProgress(20);
 
+      // 单个产品处理循环，确保错误不扩散
       for (let i = 0; i < products.length; i++) {
         const item = products[i];
         const step = 80 / products.length;
@@ -116,7 +135,11 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
           const struct = item.STRUCTURED || item;
           const rawText = item.RAW_DUMP || "Original web content captured.";
 
-          if (!struct.asin) continue;
+          if (!struct.asin) {
+            addLog(`Index ${i+1}: Missing ASIN, skipping.`, 'process');
+            continue;
+          }
+
           addLog(`[${struct.asin}] Extracting metadata...`, 'process');
 
           const hostedImage = await uploadImage(struct.image_url || struct.image, struct.asin);
@@ -126,7 +149,7 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
             title: struct.title,
             brand: struct.brand || "Authentic",
             price: parseFloat(String(struct.price).replace(/[^0-9.]/g, '')) || 0,
-            features: struct.bullet_points || struct.features || [],
+            features: Array.isArray(struct.bullet_points) ? struct.bullet_points : (struct.features || []),
             description: struct.description || struct.desc || "",
             main_image: hostedImage,
             ratings: struct.ratings,
@@ -140,17 +163,28 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
             marketplace,
             status: 'collected',
             cleaned,
-            raw: rawText, // 真实存储原始数据
+            raw: rawText, 
             created_at: new Date().toISOString()
           }]);
 
-          if (dbError) addLog(`[${struct.asin}] Sync failed: ${dbError.message}`, 'error');
-          else addLog(`[${struct.asin}] Successfully cataloged.`, 'success');
+          if (dbError) {
+            // 如果是因为唯一约束报错，则记录
+            if (dbError.code === '23505') {
+              addLog(`[${struct.asin}] Record already exists, skipping.`, 'info');
+            } else {
+              addLog(`[${struct.asin}] DB Sync error: ${dbError.message}`, 'error');
+            }
+          } else {
+            addLog(`[${struct.asin}] Successfully cataloged.`, 'success');
+          }
 
         } catch (itemErr: any) {
           addLog(`Error at entry ${i+1}: ${itemErr.message}`, 'error');
         }
+        
         setProgress(20 + (i + 1) * step);
+        // 微量延时，平滑进度
+        await new Promise(r => setTimeout(r, 300));
       }
 
       setProgress(100);
@@ -172,18 +206,18 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
             </div>
             <h2 className="text-xl font-black text-slate-900 tracking-tight">Real Discovery</h2>
           </div>
-          {!isScraping && <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-300"><X size={24} /></button>}
+          {!isScraping && <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"><X size={24} /></button>}
         </div>
 
         <div className="p-8 space-y-6">
           {isScraping ? (
             <div className="space-y-6">
               <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-indigo-600 transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                <div className="h-full bg-indigo-600 transition-all duration-500 shadow-[0_0_8px_rgba(79,70,229,0.5)]" style={{ width: `${progress}%` }}></div>
               </div>
               <div ref={logContainerRef} className="bg-slate-950 rounded-2xl p-5 font-mono text-[10px] h-64 overflow-y-auto custom-scrollbar border border-slate-800 space-y-1">
                 {logs.map((l, i) => (
-                  <div key={i} className={`flex items-start gap-2 ${l.type === 'success' ? 'text-emerald-400' : l.type === 'error' ? 'text-red-400' : l.type === 'process' ? 'text-amber-400' : 'text-slate-400'}`}>
+                  <div key={i} className={`flex items-start gap-2 animate-in slide-in-from-left-2 duration-300 ${l.type === 'success' ? 'text-emerald-400' : l.type === 'error' ? 'text-red-400' : l.type === 'process' ? 'text-amber-400' : 'text-slate-400'}`}>
                     <Terminal size={10} className="mt-0.5 shrink-0" />
                     <span className="break-all">{l.msg}</span>
                   </div>
@@ -204,7 +238,7 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
                     value={keywords}
                     onChange={(e) => setKeywords(e.target.value)}
                     placeholder="e.g. Memory Foam Pillow"
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none transition-all font-bold text-slate-800 focus:bg-white"
+                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none transition-all font-bold text-slate-800 focus:bg-white focus:border-indigo-500"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -213,7 +247,7 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
                     <select 
                       value={marketplace}
                       onChange={(e) => setMarketplace(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500 cursor-pointer"
                     >
                       {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.name}</option>)}
                     </select>
@@ -226,18 +260,18 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
               </div>
 
               <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex gap-3">
-                <div className="bg-white p-2 rounded-lg text-indigo-600 h-fit"><Code size={16} /></div>
+                <div className="bg-white p-2 rounded-lg text-indigo-600 h-fit shadow-sm"><Code size={16} /></div>
                 <p className="text-[10px] font-bold text-indigo-800 leading-relaxed uppercase">
-                  Real Scrape Mode: AI will visit Amazon live to capture raw fragments and structural data.
+                  Real Scrape Mode: AI will visit Amazon live via Google Search to capture raw fragments and structural data.
                 </p>
               </div>
 
               <div className="flex gap-4 pt-2">
-                <button onClick={onClose} className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">Cancel</button>
+                <button onClick={onClose} className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all">Cancel</button>
                 <button 
                   onClick={handleStartScrape}
                   disabled={!keywords.trim()}
-                  className="flex-[2] py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="flex-[2] py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-slate-800 active:scale-95 transition-all"
                 >
                   <Sparkles size={16} /> Execute Real Scrape
                 </button>

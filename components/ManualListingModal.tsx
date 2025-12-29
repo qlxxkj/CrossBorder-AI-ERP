@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { X, Upload, Plus, Trash2, Loader2, Save, Image as ImageIcon, Ruler, Weight, ListFilter, Search, Info, Globe } from 'lucide-react';
+import { X, Upload, Plus, Trash2, Loader2, Save, Image as ImageIcon, Ruler, Weight, ListFilter, Search, Info, Globe, FileText } from 'lucide-react';
 import { UILanguage, CleanedData } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -213,9 +213,19 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                 <div className="space-y-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-1"><Weight size={12}/> {t('weightLabel')}</label>
-                    <div className="flex gap-2">
-                      <input type="number" value={formData.weightValue} onChange={(e) => setFormData(p => ({ ...p, weightValue: e.target.value }))} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" placeholder="0.00" />
-                      <select value={formData.weightUnit} onChange={(e) => setFormData(p => ({ ...p, weightUnit: e.target.value }))} className="w-24 px-2 py-3 bg-white border border-slate-200 rounded-2xl font-black text-xs uppercase">
+                    <div className="flex gap-2 w-full">
+                      <input 
+                        type="number" 
+                        value={formData.weightValue} 
+                        onChange={(e) => setFormData(p => ({ ...p, weightValue: e.target.value }))} 
+                        className="flex-1 min-w-0 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" 
+                        placeholder="0.00" 
+                      />
+                      <select 
+                        value={formData.weightUnit} 
+                        onChange={(e) => setFormData(p => ({ ...p, weightUnit: e.target.value }))} 
+                        className="w-24 shrink-0 px-2 py-3 bg-white border border-slate-200 rounded-2xl font-black text-xs uppercase"
+                      >
                         <option value="kg">kg</option>
                         <option value="lb">lb</option>
                       </select>
@@ -272,13 +282,25 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                   </div>
                 </div>
 
+                <div className="space-y-4 pt-4 border-t border-slate-50">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] flex items-center gap-2"><FileText size={14} /> Product Description</h3>
+                  </div>
+                  <textarea 
+                    value={formData.description}
+                    onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
+                    placeholder="Enter full product description..."
+                    className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-3xl text-xs font-bold text-slate-700 focus:bg-white focus:border-indigo-300 outline-none transition-all min-h-[150px]"
+                  />
+                </div>
+
                 <div className="space-y-3 pt-4 border-t border-slate-50">
                   <h3 className="text-[10px] font-black text-amber-600 uppercase tracking-[0.2em] flex items-center gap-2"><Search size={14} /> Backend Search Keywords</h3>
                   <textarea 
                     value={formData.search_keywords}
                     onChange={(e) => setFormData(p => ({ ...p, search_keywords: e.target.value }))}
-                    placeholder="Enter keywords..."
-                    className="w-full px-6 py-4 bg-amber-50/30 border border-amber-100 rounded-3xl text-xs font-bold text-slate-600 focus:bg-white focus:border-amber-400 outline-none transition-all min-h-[100px]"
+                    placeholder="Enter comma separated keywords..."
+                    className="w-full px-6 py-4 bg-amber-50/30 border border-amber-100 rounded-3xl text-xs font-bold text-slate-600 focus:bg-white focus:border-amber-400 outline-none transition-all min-h-[80px]"
                   />
                 </div>
               </section>
