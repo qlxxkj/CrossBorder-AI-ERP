@@ -41,6 +41,7 @@ export interface Listing {
   updated_at?: string;
   status: 'collected' | 'optimizing' | 'optimized';
   cleaned: CleanedData;
+  raw?: any; // 新增：存储原始采集数据
   optimized?: OptimizedData;
   translations?: Record<string, OptimizedData>;
 }

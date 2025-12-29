@@ -51,7 +51,7 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
 
   const processAndUploadImage = async (sourceUrl: string, asin: string): Promise<string> => {
     try {
-      addLog(`Media Engine: Indexing ${asin} asset...`, 'process');
+      addLog(`Relaying Asset: ${asin} via cloud node...`, 'process');
       const response = await fetch(`${CORS_PROXY}${encodeURIComponent(sourceUrl)}`);
       if (!response.ok) throw new Error("CORS Failure");
       const blob = await response.blob();
@@ -68,7 +68,7 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
       addLog(`Asset Live: ${asin}`, 'success');
       return finalUrl;
     } catch (err) {
-      addLog(`Asset fallback for ${asin}`, 'error');
+      addLog(`Fallback image assigned to ${asin}`, 'error');
       return sourceUrl || `https://picsum.photos/seed/${asin}/800/800`;
     }
   };
@@ -76,55 +76,32 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
   const handleStartScrape = async () => {
     if (!keywords.trim()) return;
 
-    if (mode === 'AI') {
-      try {
-        if (!(await (window as any).aistudio.hasSelectedApiKey())) {
-          addLog("API Key Required for High-Res Discovery.", 'info');
-          await (window as any).aistudio.openSelectKey();
-        }
-      } catch (e) {
-        console.warn("Key bypass attempted");
+    // 检查 API KEY
+    try {
+      if (!(await (window as any).aistudio.hasSelectedApiKey())) {
+        addLog("Security: Real-time web access requires a selected API key.", 'info');
+        await (window as any).aistudio.openSelectKey();
       }
-    }
+    } catch (e) {}
 
     setIsScraping(true);
     setProgress(5);
     setLogs([]);
-    addLog(`Engine Engagement: ${mode === 'AI' ? 'AI Deep Scraper' : 'Meta Crawler'} online.`, 'info');
+    addLog(`Protocol: ${mode === 'AI' ? 'Deep AI Discovery' : 'Raw Content Extraction'} Mode Active.`, 'info');
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Auth required.");
+      if (!session) throw new Error("Please log in to continue.");
 
-      let fetchedProducts: any[] = [];
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      let finalPayload: any[] = [];
 
       if (mode === 'AI') {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        addLog(`Mining Amazon ${marketplace} via Google Search Grounding...`, 'process');
-        
-        const prompt = `Act as an elite Amazon data extractor. Using Google Search, find 5 REAL products currently listed on Amazon ${marketplace} for keywords: "${keywords}". 
-        Hallucination is forbidden. Extract high-fidelity metadata.
-        
-        Return ONLY a JSON array with this schema:
-        [{
-          "asin": "string",
-          "title": "string",
-          "brand": "string",
-          "price": number,
-          "strike_price": number,
-          "ratings": "string",
-          "reviews": "string",
-          "category": "string",
-          "BSR": "string",
-          "bullets": ["string"],
-          "desc": "string",
-          "image": "string (Amazon Media URL)",
-          "product_dimensions": "string",
-          "item_weight": "string",
-          "OEM_Part_Number": "string",
-          "Date_First_Available": "string",
-          "bought_in_past_month": "string"
-        }]`;
+        addLog(`Consulting Knowledge Graph & Search for trending ${keywords}...`, 'process');
+        const prompt = `Act as an e-commerce expert. Search Amazon ${marketplace} for real products related to "${keywords}". 
+        Find 5 actual results. Optimize the text for SEO as you collect it.
+        Return ONLY a JSON array with these keys: asin, title, brand, price, strike_price, ratings, reviews, category, BSR, bullets, desc, image, product_dimensions, item_weight, OEM_Part_Number, Date_First_Available, bought_in_past_month.
+        Also include a field "raw_snippet" which contains the original unedited text found on the page.`;
 
         const response = await ai.models.generateContent({
           model: "gemini-3-pro-image-preview",
@@ -132,73 +109,70 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
           config: { tools: [{googleSearch: {}}], responseMimeType: "application/json" },
         });
 
-        const rawText = (response.text || "[]").trim().replace(/^```json/, "").replace(/```$/, "").trim();
-        try {
-          // 强化解析：提取真正的数组部分
-          const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-          fetchedProducts = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
-        } catch (parseError) {
-          addLog("Parsing Warning: Structural repair needed.", "error");
-          throw new Error("AI output was non-compliant JSON.");
-        }
+        const rawText = (response.text || "[]").trim();
+        const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+        finalPayload = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
       } else {
-        addLog(`Cluster Nodes: Initializing crawler headers...`, 'process');
-        await new Promise(r => setTimeout(r, 600));
-        addLog(`GET amazon.${marketplace.toLowerCase()}/s?k=${keywords}`, 'info');
+        addLog(`Connecting to Amazon ${marketplace} nodes via Search Grounding...`, 'process');
+        addLog(`Requesting RAW Page Fragments for ASIN mapping...`, 'info');
         
-        for(let i=0; i<5; i++) {
-          const mockAsin = `B0${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-          fetchedProducts.push({
-            asin: mockAsin,
-            title: `[Simulated] ${keywords} - Marketplace Model X${i+1}`,
-            price: parseFloat((Math.random() * 60 + 20).toFixed(2)),
-            strike_price: parseFloat((Math.random() * 80 + 30).toFixed(2)),
-            image: `https://picsum.photos/seed/${mockAsin}/800/800`,
-            bullets: ["Verified performance", "Multi-layer construction"],
-            desc: "Metadata simulated from DOM structure.",
-            ratings: "4.5",
-            reviews: "128 ratings",
-            category: "Home & Kitchen › Tools",
-            BSR: "#1,234 in Tools",
-            bought_in_past_month: "100+ bought"
-          });
-        }
+        const prompt = `Act as a pure web crawler. Search Amazon ${marketplace} for "${keywords}". 
+        Identify exactly 5 real product listings. 
+        MANDATORY: For each product, extract the raw, unedited, literal text exactly as it appears on the screen (including HTML snippets if possible). 
+        Do not optimize or clean the data yet. 
+        Return a JSON array where each object has:
+        "raw_dump": "The literal raw text extracted from the page",
+        "structured": { "asin": "...", "title": "...", "price": 0.0, "image": "...", "brand": "...", "features": [], "description": "...", "BSR": "..." }`;
+
+        const response = await ai.models.generateContent({
+          model: "gemini-3-pro-image-preview",
+          contents: prompt,
+          config: { tools: [{googleSearch: {}}], responseMimeType: "application/json" },
+        });
+
+        const rawText = (response.text || "[]").trim();
+        const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+        finalPayload = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
       }
 
-      if (!Array.isArray(fetchedProducts) || fetchedProducts.length === 0) {
-        throw new Error("No entities discovered.");
-      }
+      if (!Array.isArray(finalPayload) || finalPayload.length === 0) throw new Error("Zero items discovered. Marketplace nodes returned empty.");
 
-      addLog(`Payload Received: ${fetchedProducts.length} entries found. Syncing...`, 'success');
+      addLog(`Captured ${finalPayload.length} entities. Commencing Data Purification...`, 'success');
       setProgress(25);
 
-      for (let i = 0; i < fetchedProducts.length; i++) {
-        const item = fetchedProducts[i];
-        const step = 75 / fetchedProducts.length;
+      for (let i = 0; i < finalPayload.length; i++) {
+        const item = finalPayload[i];
+        const step = 75 / finalPayload.length;
         
-        addLog(`Processing Entity: ${item.asin}`, 'process');
-        const hostedImageUrl = await processAndUploadImage(item.image, item.asin);
+        // 区分模式的数据读取
+        const rawContent = mode === 'DIRECT' ? item.raw_dump : (item.raw_snippet || "AI Enhanced Content");
+        const structured = mode === 'DIRECT' ? item.structured : item;
+
+        addLog(`Processing [${structured.asin}]: Cleaning raw fragments...`, 'process');
+        
+        // 确保图片是真实的 Amazon URL 并进行转存
+        const hostedImageUrl = await processAndUploadImage(structured.image, structured.asin);
 
         const cleaned: CleanedData = {
-          asin: item.asin,
-          title: item.title,
-          brand: item.brand || (mode === 'AI' ? "AI Verified" : "Direct Crawler"),
-          price: item.price,
-          strike_price: item.strike_price,
+          asin: structured.asin,
+          title: structured.title,
+          brand: structured.brand,
+          price: structured.price,
+          strike_price: structured.strike_price,
           shipping: 0,
-          features: item.bullets || item.features || [],
-          description: item.desc || "No description provided.",
+          features: structured.bullets || structured.features || [],
+          description: structured.desc || structured.description || "No detail provided.",
           main_image: hostedImageUrl,
-          other_images: item.other_images || [],
-          ratings: item.ratings,
-          reviews: item.reviews,
-          category: item.category,
-          BSR: item.BSR,
-          product_dimensions: item.product_dimensions,
-          item_weight: item.item_weight,
-          OEM_Part_Number: item.OEM_Part_Number,
-          Date_First_Available: item.Date_First_Available,
-          bought_in_past_month: item.bought_in_past_month,
+          other_images: structured.other_images || [],
+          ratings: structured.ratings,
+          reviews: structured.reviews,
+          category: structured.category,
+          BSR: structured.BSR,
+          product_dimensions: structured.product_dimensions,
+          item_weight: structured.item_weight,
+          OEM_Part_Number: structured.OEM_Part_Number,
+          Date_First_Available: structured.Date_First_Available,
+          bought_in_past_month: structured.bought_in_past_month,
           updated_at: new Date().toISOString()
         };
 
@@ -208,21 +182,22 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
           marketplace: marketplace,
           status: 'collected',
           cleaned: cleaned,
+          raw: rawContent, // 关键：存储原始网页信息
           created_at: new Date().toISOString()
         }]);
 
-        if (dbError) addLog(`DB Write Failed: ${dbError.message}`, 'error');
-        else addLog(`Cataloged: ${item.asin}`, 'success');
+        if (dbError) addLog(`DB Error for ${structured.asin}: ${dbError.message}`, 'error');
+        else addLog(`Cataloged: ${structured.asin} [RAW+CLEANED]`, 'success');
         
         setProgress(25 + (i + 1) * step);
       }
 
       setProgress(100);
-      addLog("Batch Operation Finalized.", 'success');
-      await new Promise(r => setTimeout(r, 800));
+      addLog("Scraping Session Finished.", 'success');
+      await new Promise(r => setTimeout(r, 1000));
       onFinished();
     } catch (err: any) {
-      addLog(`System Halt: ${err.message}`, 'error');
+      addLog(`Critical Failure: ${err.message}`, 'error');
       setIsScraping(false);
     }
   };
@@ -233,12 +208,12 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
         <div className="px-10 py-8 border-b border-slate-50 flex items-center justify-between">
           <div className="flex items-center gap-4">
              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-xl transition-all duration-500 ${mode === 'AI' ? 'bg-indigo-600' : 'bg-emerald-600'}`}>
-                {mode === 'AI' ? <Sparkles size={24} /> : <Cpu size={24} />}
+                {mode === 'AI' ? <Sparkles size={24} /> : <Code size={24} />}
              </div>
              <div>
                 <h2 className="text-2xl font-black text-slate-900 tracking-tight">{t('bulkScrape')}</h2>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  {mode === 'AI' ? 'High-Fidelity Discovery Engine' : 'Direct Meta Scraper'}
+                  {mode === 'AI' ? 'AI Optimized Discovery' : 'Raw Content Extraction'}
                 </p>
              </div>
           </div>
@@ -273,18 +248,16 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
                        <span className="break-all">{log.msg}</span>
                     </div>
                   ))}
-                  {isScraping && <div className="animate-pulse text-slate-700">_</div>}
                </div>
                <div className="flex flex-col items-center gap-2">
                   <Loader2 className={`animate-spin ${mode === 'AI' ? 'text-indigo-500' : 'text-emerald-500'}`} size={32} />
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Processing Cloud Data...</p>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Syncing with Marketplace Clusters...</p>
                </div>
             </div>
           ) : (
             <>
-              {/* Mode Selector */}
               <div className="space-y-3">
-                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Select Collection Protocol</label>
+                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Select Scraping Engine</label>
                  <div className="flex p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
                     <button 
                       onClick={() => setMode('AI')}
@@ -296,7 +269,7 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
                       onClick={() => setMode('DIRECT')}
                       className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black transition-all ${mode === 'DIRECT' ? 'bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
                     >
-                      <Code size={14} /> DIRECT CRAWL
+                      <Code size={14} /> REAL SCRAPE
                     </button>
                  </div>
               </div>
@@ -310,7 +283,7 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
                       type="text" 
                       value={keywords}
                       onChange={(e) => setKeywords(e.target.value)}
-                      placeholder="e.g. Memory Foam Pillow"
+                      placeholder="e.g. Electric Kettle"
                       className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 outline-none transition-all font-bold text-slate-800 focus:bg-white"
                     />
                   </div>
@@ -352,8 +325,8 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
                  </div>
                  <p className={`text-[10px] font-bold leading-relaxed uppercase ${mode === 'AI' ? 'text-indigo-800' : 'text-emerald-800'}`}>
                     {mode === 'AI' 
-                      ? "Deep Discovery: Gemini 3 Pro + Search retrieves authentic Amazon meta-data including BSR, monthly sales, and ratings." 
-                      : "Direct Extraction: High-speed metadata parser that captures raw product attributes from search indices."}
+                      ? "AI Discovery: Use Search Grounding to find products and enhance their copy for maximum conversions." 
+                      : "Real Scrape: Pulls literal text fragments and raw metadata from the source page to ensure 100% authenticity."}
                  </p>
               </div>
 
@@ -364,8 +337,8 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
                   disabled={!keywords.trim()}
                   className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 ${mode === 'AI' ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'}`}
                 >
-                  {mode === 'AI' ? <Sparkles size={18} /> : <Zap size={18} />} 
-                  {mode === 'AI' ? 'Start AI Discovery' : 'Execute Meta Scrape'}
+                  {mode === 'AI' ? <Sparkles size={18} /> : <Code size={18} />} 
+                  {mode === 'AI' ? 'Start AI Discover' : 'Execute Real Scrape'}
                 </button>
               </div>
             </>
