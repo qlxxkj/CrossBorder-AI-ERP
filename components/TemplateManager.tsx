@@ -17,10 +17,12 @@ const LISTING_SOURCE_FIELDS = [
   { value: 'shipping', label: 'Shipping Cost' },
   { value: 'brand', label: 'Brand Name' },
   { value: 'description', label: 'Optimized Description' },
-  { value: 'item_weight', label: 'Item Weight' },
-  { value: 'product_dimensions', label: 'Product Dimensions (LxWxH)' },
-  { value: 'BSR', label: 'Best Sellers Rank' },
-  { value: 'ratings', label: 'Product Ratings' },
+  { value: 'item_weight_value', label: 'Item Weight Value' },
+  { value: 'item_weight_unit', label: 'Item Weight Unit' },
+  { value: 'item_length', label: 'Item Length' },
+  { value: 'item_width', label: 'Item Width' },
+  { value: 'item_height', label: 'Item Height' },
+  { value: 'item_size_unit', label: 'Item Size Unit' },
   { value: 'feature1', label: 'Bullet Point 1' },
   { value: 'feature2', label: 'Bullet Point 2' },
   { value: 'feature3', label: 'Bullet Point 3' },
@@ -188,7 +190,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           };
         });
 
-        // 将二进制文件存储在 mappings 中，以适配没有 file_data 字段的数据库
         mappings['__binary'] = base64File;
 
         const { data: { session } } = await supabase.auth.getSession();

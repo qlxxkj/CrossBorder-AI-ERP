@@ -78,7 +78,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
     try {
       const bytes = safeDecode(fileBinary);
-      // 必须开启 cellStyles 和 bookVBA 才能读入样式和宏
       const workbook = XLSX.read(bytes, { 
         type: 'array', 
         cellStyles: true, 
@@ -87,7 +86,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         cellText: true
       });
 
-      // 1. 获取目标工作表 (修复 TS 类型 literal 报错)
       const sheetNames = workbook.SheetNames;
       const tplSheetName = (sheetNames.find(n => n === 'Template') || 
                           sheetNames.find(n => n.toLowerCase() === 'template') ||
@@ -97,15 +95,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const sheet = workbook.Sheets[tplSheetName];
       if (!sheet) throw new Error("Could not find Template worksheet");
 
-      // 2. 固定起始行：Excel 第 8 行（索引为 7）
-      // 亚马逊模板前 7 行包含：说明、数据定义、属性名、本地化标签等
       const startDataRowIdx = 7; 
 
-      // 3. 填充数据
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
         
-        // 显式转换类型以修复 TS 报错
         const cleaned = (listing.cleaned || {}) as CleanedData;
         const optimized = (listing.optimized || {}) as OptimizedData;
         
@@ -131,10 +125,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'shipping') val = cleaned.shipping;
             else if (f === 'brand') val = cleaned.brand;
             else if (f === 'description') val = displayDesc;
-            else if (f === 'item_weight') val = cleaned.item_weight || '';
-            else if (f === 'product_dimensions') val = cleaned.product_dimensions || '';
-            else if (f === 'BSR') val = cleaned.BSR || '';
-            else if (f === 'ratings') val = cleaned.ratings || '';
+            else if (f === 'item_weight_value') val = cleaned.item_weight_value || '';
+            else if (f === 'item_weight_unit') val = cleaned.item_weight_unit || '';
+            else if (f === 'item_length') val = cleaned.item_length || '';
+            else if (f === 'item_width') val = cleaned.item_width || '';
+            else if (f === 'item_height') val = cleaned.item_height || '';
+            else if (f === 'item_size_unit') val = cleaned.item_size_unit || '';
             else if (f === 'main_image') val = cleaned.main_image;
             else if (f?.startsWith('other_image')) {
               const num = parseInt(f.replace('other_image', '')) || 1;
@@ -157,9 +153,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
 
-          // 样式保留技巧：
-          // 尝试从第 5-7 行（表头或示例行）寻找“原型单元格”
-          // 如果原型单元格有样式属性 .s，我们将其复制到新单元格
           let prototypeCell = null;
           for (let pr = 4; pr < 8; pr++) {
             const prRef = XLSX.utils.encode_cell({ r: pr, c: colIdx });
@@ -170,17 +163,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           }
 
           if (prototypeCell) {
-            // 克隆对象并替换值，从而保留样式
             sheet[cellRef] = { ...prototypeCell, v: val, t: typeof val === 'number' ? 'n' : 's' };
-            delete (sheet[cellRef] as any).w; // 清除旧的显示字符串缓存
+            delete (sheet[cellRef] as any).w; 
           } else {
             sheet[cellRef] = { v: val, t: typeof val === 'number' ? 'n' : 's' };
           }
         });
       });
 
-      // 4. 重要：强制重写工作表范围 (!ref)
-      // 如果 !ref 不更新到最后一行，Excel 会认为文件只有前几行
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       const lastRowIdx = startDataRowIdx + selectedListings.length - 1;
       const lastColIdx = selectedTemplate.headers.length - 1;
@@ -189,7 +179,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       range.e.c = Math.max(range.e.c, lastColIdx);
       sheet['!ref'] = XLSX.utils.encode_range(range);
 
-      // 5. 写入文件，必须开启 bookVBA 和 cellStyles
       const outData = XLSX.write(workbook, { 
         type: 'array', 
         bookType: 'xlsm', 

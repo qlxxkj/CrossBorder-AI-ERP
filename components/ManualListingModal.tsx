@@ -128,6 +128,12 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
         main_image: formData.main_image,
         other_images: formData.other_images,
         item_weight: formData.weightValue ? `${formData.weightValue} ${formData.weightUnit}` : '',
+        item_weight_value: formData.weightValue,
+        item_weight_unit: formData.weightUnit,
+        item_length: formData.dimL,
+        item_width: formData.dimW,
+        item_height: formData.dimH,
+        item_size_unit: formData.dimUnit,
         product_dimensions: (formData.dimL && formData.dimW && formData.dimH) 
           ? `${formData.dimL} x ${formData.dimW} x ${formData.dimH} ${formData.dimUnit}` 
           : '',
@@ -169,7 +175,6 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
 
         <div className="flex-1 overflow-y-auto p-10 custom-scrollbar bg-slate-50/30">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-            {/* Left Column */}
             <div className="lg:col-span-4 space-y-8">
               <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Market & ASIN</h3>
@@ -247,7 +252,6 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
               </section>
             </div>
 
-            {/* Middle Column */}
             <div className="lg:col-span-5 space-y-8">
               <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
                 <div className="flex items-center justify-between">
@@ -306,7 +310,6 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
               </section>
             </div>
 
-            {/* Right Column */}
             <div className="lg:col-span-3 space-y-8">
               <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t('uploadMain')}</h3>
