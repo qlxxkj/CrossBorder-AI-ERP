@@ -69,9 +69,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onLogoClick, 
             <button onClick={onLogin} className="w-full sm:w-auto px-10 py-5 bg-slate-900 text-white rounded-2xl font-black text-xl hover:bg-slate-800 shadow-2xl transition-all flex items-center justify-center gap-3">
               {t('getStarted')} <ArrowRight size={22} />
             </button>
-            <button className="w-full sm:w-auto px-10 py-5 bg-white text-slate-700 border border-slate-200 rounded-2xl font-black text-xl hover:bg-slate-50 transition-all flex items-center justify-center gap-3">
+            <a 
+              href="https://github.com/qlxxkj/amazon-erp-collector/archive/refs/heads/main.zip"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full sm:w-auto px-10 py-5 bg-white text-slate-700 border border-slate-200 rounded-2xl font-black text-xl hover:bg-slate-50 transition-all flex items-center justify-center gap-3 no-underline shadow-sm"
+            >
                <Download size={22} /> {t('installPlugin')}
-            </button>
+            </a>
           </div>
 
           {/* ERP Dashboard Preview */}
