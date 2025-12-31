@@ -128,8 +128,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             if (f === 'asin') val = listing.asin;
             else if (f === 'title') val = displayTitle;
             else if (f === 'price') val = cleaned.price;
+            else if (f === 'shipping') val = cleaned.shipping;
             else if (f === 'brand') val = cleaned.brand;
             else if (f === 'description') val = displayDesc;
+            else if (f === 'item_weight') val = cleaned.item_weight || '';
+            else if (f === 'product_dimensions') val = cleaned.product_dimensions || '';
+            else if (f === 'BSR') val = cleaned.BSR || '';
+            else if (f === 'ratings') val = cleaned.ratings || '';
             else if (f === 'main_image') val = cleaned.main_image;
             else if (f?.startsWith('other_image')) {
               const num = parseInt(f.replace('other_image', '')) || 1;
