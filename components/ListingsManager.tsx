@@ -14,6 +14,7 @@ interface ListingsManagerProps {
   setListings: React.Dispatch<React.SetStateAction<Listing[]>>;
   lang: UILanguage;
   refreshListings: () => void;
+  isInitialLoading?: boolean;
 }
 
 const MARKETPLACES_LIST = [
@@ -25,7 +26,14 @@ const MARKETPLACES_LIST = [
   { code: 'JP', name: 'Japan', flag: '🇯🇵' },
 ];
 
-export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListing, listings, setListings, lang, refreshListings }) => {
+export const ListingsManager: React.FC<ListingsManagerProps> = ({ 
+  onSelectListing, 
+  listings, 
+  setListings, 
+  lang, 
+  refreshListings,
+  isInitialLoading 
+}) => {
   const t = useTranslation(lang);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMarketplace, setFilterMarketplace] = useState('ALL');
@@ -93,7 +101,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
     return listings.filter(l => {
       const displayTitle = (l.status === 'optimized' && l.optimized?.optimized_title) 
         ? l.optimized.optimized_title 
-        : l.cleaned.title;
+        : l.cleaned?.title;
       
       const matchesSearch = (displayTitle || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
                              (l.asin || "").toLowerCase().includes(searchTerm.toLowerCase());
@@ -225,7 +233,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
+    <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       {isManualModalOpen && (
         <ManualListingModal 
           uiLang={lang} 
@@ -319,7 +327,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
         </div>
       </div>
 
-      <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
+      <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden min-h-[400px]">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -341,7 +349,13 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({ onSelectListin
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {paginatedListings.length === 0 ? (
+              {isInitialLoading ? (
+                [1, 2, 3, 4, 5].map(i => (
+                  <tr key={i} className="animate-pulse">
+                    <td colSpan={7} className="p-8"><div className="h-10 bg-slate-50 rounded-xl w-full"></div></td>
+                  </tr>
+                ))
+              ) : paginatedListings.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-32 text-center text-slate-200 flex flex-col items-center gap-4">
                     <Package size={48} className="opacity-20" />
