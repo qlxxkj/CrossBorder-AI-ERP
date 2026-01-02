@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2, Zap, Globe, Trash, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Plus, Search, CheckCircle, Trash2, Download, Filter, Package, Loader2, Zap, Globe, Trash, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertCircle, RefreshCcw, Database } from 'lucide-react';
 import { Listing, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -43,11 +43,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
 
-  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterMarketplace]);
@@ -112,7 +110,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     });
   }, [listings, searchTerm, filterMarketplace]);
 
-  // Paginated Data
   const totalPages = Math.ceil(filteredListings.length / itemsPerPage);
   const paginatedListings = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
@@ -139,7 +136,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     return MARKETPLACES_LIST.find(m => m.code === code)?.flag || '📦';
   };
 
-  // Pagination Controls Component
   const renderPagination = () => {
     if (totalPages <= 1) return null;
 
@@ -357,9 +353,30 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                 ))
               ) : paginatedListings.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-32 text-center text-slate-200 flex flex-col items-center gap-4">
-                    <Package size={48} className="opacity-20" />
-                    <p className="font-black uppercase tracking-widest text-xs opacity-50">No matching products found</p>
+                  <td colSpan={7} className="p-20 text-center">
+                    <div className="flex flex-col items-center justify-center max-w-sm mx-auto space-y-6">
+                      <div className="w-20 h-20 bg-slate-50 rounded-[2rem] border border-slate-100 shadow-inner flex items-center justify-center text-slate-200">
+                         <Package size={40} />
+                      </div>
+                      <div className="space-y-2">
+                        <p className="font-black uppercase tracking-widest text-sm text-slate-900">
+                          {searchTerm || filterMarketplace !== 'ALL' ? 'No matches found' : 'Database Empty'}
+                        </p>
+                        <p className="text-xs text-slate-400 font-medium leading-relaxed">
+                          {searchTerm || filterMarketplace !== 'ALL' 
+                            ? "Try adjusting your filters or keywords." 
+                            : "If you have scraped data but it's not showing, your Supabase RLS policies might be blocking the session. Check if 'user_id' matches exactly."}
+                        </p>
+                      </div>
+                      <div className="flex gap-3">
+                         <button onClick={refreshListings} className="flex items-center gap-2 px-6 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl">
+                           <RefreshCcw size={14} /> Refresh
+                         </button>
+                         <button onClick={() => setIsBulkScrapeOpen(true)} className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl">
+                           <Zap size={14} /> Start Scrape
+                         </button>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -437,8 +454,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
             </tbody>
           </table>
         </div>
-        
-        {/* Pagination Rendering */}
         {renderPagination()}
       </div>
     </div>
