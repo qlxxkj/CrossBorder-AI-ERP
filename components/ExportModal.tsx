@@ -28,6 +28,17 @@ function safeDecode(base64: string): Uint8Array {
   return bytes;
 }
 
+const findAmazonTemplateSheet = (sheetNames: string[]): string => {
+  const match = sheetNames.find(n => {
+    const lower = n.toLowerCase();
+    return TEMPLATE_SHEET_KEYWORDS.some(kw => lower === kw || lower.includes(kw));
+  });
+  if (match) return match;
+  if (sheetNames.length >= 5) return sheetNames[4];
+  if (sheetNames.length >= 2) return sheetNames[1];
+  return sheetNames[0];
+};
+
 export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListings, onClose }) => {
   const t = useTranslation(uiLang);
   const [templates, setTemplates] = useState<ExportTemplate[]>([]);
@@ -60,14 +71,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const bytes = safeDecode(fileBinary);
       const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true, cellNF: true, cellText: true });
       
-      // 识别多语言站点工作表
-      const tplSheetName = workbook.SheetNames.find(n => {
-        const lower = n.toLowerCase();
-        return TEMPLATE_SHEET_KEYWORDS.some(kw => lower.includes(kw));
-      }) || workbook.SheetNames[1] || workbook.SheetNames[0];
-
+      const tplSheetName = findAmazonTemplateSheet(workbook.SheetNames);
       const sheet = workbook.Sheets[tplSheetName];
-      const startDataRowIdx = 7; 
+      
+      // 获取模板上传时识别到的表头行索引，数据通常在其下方第 4 行开始
+      const headerRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 3;
+      const startDataRowIdx = headerRowIdx + 4; 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
@@ -149,7 +158,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             </div>
           </div>
         </div>
-        <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-4"><button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">Cancel</button><button disabled={!selectedTemplate || exporting} onClick={handleExport} className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all">{exporting ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />} {exporting ? 'Processing...' : 'Download Export Package'}</button></div>
+        <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-4"><button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">Cancel</button><button disabled={!selectedTemplate || exporting} onClick={handleExport} className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all">{exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} {exporting ? 'Processing...' : 'Download Export Package'}</button></div>
       </div>
     </div>
   );
