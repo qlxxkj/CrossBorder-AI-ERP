@@ -208,21 +208,22 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const finalTplName = findAmazonTemplateSheet(workbook);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[finalTplName], { header: 1, defval: '' });
         
-        // 1. 识别技术标识符行 (Tech Row - 给系统看)
+        // 1. 识别技术标识符行 (Tech Row)
         const techRowIdx = findHeaderRowIndex(jsonData);
         const techRow = jsonData[techRowIdx];
         
-        // 2. 识别字段名行 (Human Row - 给用户看)
+        // 2. 识别字段名行 (Human Row)
         const humanRow = (techRowIdx > 0) ? jsonData[techRowIdx - 1] : techRow;
         
-        // 3. 识别示例数据行
+        // 3. 识别示例数据行 (N+1)
         const exampleRowIdx = techRowIdx + 1;
         const exampleRow = jsonData[exampleRowIdx] || [];
 
-        // 4. 智能检测是否包含“预填提示行”（针对美国站等特殊模板）
+        // 4. 识别预填属性提示行 (N+2) - 针对美国站
         const noticeRowIdx = techRowIdx + 2;
-        const firstCellOfNotice = String(jsonData[noticeRowIdx]?.[0] || '');
-        const hasPrefillNotice = firstCellOfNotice.includes("prefilled attributes") || firstCellOfNotice.includes("✅");
+        const noticeRowContent = jsonData[noticeRowIdx] || [];
+        const noticeStr = noticeRowContent.map(c => String(c || '')).join(' ');
+        const hasPrefillNotice = noticeStr.toLowerCase().includes("prefilled attributes") || noticeStr.includes("✅");
 
         if (!techRow || techRow.length < 2) {
           throw new Error(uiLang === 'zh' ? `无法定位到 API 标识符行。请确保模板“${finalTplName}”格式正确。` : `Could not identify API headers in sheet "${finalTplName}".`);
@@ -237,13 +238,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           if (!apiField) return;
 
           const key = `col_${i}`;
-          // 示例行通常是标识符行的下一行
           const exampleVal = String(exampleRow[i] || '').trim();
           
-          let source: any = exampleVal ? 'template_default' : 'custom';
+          // 修正：非英语站点 Row N+1 是示例而非默认值
+          // 我们将 source 优先设为 listing (如果匹配到核心字段) 或 custom (留空让用户填)
+          let source: any = 'custom';
           let field = '';
 
-          // 核心自动映射逻辑基于不变的 API 技术字段名
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name') || apiField.includes('nombre_del_producto')) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|附图|ubicación_de_la_imagen|url_de_la_imagen/)) { 
@@ -265,8 +266,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             header: h, 
             source,
             listingField: field,
-            defaultValue: exampleVal,
-            templateDefault: exampleVal,
+            defaultValue: source === 'custom' ? '' : '', // 默认设为空，不使用示例数据
+            templateDefault: exampleVal, // 仅存入作为参考
             acceptedValues: []
           };
         });
@@ -274,7 +275,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         mappings['__binary'] = base64File;
         mappings['__header_row_idx'] = techRowIdx;
         mappings['__sheet_name'] = finalTplName;
-        mappings['__has_prefill_notice'] = hasPrefillNotice; // 记录是否包含预填提示行
+        mappings['__has_prefill_notice'] = hasPrefillNotice;
 
         const { data: { session } } = await supabase.auth.getSession();
         const { data: inserted, error: insertError } = await supabase.from('templates').insert([{
@@ -289,7 +290,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         if (insertError) throw new Error(insertError.message);
         if (inserted && inserted.length > 0) {
           await fetchTemplates(inserted[0].id);
-          alert(uiLang === 'zh' ? `模板解析成功！数据起始行自动适配。` : `Template parsed! Data start row auto-adapted.`);
+          alert(uiLang === 'zh' ? `模板解析成功！数据起始行已自动设为第 ${techRowIdx + (hasPrefillNotice ? 4 : 3)} 行。` : `Template parsed! Data start set to row ${techRowIdx + (hasPrefillNotice ? 4 : 3)}.`);
         }
       } catch (err: any) {
         console.error("Upload error:", err);
@@ -380,7 +381,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex flex-col">
                   <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Localized Header Row Detected: {selectedTemplate.mappings?.__header_row_idx || 0}</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Tech Row Index: {selectedTemplate.mappings?.__header_row_idx || 0} • Prefill Notice: {selectedTemplate.mappings?.__has_prefill_notice ? 'Yes (US Style)' : 'No'}
+                  </p>
                 </div>
                 <div className="flex items-center gap-4 w-full sm:w-auto">
                   <div className="relative flex-1 sm:w-64">
@@ -403,16 +406,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                     <div key={key} className="p-6 rounded-[2rem] border bg-slate-50/30 border-slate-50 transition-all hover:border-indigo-100 group/field">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
                         <div className="space-y-1"><span className="text-[11px] font-black text-slate-600 break-all">{h}</span><p className="text-[8px] font-black text-slate-400 uppercase">Column Index: {i + 1}</p></div>
-                        <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"><option value="custom">Manual Value</option><option value="template_default">Template Default</option><option value="listing">Listing Data</option><option value="random">🎲 Random Generate</option></select>
+                        <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all">
+                          <option value="custom">Manual Value</option>
+                          <option value="listing">Listing Data</option>
+                          <option value="template_default">Template Example (Disabled)</option>
+                          <option value="random">🎲 Random Generate</option>
+                        </select>
                         <div className="flex-1">
                           {mapping.source === 'listing' ? (
                             <select value={mapping.listingField} onChange={(e) => updateMapping(key, { listingField: e.target.value })} className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black"><option value="">-- Choose Data --</option>{LISTING_SOURCE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}</select>
                           ) : (mapping.source === 'custom' && hasOptions) ? (
                             <select value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl text-[11px] font-black"><option value="">-- Select Option --</option>{mapping.acceptedValues?.map((v, idx) => <option key={idx} value={v}>{v}</option>)}</select>
                           ) : mapping.source === 'custom' ? (
-                            <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" />
+                            <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" placeholder="Enter fixed value..." />
                           ) : (
-                            <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-400 uppercase">{mapping.source === 'random' ? 'Smart AI Random' : `Default: ${mapping.templateDefault || 'None'}`}</div>
+                            <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-400 uppercase italic">Example: {mapping.templateDefault || 'None'}</div>
                           )}
                         </div>
                       </div>

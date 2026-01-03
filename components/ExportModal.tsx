@@ -62,25 +62,28 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
       // 动态计算数据起始行
       // techRowIdx (N): 标识符行
-      // exampleRow (N+1): 示例数据
-      // noticeRow (N+2): 可能是预填提示行
+      // N+1: 示例行 (始终跳过)
+      // N+2: 普通站点数据行 或 美国站预填提示行
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 3;
       const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
       
-      // 如果有预填提示行，从 N+3 开始；否则从 N+2 开始
+      // 写入起始行：如果存在 Row N+2 的 Prefill Notice (美国站)，则起始行为 N+3；否则为 N+2
       const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
         const cleaned = (listing.cleaned || {}) as CleanedData;
         
-        let content: OptimizedData = listing.optimized || {} as OptimizedData;
-        if (targetMarket !== 'US' && targetMarket !== 'UK' && listing.translations?.[targetMarket]) {
-           content = listing.translations[targetMarket];
+        // 提取内容，确保美国站等默认站点也有数据回退
+        let content: OptimizedData | null = null;
+        if (targetMarket === 'US' || targetMarket === 'UK') {
+          content = listing.optimized || null;
+        } else if (listing.translations?.[targetMarket]) {
+          content = listing.translations[targetMarket];
         }
 
         const otherImages = cleaned.other_images || [];
-        const features = content.optimized_features?.length ? content.optimized_features : (cleaned.features || []);
+        const features = content?.optimized_features?.length ? content.optimized_features : (cleaned.features || []);
 
         selectedTemplate.headers.forEach((h, colIdx) => {
           const mappingKey = `col_${colIdx}`;
@@ -91,14 +94,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
             if (f === 'asin') val = listing.asin;
-            else if (f === 'title') val = content.optimized_title || cleaned.title || '';
-            else if (f === 'price') val = cleaned.price;
-            else if (f === 'shipping') val = cleaned.shipping;
-            else if (f === 'brand') val = cleaned.brand;
-            else if (f === 'description') val = content.optimized_description || cleaned.description || '';
+            else if (f === 'title') val = content?.optimized_title || cleaned.title || '';
+            else if (f === 'price') val = cleaned.price || '';
+            else if (f === 'shipping') val = cleaned.shipping || 0;
+            else if (f === 'brand') val = cleaned.brand || '';
+            else if (f === 'description') val = content?.optimized_description || cleaned.description || '';
             else if (f === 'item_weight_value') val = cleaned.item_weight_value || '';
             else if (f === 'item_weight_unit') val = cleaned.item_weight_unit || '';
-            else if (f === 'main_image') val = cleaned.main_image;
+            else if (f === 'main_image') val = cleaned.main_image || '';
             else if (f?.startsWith('other_image')) {
               const num = parseInt(f.replace('other_image', '')) || 1;
               val = otherImages[num - 1] || '';
@@ -106,15 +109,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               const num = parseInt(f.replace('feature', '')) || 1;
               val = features[num - 1] || '';
             }
-          } else if (mapping.source === 'custom') { val = mapping.defaultValue || ''; }
-          else if (mapping.source === 'template_default') { val = mapping.templateDefault || ''; }
+          } else if (mapping.source === 'custom') { 
+            val = mapping.defaultValue || ''; 
+          }
 
-          if (!val && mapping.templateDefault) val = mapping.templateDefault;
+          // 永远不要在导出时填入示例数据 (Row N+1的内容)
+          // 如果最终没有值，且该列是必需的，保持为空让亚马逊报错或用户后期补录
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
           sheet[cellRef] = { v: val, t: typeof val === 'number' ? 'n' : 's' };
         });
       });
 
+      // 更新工作表的范围
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
@@ -126,7 +132,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       link.href = url;
       link.download = `AMZ_Export_${targetMarket}_${Date.now()}.xlsm`;
       link.click();
-    } catch (err: any) { alert("Export failed: " + err.message); } finally { setExporting(false); onClose(); }
+    } catch (err: any) { 
+      console.error("Export Error:", err);
+      alert("Export failed: " + err.message); 
+    } finally { 
+      setExporting(false); 
+      onClose(); 
+    }
   };
 
   return (
@@ -134,7 +146,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
         <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between"><h2 className="text-2xl font-black text-slate-900 flex items-center gap-3"><Download className="text-indigo-600" /> {t('confirmExport')}</h2><button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-400"><X size={24} /></button></div>
         <div className="p-8 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
-          <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex items-center gap-4"><div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm"><CheckCircle2 size={24} /></div><div><p className="text-sm font-black text-indigo-900">{selectedListings.length} Products Selected</p><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Ready for multi-site publishing</p></div></div>
+          <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex items-center gap-4"><div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm"><CheckCircle2 size={24} /></div><div><p className="text-sm font-black text-indigo-900">{selectedListings.length} Products Selected</p><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Targeting marketplace start rows: {selectedTemplate?.mappings?.__has_prefill_notice ? 'Row N+3' : 'Row N+2'}</p></div></div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
             <div className="space-y-4">
                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Globe size={14} className="text-blue-500" /> Choose Global Marketplace</label>
