@@ -44,6 +44,12 @@ const TEMPLATE_SHEET_KEYWORDS = [
   'modello', 'plantilla', 'テンプレート', 'szablon', 'sjabloon', 'نموذج'
 ];
 
+const HEADER_IDENTIFIER_KEYWORDS = [
+  'sku', 'item_name', 'external_product_id', 'product_type', 'feed_product_type',
+  'vendedor_sku', 'nombre_del_producto', 'identificador_de_producto', // Spanish MX
+  'item_sku', 'brand_name', 'standard_product_id', 'product_id'
+];
+
 function safeEncode(bytes: Uint8Array): string {
   let binary = '';
   const len = bytes.byteLength;
@@ -53,40 +59,52 @@ function safeEncode(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-const findAmazonTemplateSheet = (sheetNames: string[]): string => {
-  const match = sheetNames.find(n => {
+/**
+ * 智能识别亚马逊模板工作表
+ * 1. 尝试名称匹配
+ * 2. 尝试固定索引（第5张或第2张）
+ * 3. 最终方案：扫描内容，寻找含有核心字段的工作表
+ */
+const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
+  const sheetNames = workbook.SheetNames;
+  
+  // 1. 基于名称的启发式匹配
+  const nameMatch = sheetNames.find(n => {
     const lower = n.toLowerCase();
     return TEMPLATE_SHEET_KEYWORDS.some(kw => lower === kw || lower.includes(kw));
   });
-  if (match) return match;
+  if (nameMatch) return nameMatch;
+
+  // 2. 遍历工作表内容进行深度识别
+  for (const name of sheetNames) {
+    const sheet = workbook.Sheets[name];
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0, defval: '' });
+    // 检查前15行是否有至少2个核心关键字
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const rowStr = rows[i].map(c => String(c || '').toLowerCase()).join('|');
+      const matchCount = HEADER_IDENTIFIER_KEYWORDS.filter(kw => rowStr.includes(kw)).length;
+      if (matchCount >= 2) return name;
+    }
+  }
+
+  // 3. 回退方案
   if (sheetNames.length >= 5) return sheetNames[4];
   if (sheetNames.length >= 2) return sheetNames[1];
   return sheetNames[0];
 };
 
 /**
- * 动态搜索表头行：在墨西哥（MX）等非英语模板中，表头关键词可能不同。
- * 增加了对西班牙语、德语等常见 API 内部字段名的扫描。
+ * 在选定工作表中寻找 API 字段行（表头）
  */
 const findHeaderRowIndex = (rows: any[][]): number => {
-  const headerKeywords = [
-    'sku', 'item_name', 'external_product_id', 'product_type', 'feed_product_type',
-    'vendedor_sku', 'nombre_del_producto', 'identificador_de_producto', // Spanish MX
-    'item_sku', 'brand_name', 'standard_product_id'
-  ];
-
-  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
     const row = rows[i];
-    if (!row || row.length < 3) continue; // 降低列数限制以适配轻量模板
+    if (!row || row.length < 2) continue;
     const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
-    
-    const matchCount = headerKeywords.filter(kw => rowStr.includes(kw)).length;
-    // 如果该行包含至少两个亚马逊特征关键词，则认定为 API 字段行
-    if (matchCount >= 2) {
-      return i;
-    }
+    const matchCount = HEADER_IDENTIFIER_KEYWORDS.filter(kw => rowStr.includes(kw)).length;
+    if (matchCount >= 2) return i;
   }
-  return 3; // 默认回退
+  return 3; // 默认 Row 4
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -185,7 +203,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           }
         }
 
-        const finalTplName = findAmazonTemplateSheet(workbook.SheetNames);
+        const finalTplName = findAmazonTemplateSheet(workbook);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[finalTplName], { header: 1, defval: '' });
         
         const headerRowIdx = findHeaderRowIndex(jsonData);
@@ -193,8 +211,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const dataRowIdx = headerRowIdx + 4;
         const dataRow = jsonData[dataRowIdx] || [];
 
-        if (!headerRow || headerRow.length < 3) {
-          throw new Error(uiLang === 'zh' ? "无法在工作表中找到有效的亚马逊表头字段，请确保文件未被损坏并包含 API 名称行。" : "Could not identify template headers. Ensure the file contains the API name row.");
+        if (!headerRow || headerRow.length < 2) {
+          throw new Error(uiLang === 'zh' ? "无法在识别出的工作表中找到有效的表头。请确保模板未加密且包含 API 字段行。" : "Could not identify template headers in the identified sheet.");
         }
 
         foundHeaders = headerRow.map(h => String(h || '').trim());
@@ -239,6 +257,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
         mappings['__binary'] = base64File;
         mappings['__header_row_idx'] = headerRowIdx;
+        mappings['__sheet_name'] = finalTplName;
 
         const { data: { session } } = await supabase.auth.getSession();
         const { data: inserted, error: insertError } = await supabase.from('templates').insert([{
@@ -253,7 +272,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         if (insertError) throw new Error(insertError.message);
         if (inserted && inserted.length > 0) {
           await fetchTemplates(inserted[0].id);
-          alert(uiLang === 'zh' ? "模板上传并解析成功！" : "Template uploaded successfully!");
+          alert(uiLang === 'zh' ? `模板“${finalTplName}”识别并解析成功！` : `Template "${finalTplName}" identified and parsed!`);
         }
       } catch (err: any) {
         console.error("Upload error:", err);

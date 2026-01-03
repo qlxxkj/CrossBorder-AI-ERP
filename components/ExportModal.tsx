@@ -13,11 +13,6 @@ interface ExportModalProps {
   onClose: () => void;
 }
 
-const TEMPLATE_SHEET_KEYWORDS = [
-  'template', '模板', 'mall', 'vorlage', 'modèle', 'modelo', 
-  'modello', 'plantilla', 'テンプレート', 'szablon', 'sjabloon', 'نموذج'
-];
-
 function safeDecode(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -27,17 +22,6 @@ function safeDecode(base64: string): Uint8Array {
   }
   return bytes;
 }
-
-const findAmazonTemplateSheet = (sheetNames: string[]): string => {
-  const match = sheetNames.find(n => {
-    const lower = n.toLowerCase();
-    return TEMPLATE_SHEET_KEYWORDS.some(kw => lower === kw || lower.includes(kw));
-  });
-  if (match) return match;
-  if (sheetNames.length >= 5) return sheetNames[4];
-  if (sheetNames.length >= 2) return sheetNames[1];
-  return sheetNames[0];
-};
 
 export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListings, onClose }) => {
   const t = useTranslation(uiLang);
@@ -71,9 +55,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const bytes = safeDecode(fileBinary);
       const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true, cellNF: true, cellText: true });
       
-      const tplSheetName = findAmazonTemplateSheet(workbook.SheetNames);
+      // 优先使用上传时记录的工作表名称
+      const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[workbook.SheetNames.length - 1];
       const sheet = workbook.Sheets[tplSheetName];
       
+      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found in the original workbook.`);
+
       // 获取模板上传时识别到的表头行索引，数据通常在其下方第 4 行开始
       const headerRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 3;
       const startDataRowIdx = headerRowIdx + 4; 
