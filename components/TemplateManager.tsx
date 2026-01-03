@@ -44,17 +44,14 @@ const TEMPLATE_SHEET_KEYWORDS = [
   'modello', 'plantilla', 'テンプレート', 'szablon', 'sjabloon', 'نموذج'
 ];
 
-// 排除性关键词：用于识别说明页、更改记录页等非数据页
 const EXCLUDE_SHEET_KEYWORDS = [
   'cambios', 'changes', 'instruction', 'instrucciones', 'anleitung', 'notice', 'definitions'
 ];
 
-// 高置信度关键词：只要出现一个且行内列数足够，基本就是 API 字段行
 const HIGH_CONFIDENCE_KEYWORDS = [
   'sku', 'item_sku', 'vendedor_sku', 'external_product_id', 'product_id', 'identificador_de_producto', 'external_product_id_type'
 ];
 
-// 中等置信度关键词
 const MED_CONFIDENCE_KEYWORDS = [
   'item_name', 'product_name', 'nombre_del_producto', 'feed_product_type', 'product_type', 'standard_price', 'precio_estándar', 'puntos_clave1', 'bullet_point1'
 ];
@@ -68,32 +65,23 @@ function safeEncode(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/**
- * 智能识别亚马逊模板工作表
- * 改进点：优先排除含有“更改”、“说明”字样的工作表，并对所有表进行 API 字段行探测
- */
 const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
   const sheetNames = workbook.SheetNames;
-  
-  // 1. 深度内容扫描 (评分制)
   let bestSheet = '';
   let maxScore = -1;
 
   for (const name of sheetNames) {
     const lowerName = name.toLowerCase();
-    
-    // 如果名字里包含“排除关键词”（如 Cambios），初始评分设为负值，除非内容极度匹配
     let baseScore = 0;
     if (EXCLUDE_SHEET_KEYWORDS.some(kw => lowerName.includes(kw))) {
-      baseScore = -50; 
+      baseScore = -100; // 严厉排除说明页
     }
 
     const sheet = workbook.Sheets[name];
-    // 仅读取前 20 行进行快速探测
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0, defval: '' });
     
     let sheetContentMaxScore = 0;
-    for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
       const row = rows[i];
       if (!row || row.length < 3) continue;
       const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
@@ -112,7 +100,6 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
     }
   }
 
-  // 2. 如果内容扫描完全没结果，再根据名称启发式匹配（避开排除词）
   if (maxScore <= 0) {
     const nameMatch = sheetNames.find(n => {
       const lower = n.toLowerCase();
@@ -121,10 +108,7 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
       return isTemplate && !isExclude;
     });
     if (nameMatch) return nameMatch;
-    
-    // 最后的最后，尝试常用索引
     if (sheetNames.length >= 5) return sheetNames[4];
-    if (sheetNames.length >= 2) return sheetNames[1];
     return sheetNames[0];
   }
 
@@ -132,28 +116,38 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
 };
 
 /**
- * 基于评分机制寻找 API 字段行（表头）
+ * 改良表头定位逻辑
  */
 const findHeaderRowIndex = (rows: any[][]): number => {
-  let bestIdx = 3; // 默认 Row 4
-  let maxScore = -1;
+  let bestIdx = 3; 
+  let found = false;
 
   for (let i = 0; i < Math.min(rows.length, 30); i++) {
     const row = rows[i];
-    if (!row || row.length < 2) continue;
+    if (!row || row.length < 5) continue; // 表头通常有很多列
+    
     const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
     
     let currentScore = 0;
     HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) currentScore += 20; });
     MED_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) currentScore += 5; });
 
-    if (currentScore > maxScore) {
-      maxScore = currentScore;
+    // 关键特征：API 字段行通常由小写字母、下划线组成，且很少有空格
+    const underscoreCount = (rowStr.match(/_/g) || []).length;
+    const spaceCount = (rowStr.match(/ /g) || []).length;
+    
+    // 如果下划线很多且空格很少，这极大概率是 API 字段行
+    if (underscoreCount > 5 && spaceCount < underscoreCount) currentScore += 30;
+
+    // 采用“首次匹配优先”原则，且必须达到高置信度门槛
+    if (currentScore >= 40) {
       bestIdx = i;
+      found = true;
+      break; // 找到第一个符合技术特征的行即停止，防止由于下方说明行也有关键字导致的偏移
     }
   }
 
-  return maxScore > 0 ? bestIdx : 3;
+  return found ? bestIdx : 3;
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -217,42 +211,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const workbook = XLSX.read(data, { type: 'array', cellNF: true, cellText: true, cellStyles: true });
         const base64File = safeEncode(data);
 
-        let foundHeaders: string[] = [];
-        let rowDataDefaults: string[] = [];
-        let fieldDefinitions: Record<string, string[]> = {};
-
-        // Valid Values 页解析逻辑
-        const vvSheet = workbook.SheetNames.find(n => 
-          n.toLowerCase().includes('valid values') || 
-          n.includes('有效值') || 
-          n.toLowerCase().includes('valeurs') || 
-          n.toLowerCase().includes('gültige') ||
-          n.toLowerCase().includes('valores')
-        );
-
-        if (vvSheet) {
-          const rawData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[vvSheet], { header: 1 });
-          let fCol = -1, vCol = -1;
-          for (let i = 0; i < Math.min(rawData.length, 30); i++) {
-            const row = rawData[i];
-            const fIdx = row?.findIndex(c => String(c || '').toLowerCase().includes('field name') || String(c || '').includes('字段名称') || String(c || '').toLowerCase().includes('nombre del campo'));
-            const vIdx = row?.findIndex(c => String(c || '').toLowerCase().includes('valid value') || String(c || '').includes('有效值') || String(c || '').toLowerCase().includes('valor'));
-            if (fIdx !== -1 && vIdx !== -1) { fCol = fIdx; vCol = vIdx; break; }
-          }
-          if (fCol !== -1) {
-            let lastF = "";
-            rawData.forEach(row => {
-              const f = String(row[fCol] || '').trim();
-              const v = String(row[vCol] || '').trim();
-              if (f && f.toLowerCase() !== 'field name' && f !== '字段名称' && !f.toLowerCase().includes('nombre')) lastF = f;
-              if (lastF && v && v.toLowerCase() !== 'valid value' && v !== '有效值' && v.toLowerCase() !== 'none' && !v.toLowerCase().includes('valor')) {
-                if (!fieldDefinitions[lastF]) fieldDefinitions[lastF] = [];
-                if (!fieldDefinitions[lastF].includes(v)) fieldDefinitions[lastF].push(v);
-              }
-            });
-          }
-        }
-
         const finalTplName = findAmazonTemplateSheet(workbook);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[finalTplName], { header: 1, defval: '' });
         
@@ -262,11 +220,11 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const dataRow = jsonData[dataRowIdx] || [];
 
         if (!headerRow || headerRow.length < 2) {
-          throw new Error(uiLang === 'zh' ? `无法在识别出的工作表“${finalTplName}”中找到有效的 API 字段行。请检查文件是否为亚马逊官方生成的 .xlsm 模板。` : `Could not identify API headers in sheet "${finalTplName}". Please ensure this is an official Amazon .xlsm template.`);
+          throw new Error(uiLang === 'zh' ? `无法定位到 API 字段行。请确保模板工作表“${finalTplName}”格式正确。` : `Could not identify API headers in sheet "${finalTplName}".`);
         }
 
-        foundHeaders = headerRow.map(h => String(h || '').trim());
-        rowDataDefaults = headerRow.map((_, i) => String(dataRow?.[i] || '').trim());
+        const foundHeaders = headerRow.map(h => String(h || '').trim());
+        const rowDataDefaults = headerRow.map((_, i) => String(dataRow?.[i] || '').trim());
 
         const mappings: Record<string, any> = {};
         let imgCount = 0, bulletCount = 0;
@@ -278,7 +236,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let source: any = rowDataDefaults[i] ? 'template_default' : 'custom';
           let field = '';
 
-          // 核心自动映射：支持西班牙语/墨西哥语等国际化字段
           if (lowerH.includes('sku') || lowerH.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (lowerH.includes('item_name') || lowerH === 'title' || lowerH.includes('product_name') || lowerH.includes('nombre_del_producto')) { source = 'listing'; field = 'title'; }
           else if (lowerH.match(/image_url|image_location|附图|ubicación_de_la_imagen|url_de_la_imagen/)) { 
@@ -302,7 +259,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             listingField: field,
             defaultValue: rowDataDefaults[i],
             templateDefault: rowDataDefaults[i],
-            acceptedValues: fieldDefinitions[h] || []
+            acceptedValues: []
           };
         });
 
@@ -323,7 +280,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         if (insertError) throw new Error(insertError.message);
         if (inserted && inserted.length > 0) {
           await fetchTemplates(inserted[0].id);
-          alert(uiLang === 'zh' ? `模板识别成功！已定位到刊登页：“${finalTplName}”` : `Success! Identified template sheet: "${finalTplName}"`);
+          alert(uiLang === 'zh' ? `模板识别成功！表头位于第 ${headerRowIdx + 1} 行。` : `Success! Header found at row ${headerRowIdx + 1}.`);
         }
       } catch (err: any) {
         console.error("Upload error:", err);
@@ -372,7 +329,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Macro-Enabled Engine • Smart International Recognition</p>
+            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Macro-Enabled Engine • Advanced Row Detection</p>
           </div>
         </div>
         <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
