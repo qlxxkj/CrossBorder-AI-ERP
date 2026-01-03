@@ -13,6 +13,11 @@ interface ExportModalProps {
   onClose: () => void;
 }
 
+const TEMPLATE_SHEET_KEYWORDS = [
+  'template', '模板', 'mall', 'vorlage', 'modèle', 'modelo', 
+  'modello', 'plantilla', 'テンプレート', 'szablon', 'sjabloon', 'نموذج'
+];
+
 function safeDecode(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -54,7 +59,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     try {
       const bytes = safeDecode(fileBinary);
       const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true, cellNF: true, cellText: true });
-      const tplSheetName = workbook.SheetNames.find(n => n === 'Template' || n.toLowerCase() === 'template' || n.includes('模板')) || workbook.SheetNames[0];
+      
+      // 识别多语言站点工作表
+      const tplSheetName = workbook.SheetNames.find(n => {
+        const lower = n.toLowerCase();
+        return TEMPLATE_SHEET_KEYWORDS.some(kw => lower.includes(kw));
+      }) || workbook.SheetNames[1] || workbook.SheetNames[0];
+
       const sheet = workbook.Sheets[tplSheetName];
       const startDataRowIdx = 7; 
 
@@ -122,13 +133,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
         <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between"><h2 className="text-2xl font-black text-slate-900 flex items-center gap-3"><Download className="text-indigo-600" /> {t('confirmExport')}</h2><button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-400"><X size={24} /></button></div>
         <div className="p-8 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
-          <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex items-center gap-4"><div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm"><CheckCircle2 size={24} /></div><div><p className="text-sm font-black text-indigo-900">{selectedListings.length} Products Selected</p><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Target Site: {AMAZON_MARKETPLACES.find(m => m.code === targetMarket)?.name}</p></div></div>
+          <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex items-center gap-4"><div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm"><CheckCircle2 size={24} /></div><div><p className="text-sm font-black text-indigo-900">{selectedListings.length} Products Selected</p><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Ready for multi-site publishing</p></div></div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
             <div className="space-y-4">
                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Globe size={14} className="text-blue-500" /> Choose Global Marketplace</label>
-               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                  {AMAZON_MARKETPLACES.map(m => (
-                   <button key={m.code} onClick={() => setTargetMarket(m.code)} className={`px-3 py-3 rounded-xl border text-left text-[10px] font-black transition-all ${targetMarket === m.code ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'}`}><span className="mr-2">{m.flag}</span> {m.code}</button>
+                   <button key={m.code} onClick={() => setTargetMarket(m.code)} className={`px-2 py-3 rounded-xl border text-left text-[10px] font-black transition-all ${targetMarket === m.code ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'}`}><span className="mr-1">{m.flag}</span> {m.code}</button>
                  ))}
                </div>
             </div>
