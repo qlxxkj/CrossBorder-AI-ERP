@@ -208,18 +208,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const finalTplName = findAmazonTemplateSheet(workbook);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[finalTplName], { header: 1, defval: '' });
         
-        // 1. 识别技术标识符行 (Tech Row)
         const techRowIdx = findHeaderRowIndex(jsonData);
         const techRow = jsonData[techRowIdx];
-        
-        // 2. 识别字段名行 (Human Row)
         const humanRow = (techRowIdx > 0) ? jsonData[techRowIdx - 1] : techRow;
-        
-        // 3. 识别示例数据行 (N+1)
         const exampleRowIdx = techRowIdx + 1;
         const exampleRow = jsonData[exampleRowIdx] || [];
 
-        // 4. 识别预填属性提示行 (N+2) - 针对美国站
+        // 识别预填提示行 (针对美国站)
         const noticeRowIdx = techRowIdx + 2;
         const noticeRowContent = jsonData[noticeRowIdx] || [];
         const noticeStr = noticeRowContent.map(c => String(c || '')).join(' ');
@@ -240,11 +235,10 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           const key = `col_${i}`;
           const exampleVal = String(exampleRow[i] || '').trim();
           
-          // 修正：非英语站点 Row N+1 是示例而非默认值
-          // 我们将 source 优先设为 listing (如果匹配到核心字段) 或 custom (留空让用户填)
           let source: any = 'custom';
           let field = '';
 
+          // 核心自动映射逻辑
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name') || apiField.includes('nombre_del_producto')) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|附图|ubicación_de_la_imagen|url_de_la_imagen/)) { 
@@ -266,8 +260,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             header: h, 
             source,
             listingField: field,
-            defaultValue: source === 'custom' ? '' : '', // 默认设为空，不使用示例数据
-            templateDefault: exampleVal, // 仅存入作为参考
+            defaultValue: '', // 默认为空
+            templateDefault: exampleVal, // 存入示例数据供以后使用
             acceptedValues: []
           };
         });
@@ -290,10 +284,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         if (insertError) throw new Error(insertError.message);
         if (inserted && inserted.length > 0) {
           await fetchTemplates(inserted[0].id);
-          alert(uiLang === 'zh' ? `模板解析成功！数据起始行已自动设为第 ${techRowIdx + (hasPrefillNotice ? 4 : 3)} 行。` : `Template parsed! Data start set to row ${techRowIdx + (hasPrefillNotice ? 4 : 3)}.`);
+          alert(uiLang === 'zh' ? "模板上传成功！" : "Template uploaded!");
         }
       } catch (err: any) {
-        console.error("Upload error:", err);
         alert(uiLang === 'zh' ? `上传失败: ${err.message}` : `Upload failed: ${err.message}`);
       } finally {
         setIsUploading(false);
@@ -339,7 +332,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Adaptive Row Recognition</p>
+            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Dual-Row Smart Mapping</p>
           </div>
         </div>
         <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
@@ -381,9 +374,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex flex-col">
                   <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    Tech Row Index: {selectedTemplate.mappings?.__header_row_idx || 0} • Prefill Notice: {selectedTemplate.mappings?.__has_prefill_notice ? 'Yes (US Style)' : 'No'}
-                  </p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tech Row Index: {selectedTemplate.mappings?.__header_row_idx || 0}</p>
                 </div>
                 <div className="flex items-center gap-4 w-full sm:w-auto">
                   <div className="relative flex-1 sm:w-64">
@@ -409,7 +400,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                         <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all">
                           <option value="custom">Manual Value</option>
                           <option value="listing">Listing Data</option>
-                          <option value="template_default">Template Example (Disabled)</option>
+                          <option value="template_default">Template Default</option>
                           <option value="random">🎲 Random Generate</option>
                         </select>
                         <div className="flex-1">

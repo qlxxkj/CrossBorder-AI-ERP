@@ -63,18 +63,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       // 动态计算数据起始行
       // techRowIdx (N): 标识符行
       // N+1: 示例行 (始终跳过)
-      // N+2: 普通站点数据行 或 美国站预填提示行
+      // N+2: 可能是预填提示行 (美国站)
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 3;
       const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
       
-      // 写入起始行：如果存在 Row N+2 的 Prefill Notice (美国站)，则起始行为 N+3；否则为 N+2
+      // 关键修正：如果有 Prefill Notice，起始行为 N+3；否则为 N+2
       const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
         const cleaned = (listing.cleaned || {}) as CleanedData;
         
-        // 提取内容，确保美国站等默认站点也有数据回退
+        // 提取优化内容或回退到原始数据
         let content: OptimizedData | null = null;
         if (targetMarket === 'US' || targetMarket === 'UK') {
           content = listing.optimized || null;
@@ -111,16 +111,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             }
           } else if (mapping.source === 'custom') { 
             val = mapping.defaultValue || ''; 
+          } else if (mapping.source === 'template_default') {
+            val = mapping.templateDefault || '';
           }
 
-          // 永远不要在导出时填入示例数据 (Row N+1的内容)
-          // 如果最终没有值，且该列是必需的，保持为空让亚马逊报错或用户后期补录
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
-          sheet[cellRef] = { v: val, t: typeof val === 'number' ? 'n' : 's' };
+          // 写入单元格，确保数值类型正确处理
+          sheet[cellRef] = { 
+            v: val, 
+            t: (typeof val === 'number' && !isNaN(val)) ? 'n' : 's' 
+          };
         });
       });
 
-      // 更新工作表的范围
+      // 更新工作表的有效范围
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
