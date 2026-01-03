@@ -214,7 +214,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const exampleRowIdx = techRowIdx + 1;
         const exampleRow = jsonData[exampleRowIdx] || [];
 
-        // 识别预填提示行 (针对美国站)
         const noticeRowIdx = techRowIdx + 2;
         const noticeRowContent = jsonData[noticeRowIdx] || [];
         const noticeStr = noticeRowContent.map(c => String(c || '')).join(' ');
@@ -238,7 +237,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let source: any = 'custom';
           let field = '';
 
-          // 核心自动映射逻辑
+          // 核心自动映射逻辑 - 仅针对关键字段
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name') || apiField.includes('nombre_del_producto')) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|附图|ubicación_de_la_imagen|url_de_la_imagen/)) { 
@@ -255,13 +254,17 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             source = 'listing';
             field = 'price';
           }
+          else if (apiField.includes('description') || apiField.includes('descripción_del_producto')) {
+            source = 'listing';
+            field = 'description';
+          }
 
           mappings[key] = {
             header: h, 
             source,
             listingField: field,
-            defaultValue: '', // 默认为空
-            templateDefault: exampleVal, // 存入示例数据供以后使用
+            defaultValue: '', 
+            templateDefault: exampleVal,
             acceptedValues: []
           };
         });
@@ -400,7 +403,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                         <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all">
                           <option value="custom">Manual Value</option>
                           <option value="listing">Listing Data</option>
-                          <option value="template_default">Template Default</option>
+                          <option value="template_default">Template_Default</option>
                           <option value="random">🎲 Random Generate</option>
                         </select>
                         <div className="flex-1">
@@ -411,7 +414,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                           ) : mapping.source === 'custom' ? (
                             <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" placeholder="Enter fixed value..." />
                           ) : (
-                            <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-400 uppercase italic">Example: {mapping.templateDefault || 'None'}</div>
+                            <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-500 uppercase italic">
+                              {mapping.source === 'random' ? 'Random Generate' : `Default: ${mapping.templateDefault || 'None'}`}
+                            </div>
                           )}
                         </div>
                       </div>

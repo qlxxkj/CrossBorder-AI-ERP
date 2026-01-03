@@ -61,13 +61,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found.`);
 
       // 动态计算数据起始行
-      // techRowIdx (N): 标识符行
-      // N+1: 示例行 (始终跳过)
-      // N+2: 可能是预填提示行 (美国站)
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 3;
       const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
-      
-      // 关键修正：如果有 Prefill Notice，起始行为 N+3；否则为 N+2
       const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
 
       selectedListings.forEach((listing, rowOffset) => {
@@ -93,7 +88,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           let val: any = "";
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
-            if (f === 'asin') val = listing.asin;
+            if (f === 'asin') val = listing.asin || cleaned.asin || '';
             else if (f === 'title') val = content?.optimized_title || cleaned.title || '';
             else if (f === 'price') val = cleaned.price || '';
             else if (f === 'shipping') val = cleaned.shipping || 0;
@@ -101,6 +96,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'description') val = content?.optimized_description || cleaned.description || '';
             else if (f === 'item_weight_value') val = cleaned.item_weight_value || '';
             else if (f === 'item_weight_unit') val = cleaned.item_weight_unit || '';
+            else if (f === 'item_length') val = cleaned.item_length || '';
+            else if (f === 'item_width') val = cleaned.item_width || '';
+            else if (f === 'item_height') val = cleaned.item_height || '';
+            else if (f === 'item_size_unit') val = cleaned.item_size_unit || '';
             else if (f === 'main_image') val = cleaned.main_image || '';
             else if (f?.startsWith('other_image')) {
               const num = parseInt(f.replace('other_image', '')) || 1;
@@ -115,16 +114,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             val = mapping.templateDefault || '';
           }
 
+          // 确保写入值不为 undefined
+          const finalVal = val === undefined || val === null ? '' : val;
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
-          // 写入单元格，确保数值类型正确处理
           sheet[cellRef] = { 
-            v: val, 
-            t: (typeof val === 'number' && !isNaN(val)) ? 'n' : 's' 
+            v: finalVal, 
+            t: (typeof finalVal === 'number' && !isNaN(finalVal)) ? 'n' : 's' 
           };
         });
       });
 
-      // 更新工作表的有效范围
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
