@@ -44,10 +44,14 @@ const TEMPLATE_SHEET_KEYWORDS = [
   'modello', 'plantilla', 'テンプレート', 'szablon', 'sjabloon', 'نموذج'
 ];
 
-const HEADER_IDENTIFIER_KEYWORDS = [
-  'sku', 'item_name', 'external_product_id', 'product_type', 'feed_product_type',
-  'vendedor_sku', 'nombre_del_producto', 'identificador_de_producto', // Spanish MX
-  'item_sku', 'brand_name', 'standard_product_id', 'product_id'
+// 高置信度关键词：只要出现一个且行内列数足够，基本就是 API 字段行
+const HIGH_CONFIDENCE_KEYWORDS = [
+  'sku', 'item_sku', 'vendedor_sku', 'external_product_id', 'product_id', 'identificador_de_producto'
+];
+
+// 中等置信度关键词
+const MED_CONFIDENCE_KEYWORDS = [
+  'item_name', 'product_name', 'nombre_del_producto', 'feed_product_type', 'product_type', 'standard_price', 'precio_estándar', 'puntos_clave1', 'bullet_point1'
 ];
 
 function safeEncode(bytes: Uint8Array): string {
@@ -61,9 +65,6 @@ function safeEncode(bytes: Uint8Array): string {
 
 /**
  * 智能识别亚马逊模板工作表
- * 1. 尝试名称匹配
- * 2. 尝试固定索引（第5张或第2张）
- * 3. 最终方案：扫描内容，寻找含有核心字段的工作表
  */
 const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
   const sheetNames = workbook.SheetNames;
@@ -75,36 +76,63 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
   });
   if (nameMatch) return nameMatch;
 
-  // 2. 遍历工作表内容进行深度识别
+  // 2. 遍历工作表内容进行深度识别 (评分制)
+  let bestSheet = sheetNames[0];
+  let maxScore = -1;
+
   for (const name of sheetNames) {
     const sheet = workbook.Sheets[name];
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0, defval: '' });
-    // 检查前15行是否有至少2个核心关键字
+    
     for (let i = 0; i < Math.min(rows.length, 15); i++) {
-      const rowStr = rows[i].map(c => String(c || '').toLowerCase()).join('|');
-      const matchCount = HEADER_IDENTIFIER_KEYWORDS.filter(kw => rowStr.includes(kw)).length;
-      if (matchCount >= 2) return name;
+      const row = rows[i];
+      if (!row || row.length < 3) continue;
+      const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
+      
+      let currentScore = 0;
+      HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) currentScore += 10; });
+      MED_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) currentScore += 5; });
+
+      if (currentScore > maxScore) {
+        maxScore = currentScore;
+        bestSheet = name;
+      }
     }
   }
 
-  // 3. 回退方案
-  if (sheetNames.length >= 5) return sheetNames[4];
-  if (sheetNames.length >= 2) return sheetNames[1];
-  return sheetNames[0];
+  // 如果评分太低，使用默认索引
+  if (maxScore < 5) {
+    if (sheetNames.length >= 5) return sheetNames[4];
+    if (sheetNames.length >= 2) return sheetNames[1];
+  }
+
+  return bestSheet;
 };
 
 /**
- * 在选定工作表中寻找 API 字段行（表头）
+ * 基于评分机制寻找 API 字段行（表头）
  */
 const findHeaderRowIndex = (rows: any[][]): number => {
-  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+  let bestIdx = 3; // 默认 Row 4
+  let maxScore = -1;
+
+  for (let i = 0; i < Math.min(rows.length, 25); i++) {
     const row = rows[i];
     if (!row || row.length < 2) continue;
     const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
-    const matchCount = HEADER_IDENTIFIER_KEYWORDS.filter(kw => rowStr.includes(kw)).length;
-    if (matchCount >= 2) return i;
+    
+    let currentScore = 0;
+    // 只要包含 SKU 相关的 API 字段名，基本就是目标行
+    HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) currentScore += 20; });
+    MED_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) currentScore += 5; });
+
+    if (currentScore > maxScore) {
+      maxScore = currentScore;
+      bestIdx = i;
+    }
   }
-  return 3; // 默认 Row 4
+
+  return maxScore > 0 ? bestIdx : 3;
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -212,7 +240,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const dataRow = jsonData[dataRowIdx] || [];
 
         if (!headerRow || headerRow.length < 2) {
-          throw new Error(uiLang === 'zh' ? "无法在识别出的工作表中找到有效的表头。请确保模板未加密且包含 API 字段行。" : "Could not identify template headers in the identified sheet.");
+          throw new Error(uiLang === 'zh' ? `无法在“${finalTplName}”工作表中找到有效的 API 字段行。请检查文件是否为亚马逊原始模板。` : `Could not identify API headers in sheet "${finalTplName}".`);
         }
 
         foundHeaders = headerRow.map(h => String(h || '').trim());
@@ -228,6 +256,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let source: any = rowDataDefaults[i] ? 'template_default' : 'custom';
           let field = '';
 
+          // 核心自动映射：支持西班牙语/墨西哥语
           if (lowerH.includes('sku') || lowerH.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (lowerH.includes('item_name') || lowerH === 'title' || lowerH.includes('product_name') || lowerH.includes('nombre_del_producto')) { source = 'listing'; field = 'title'; }
           else if (lowerH.match(/image_url|image_location|附图|ubicación_de_la_imagen|url_de_la_imagen/)) { 
@@ -272,7 +301,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         if (insertError) throw new Error(insertError.message);
         if (inserted && inserted.length > 0) {
           await fetchTemplates(inserted[0].id);
-          alert(uiLang === 'zh' ? `模板“${finalTplName}”识别并解析成功！` : `Template "${finalTplName}" identified and parsed!`);
+          alert(uiLang === 'zh' ? `模板解析成功！识别到工作表：${finalTplName}` : `Success! Identified sheet: ${finalTplName}`);
         }
       } catch (err: any) {
         console.error("Upload error:", err);
