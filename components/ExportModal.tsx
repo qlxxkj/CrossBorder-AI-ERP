@@ -46,7 +46,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const handleExport = async () => {
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     if (!selectedTemplate || !fileBinary) {
-      alert("Template error.");
+      alert("Template error: Binary missing.");
       return;
     }
     setExporting(true);
@@ -58,24 +58,33 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[workbook.SheetNames.length - 1];
       const sheet = workbook.Sheets[tplSheetName];
       
-      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found.`);
+      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found in workbook.`);
 
-      // 动态计算数据起始行
-      const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 3;
+      // 计算起始行
+      const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 2;
       const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
+      
+      // 数据起始行计算
+      // Row N (techRowIdx): 标识符
+      // Row N+1: 示例
+      // Row N+2: 可能是 Notice 或者 数据起始
+      // Row N+3: 如果有 Notice，这里才是真正数据起始
       const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
         const cleaned = (listing.cleaned || {}) as CleanedData;
         
-        // 提取优化内容或回退到原始数据
+        // 核心提取逻辑：确定内容源（优化版、翻译版或原始版）
         let content: OptimizedData | null = null;
         if (targetMarket === 'US' || targetMarket === 'UK') {
           content = listing.optimized || null;
         } else if (listing.translations?.[targetMarket]) {
           content = listing.translations[targetMarket];
         }
+        
+        // 如果 content 只是一个空对象 {} 则视为 null
+        if (content && Object.keys(content).length === 0) content = null;
 
         const otherImages = cleaned.other_images || [];
         const features = content?.optimized_features?.length ? content.optimized_features : (cleaned.features || []);
@@ -88,20 +97,33 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           let val: any = "";
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
-            if (f === 'asin') val = listing.asin || cleaned.asin || '';
-            else if (f === 'title') val = content?.optimized_title || cleaned.title || '';
-            else if (f === 'price') val = cleaned.price || '';
-            else if (f === 'shipping') val = cleaned.shipping || 0;
-            else if (f === 'brand') val = cleaned.brand || '';
-            else if (f === 'description') val = content?.optimized_description || cleaned.description || '';
-            else if (f === 'item_weight_value') val = cleaned.item_weight_value || '';
-            else if (f === 'item_weight_unit') val = cleaned.item_weight_unit || '';
-            else if (f === 'item_length') val = cleaned.item_length || '';
-            else if (f === 'item_width') val = cleaned.item_width || '';
-            else if (f === 'item_height') val = cleaned.item_height || '';
-            else if (f === 'item_size_unit') val = cleaned.item_size_unit || '';
-            else if (f === 'main_image') val = cleaned.main_image || '';
-            else if (f?.startsWith('other_image')) {
+            if (f === 'asin') {
+              val = listing.asin || cleaned.asin || '';
+            } else if (f === 'title') {
+              val = content?.optimized_title || cleaned.title || '';
+            } else if (f === 'price') {
+              val = cleaned.price || '';
+            } else if (f === 'shipping') {
+              val = cleaned.shipping || 0;
+            } else if (f === 'brand') {
+              val = cleaned.brand || '';
+            } else if (f === 'description') {
+              val = content?.optimized_description || cleaned.description || '';
+            } else if (f === 'item_weight_value') {
+              val = cleaned.item_weight_value || '';
+            } else if (f === 'item_weight_unit') {
+              val = cleaned.item_weight_unit || '';
+            } else if (f === 'item_length') {
+              val = cleaned.item_length || '';
+            } else if (f === 'item_width') {
+              val = cleaned.item_width || '';
+            } else if (f === 'item_height') {
+              val = cleaned.item_height || '';
+            } else if (f === 'item_size_unit') {
+              val = cleaned.item_size_unit || '';
+            } else if (f === 'main_image') {
+              val = cleaned.main_image || '';
+            } else if (f?.startsWith('other_image')) {
               const num = parseInt(f.replace('other_image', '')) || 1;
               val = otherImages[num - 1] || '';
             } else if (f?.startsWith('feature')) {
@@ -112,11 +134,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             val = mapping.defaultValue || ''; 
           } else if (mapping.source === 'template_default') {
             val = mapping.templateDefault || '';
+          } else if (mapping.source === 'random') {
+            // 这里可以添加随机数逻辑，目前先留空或固定值
+            val = Math.floor(Math.random() * 900000 + 100000).toString();
           }
 
-          // 确保写入值不为 undefined
-          const finalVal = val === undefined || val === null ? '' : val;
+          // 最终安全值处理
+          const finalVal = (val === undefined || val === null) ? '' : val;
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
+          
           sheet[cellRef] = { 
             v: finalVal, 
             t: (typeof finalVal === 'number' && !isNaN(finalVal)) ? 'n' : 's' 
@@ -124,6 +150,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         });
       });
 
+      // 更新 Sheet 的有效范围，确保导出后 Excel 知道哪些行有数据
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
@@ -147,25 +174,84 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
-        <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between"><h2 className="text-2xl font-black text-slate-900 flex items-center gap-3"><Download className="text-indigo-600" /> {t('confirmExport')}</h2><button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-400"><X size={24} /></button></div>
+        <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+            <Download className="text-indigo-600" /> {t('confirmExport')}
+          </h2>
+          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors">
+            <X size={24} />
+          </button>
+        </div>
+        
         <div className="p-8 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
-          <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex items-center gap-4"><div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm"><CheckCircle2 size={24} /></div><div><p className="text-sm font-black text-indigo-900">{selectedListings.length} Products Selected</p><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Targeting marketplace start rows: {selectedTemplate?.mappings?.__has_prefill_notice ? 'Row N+3' : 'Row N+2'}</p></div></div>
+          <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex items-center gap-4">
+            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm">
+              <CheckCircle2 size={24} />
+            </div>
+            <div>
+              <p className="text-sm font-black text-indigo-900">{selectedListings.length} Products for Global Launch</p>
+              <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">
+                Data Start Row: {selectedTemplate?.mappings?.__has_prefill_notice ? 'Row N+4' : 'Row N+3'}
+              </p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
             <div className="space-y-4">
-               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Globe size={14} className="text-blue-500" /> Choose Global Marketplace</label>
+               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                 <Globe size={14} className="text-blue-500" /> Choose Global Marketplace
+               </label>
                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                  {AMAZON_MARKETPLACES.map(m => (
-                   <button key={m.code} onClick={() => setTargetMarket(m.code)} className={`px-2 py-3 rounded-xl border text-left text-[10px] font-black transition-all ${targetMarket === m.code ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'}`}><span className="mr-1">{m.flag}</span> {m.code}</button>
+                   <button 
+                    key={m.code} 
+                    onClick={() => setTargetMarket(m.code)} 
+                    className={`px-2 py-3 rounded-xl border text-left text-[10px] font-black transition-all ${targetMarket === m.code ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'}`}
+                   >
+                     <span className="mr-1">{m.flag}</span> {m.code}
+                   </button>
                  ))}
                </div>
             </div>
             <div className="space-y-4">
-               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><FileSpreadsheet size={14} className="text-emerald-500" /> Select Listing Template</label>
-               <div className="space-y-2">{templates.length === 0 ? <div className="p-10 text-center bg-slate-50 rounded-2xl border-dashed border-2 border-slate-200"><p className="text-[10px] font-black text-slate-300 uppercase">No templates</p></div> : templates.map(tmp => <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`w-full flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-sm' : 'border-slate-100 bg-white hover:border-slate-200'}`}><FileSpreadsheet size={18} className={selectedTemplate?.id === tmp.id ? 'text-indigo-600' : 'text-slate-300'} /><span className="font-black text-xs truncate flex-1">{tmp.name}</span></button>)}</div>
+               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                 <FileSpreadsheet size={14} className="text-emerald-500" /> Select Listing Template
+               </label>
+               <div className="space-y-2">
+                {templates.length === 0 ? (
+                  <div className="p-10 text-center bg-slate-50 rounded-2xl border-dashed border-2 border-slate-200">
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">No templates uploaded</p>
+                  </div>
+                ) : (
+                  templates.map(tmp => (
+                    <button 
+                      key={tmp.id} 
+                      onClick={() => setSelectedTemplate(tmp)} 
+                      className={`w-full flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-sm' : 'border-slate-100 bg-white hover:border-slate-200'}`}
+                    >
+                      <FileSpreadsheet size={18} className={selectedTemplate?.id === tmp.id ? 'text-indigo-600' : 'text-slate-300'} />
+                      <span className="font-black text-xs truncate flex-1">{tmp.name}</span>
+                    </button>
+                  ))
+                )}
+               </div>
             </div>
           </div>
         </div>
-        <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-4"><button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">Cancel</button><button disabled={!selectedTemplate || exporting} onClick={handleExport} className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all">{exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} {exporting ? 'Processing...' : 'Download Export Package'}</button></div>
+
+        <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-4">
+          <button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">
+            Cancel
+          </button>
+          <button 
+            disabled={!selectedTemplate || exporting} 
+            onClick={handleExport} 
+            className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
+          >
+            {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} 
+            {exporting ? 'Exporting...' : 'Download Template Package'}
+          </button>
+        </div>
       </div>
     </div>
   );
