@@ -9,7 +9,7 @@ import { AuthPage } from './components/AuthPage';
 import { TemplateManager } from './components/TemplateManager';
 import { AppView, Listing, UILanguage } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
-import { AlertTriangle, Loader2, Database, RefreshCcw, WifiOff, ShieldAlert, DatabaseZap, Copy, Terminal, Check, Info } from 'lucide-react';
+import { AlertTriangle, Loader2, Database, RefreshCcw, ShieldAlert, DatabaseZap, WifiOff, CloudOff } from 'lucide-react';
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.LANDING);
@@ -23,7 +23,6 @@ const App: React.FC = () => {
   const [initError, setInitError] = useState<string | null>(null);
   const [fetchStatus, setFetchStatus] = useState<'idle' | 'loading' | 'success' | 'error' | 'timeout' | 'rls_error' | 'db_limit'>('idle');
   const [lastError, setLastError] = useState<{code?: string, message?: string, hint?: string} | null>(null);
-  const [copied, setCopied] = useState(false);
 
   const fetchAbortController = useRef<AbortController | null>(null);
 
@@ -91,8 +90,6 @@ const App: React.FC = () => {
         setTimeout(() => reject(new Error('TIMEOUT')), 15000)
       );
 
-      // 如果 100 条数据就报错，很有可能是 raw 字段（原始网页代码）太大了导致传输超时
-      // extreme 模式会排除掉 raw 和 description 等大字段
       let query;
       if (mode === 'extreme') {
         query = supabase
@@ -108,19 +105,14 @@ const App: React.FC = () => {
           .order('created_at', { ascending: false });
       }
 
-      const fetchPromise = query.limit(200);
-
+      const fetchPromise = query.limit(500);
       const response: any = await Promise.race([fetchPromise, timeoutPromise]);
       
       if (response.error) {
         setLastError(response.error);
-        if (response.error.code === '57014') {
-          setFetchStatus('db_limit');
-        } else if (response.error.code === '42501') {
-          setFetchStatus('rls_error');
-        } else {
-          setFetchStatus('error');
-        }
+        if (response.error.code === '57014') setFetchStatus('db_limit');
+        else if (response.error.code === '42501') setFetchStatus('rls_error');
+        else setFetchStatus('error');
         return;
       }
       
@@ -129,7 +121,7 @@ const App: React.FC = () => {
     } catch (e: any) {
       if (e.message === 'TIMEOUT') {
         setFetchStatus('db_limit');
-        setLastError({ message: "Request timed out after 15 seconds." });
+        setLastError({ message: "Request timed out. The data set might be too large." });
       } else if (e.name !== 'AbortError') {
         setFetchStatus('error');
         setLastError({ message: e.message });
@@ -145,13 +137,6 @@ const App: React.FC = () => {
     setSession(null);
     setListings([]);
     setFetchStatus('idle');
-  };
-
-  const copySql = () => {
-    const sql = `CREATE INDEX IF NOT EXISTS idx_listings_user_id ON listings (user_id);`;
-    navigator.clipboard.writeText(sql);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   if (initError) {
@@ -211,60 +196,39 @@ const App: React.FC = () => {
 
     if (fetchStatus === 'db_limit' || fetchStatus === 'error' || fetchStatus === 'rls_error') {
       return (
-        <div className="flex-1 flex flex-col items-center justify-center p-12 text-center space-y-8 animate-in fade-in duration-500 max-w-4xl mx-auto">
-          <div className="relative">
-            <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center shadow-xl ${
-              fetchStatus === 'rls_error' ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-amber-500'
+        <div className="flex-1 flex flex-col items-center justify-center p-12 text-center space-y-8 animate-in fade-in zoom-in-95 duration-500 max-w-4xl mx-auto">
+          <div className="relative group">
+            <div className={`w-32 h-32 rounded-[3rem] flex items-center justify-center shadow-2xl transition-transform group-hover:scale-110 duration-500 ${
+              fetchStatus === 'rls_error' ? 'bg-red-50 text-red-500 ring-8 ring-red-50/50' : 'bg-amber-50 text-amber-500 ring-8 ring-amber-50/50'
             }`}>
-               {fetchStatus === 'rls_error' ? <ShieldAlert size={40} /> : <DatabaseZap size={40} />}
+               {fetchStatus === 'rls_error' ? <ShieldAlert size={56} /> : <CloudOff size={56} />}
             </div>
           </div>
 
-          <div className="space-y-3">
-            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">
-              {fetchStatus === 'rls_error' ? 'Access Denied (RLS)' : 'Connection Interrupted'}
+          <div className="space-y-4">
+            <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">
+              {fetchStatus === 'rls_error' ? 'Access Restricted' : 'Sync Interrupted'}
             </h3>
-            <div className="bg-red-50/50 p-4 rounded-2xl border border-red-100 text-left">
-              <p className="text-red-800 text-xs font-mono break-all">
-                <strong>Error {lastError?.code}:</strong> {lastError?.message}
-                {lastError?.hint && <span className="block mt-2 text-red-600 opacity-70 italic">Hint: {lastError.hint}</span>}
-              </p>
-            </div>
-            <p className="text-slate-500 text-sm font-medium max-w-md mx-auto">
+            <p className="text-slate-500 text-sm font-medium max-w-sm mx-auto leading-relaxed">
               {fetchStatus === 'rls_error' 
-                ? "Your database's Row Level Security is blocking the query. This usually happens if the policy is not set to 'Allow SELECT for authenticated users'."
-                : "The database took too long to respond. Even with 100 rows, this can happen if the 'raw' HTML content for each row is too large."}
+                ? "We couldn't retrieve your data due to security restrictions. Please contact support or check your account permissions."
+                : "The data cloud is taking a bit longer than usual to respond. This can happen with very large inventory sets."}
             </p>
           </div>
 
           <div className="flex flex-wrap justify-center gap-4">
              <button 
                 onClick={() => fetchListings(undefined, 'normal')}
-                className="px-8 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl flex items-center gap-2 hover:bg-slate-800 transition-all"
+                className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-800 transition-all flex items-center gap-3"
               >
-                <RefreshCcw size={14} /> Normal Retry
+                <RefreshCcw size={16} /> {lang === 'zh' ? '重新连接' : 'Retry Sync'}
               </button>
               <button 
                 onClick={() => fetchListings(undefined, 'extreme')}
-                className="px-8 py-3.5 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl flex items-center gap-2 hover:bg-indigo-700 transition-all"
+                className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-indigo-700 transition-all flex items-center gap-3"
               >
-                <Database size={14} /> Extreme Light Mode
+                <DatabaseZap size={16} /> {lang === 'zh' ? '极速模式' : 'Extreme Lite Mode'}
               </button>
-          </div>
-
-          <div className="w-full max-w-2xl bg-slate-900 rounded-3xl p-6 text-left space-y-4">
-             <div className="flex items-center justify-between">
-                <span className="text-indigo-400 text-[10px] font-black uppercase tracking-widest">Diagnostic SQL Fix</span>
-                <button onClick={copySql} className="text-slate-400 hover:text-white text-[10px] font-bold flex items-center gap-1">
-                  {copied ? <Check size={12} className="text-green-400"/> : <Copy size={12}/>} {copied ? 'Copied' : 'Copy'}
-                </button>
-             </div>
-             <code className="block font-mono text-xs text-slate-300 bg-black/30 p-4 rounded-xl">
-               -- 1. Create essential index <br/>
-               CREATE INDEX IF NOT EXISTS idx_listings_user_id ON listings (user_id);<br/><br/>
-               -- 2. Verify RLS Policy (Run this to see policies)<br/>
-               SELECT * FROM pg_policies WHERE tablename = 'listings';
-             </code>
           </div>
         </div>
       );
