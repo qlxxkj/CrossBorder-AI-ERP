@@ -2,22 +2,24 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
-// Always initialize GoogleGenAI inside functions using process.env.API_KEY directly 
-// to ensure the most up-to-date key is used and to follow SDK best practices.
-
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
-  // Fix: Directly use process.env.API_KEY for initialization as required by guidelines
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    You are an expert Amazon Listing Optimizer.
-    Analyze the following product data and generate an optimized listing in English including:
-    1. An SEO-friendly Title (max 200 chars).
-    2. 5 high-converting Bullet Points (Features) with emojis at the start.
-    3. An engaging Description.
-    4. Backend Search Keywords (comma separated).
+    You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion while strictly adhering to compliance rules.
 
-    Input Data:
+    [STRICT CONSTRAINTS]
+    1. Title: Max 200 characters.
+    2. Bullet Points: Exactly 5 points. Each point MUST start with a "[KEYWORD]: " prefix. Each point max 500 characters.
+    3. Description: Must be between 1000 and 1500 characters. Use HTML tags like <p> and <br> for formatting.
+    4. Search Keywords: Max 500 characters total, separated by commas.
+    5. PROHIBITED CONTENT (CRITICAL):
+       - NO Brand Names (do not mention the product brand).
+       - NO Extreme Words (e.g., "Best", "Top", "Absolute", "Perfect", "No.1", "Guaranteed").
+       - NO Car Brand Names (e.g., "Toyota", "Lexus", "Tesla", "BMW", etc.).
+       - Use generic compatibility terms like "Fits compatible vehicles" instead of specific car brands.
+
+    Analyze the following product data and generate the optimized listing:
     ${JSON.stringify(cleanedData)}
   `;
 
@@ -40,7 +42,6 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
       }
     });
 
-    // Fix: Access response.text property directly (not as a method) and trim before parsing
     const text = response.text || "{}";
     return JSON.parse(text.trim()) as OptimizedData;
   } catch (error) {
@@ -50,12 +51,12 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 };
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLang: string): Promise<OptimizedData> => {
-  // Fix: Create fresh instance with direct process.env.API_KEY reference
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
     Translate the following Amazon listing content into ${targetLang}. 
-    Maintain the SEO keywords, formatting, and high-conversion tone.
+    Maintain the SEO keywords, formatting, and professional tone.
+    Ensure all character limits and prohibited content rules (no brands, no extreme words, no car brands) are still respected in the translation.
     Output only JSON.
 
     Source Content:
@@ -81,7 +82,6 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
       }
     });
 
-    // Fix: Access response.text property directly and trim
     const text = response.text || "{}";
     return JSON.parse(text.trim()) as OptimizedData;
   } catch (error) {
@@ -91,7 +91,6 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
 };
 
 export const editImageWithAI = async (imageBase64: string, instruction: string): Promise<string> => {
-  // Fix: Create fresh instance with direct process.env.API_KEY reference
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
@@ -104,7 +103,6 @@ export const editImageWithAI = async (imageBase64: string, instruction: string):
       }
     });
     
-    // Fix: Correctly iterate through response parts to find image data as per guidelines
     const candidates = response.candidates;
     if (candidates && candidates.length > 0) {
       const parts = candidates[0].content.parts;

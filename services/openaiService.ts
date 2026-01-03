@@ -1,3 +1,4 @@
+
 import { CleanedData, OptimizedData } from "../types";
 
 /**
@@ -6,7 +7,6 @@ import { CleanedData, OptimizedData } from "../types";
  */
 export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
   const apiKey = process.env.OPENAI_API_KEY;
-  // 支持自定义 Base URL 和 Model，提供默认值以保证兼容性
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const model = process.env.OPENAI_MODEL || "gpt-4o";
   
@@ -15,21 +15,31 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   }
 
   const prompt = `
-    You are an expert Amazon Listing Optimizer. 
-    Return a JSON object with the following structure:
+    You are an expert Amazon Listing Optimizer. Generate a JSON response based on the following product data.
+
+    [COMPLIANCE & LIMITS]
+    1. Title: Strictly under 200 characters.
+    2. Bullet Points: Generate exactly 5 points. Each point must start with a Bolded Keyword (e.g., "[DURABLE MATERIAL]: ..."). Max 500 chars per point.
+    3. Description: Length must be between 1000 and 1500 characters. Focus on usage scenarios and technical benefits.
+    4. Search Keywords: Max 500 characters total, comma-separated.
+    5. DO NOT USE: 
+       - Brand Names.
+       - Extreme adjectives (Best, No.1, Perfect, Top).
+       - Car Brand Names (Lexus, Toyota, Ford, etc.). Use "Universal Fit" or "Compatible with standard models".
+
+    Product Data:
+    ${JSON.stringify(cleanedData)}
+
+    Return a JSON object with this structure:
     {
       "optimized_title": "string",
       "optimized_features": ["string", "string", "string", "string", "string"],
       "optimized_description": "string",
       "search_keywords": "string"
     }
-    
-    Product Data:
-    ${JSON.stringify(cleanedData)}
   `;
 
   try {
-    // 拼接完整的聊天补全接口地址
     const endpoint = `${baseUrl}/chat/completions`;
     
     const response = await fetch(endpoint, {
@@ -41,7 +51,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
       body: JSON.stringify({
         model: model,
         messages: [
-          { role: "system", content: "You are a professional e-commerce copywriter. Output only valid JSON." },
+          { role: "system", content: "You are a professional e-commerce copywriter. Output only valid JSON and strictly follow character limits and prohibited word lists." },
           { role: "user", content: prompt }
         ],
         response_format: { type: "json_object" }
