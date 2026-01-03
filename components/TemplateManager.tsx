@@ -208,22 +208,26 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const finalTplName = findAmazonTemplateSheet(workbook);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[finalTplName], { header: 1, defval: '' });
         
-        // 核心改动：技术标识符行（Tech Row）
+        // 1. 识别技术标识符行 (Tech Row - 给系统看)
         const techRowIdx = findHeaderRowIndex(jsonData);
         const techRow = jsonData[techRowIdx];
         
-        // 人类可读标题行（Human Row）：通常位于技术行上一行
+        // 2. 识别字段名行 (Human Row - 给用户看)
         const humanRow = (techRowIdx > 0) ? jsonData[techRowIdx - 1] : techRow;
         
-        // 示例数据及起始位置：API 标识符 -> 示例行 -> 用户数据起始
+        // 3. 识别示例数据行
         const exampleRowIdx = techRowIdx + 1;
         const exampleRow = jsonData[exampleRowIdx] || [];
+
+        // 4. 智能检测是否包含“预填提示行”（针对美国站等特殊模板）
+        const noticeRowIdx = techRowIdx + 2;
+        const firstCellOfNotice = String(jsonData[noticeRowIdx]?.[0] || '');
+        const hasPrefillNotice = firstCellOfNotice.includes("prefilled attributes") || firstCellOfNotice.includes("✅");
 
         if (!techRow || techRow.length < 2) {
           throw new Error(uiLang === 'zh' ? `无法定位到 API 标识符行。请确保模板“${finalTplName}”格式正确。` : `Could not identify API headers in sheet "${finalTplName}".`);
         }
 
-        // 保存显示用的表头（人眼可读），但基于技术名进行自动映射
         const foundHeaders = humanRow.map((h, idx) => String(h || techRow[idx] || '').trim());
         const mappings: Record<string, any> = {};
         let imgCount = 0, bulletCount = 0;
@@ -233,12 +237,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           if (!apiField) return;
 
           const key = `col_${i}`;
+          // 示例行通常是标识符行的下一行
           const exampleVal = String(exampleRow[i] || '').trim();
           
           let source: any = exampleVal ? 'template_default' : 'custom';
           let field = '';
 
-          // 自动映射逻辑：始终基于 API 标识符字段（如 item_sku, vendedor_sku）
+          // 核心自动映射逻辑基于不变的 API 技术字段名
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name') || apiField.includes('nombre_del_producto')) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|附图|ubicación_de_la_imagen|url_de_la_imagen/)) { 
@@ -257,7 +262,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           }
 
           mappings[key] = {
-            header: h, // 存储人眼可读的标题
+            header: h, 
             source,
             listingField: field,
             defaultValue: exampleVal,
@@ -267,8 +272,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         });
 
         mappings['__binary'] = base64File;
-        mappings['__header_row_idx'] = techRowIdx; // 存入识别到的技术行索引
+        mappings['__header_row_idx'] = techRowIdx;
         mappings['__sheet_name'] = finalTplName;
+        mappings['__has_prefill_notice'] = hasPrefillNotice; // 记录是否包含预填提示行
 
         const { data: { session } } = await supabase.auth.getSession();
         const { data: inserted, error: insertError } = await supabase.from('templates').insert([{
@@ -283,7 +289,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         if (insertError) throw new Error(insertError.message);
         if (inserted && inserted.length > 0) {
           await fetchTemplates(inserted[0].id);
-          alert(uiLang === 'zh' ? `模板解析成功！识别到 ${foundHeaders.length} 个字段。` : `Success! ${foundHeaders.length} fields identified.`);
+          alert(uiLang === 'zh' ? `模板解析成功！数据起始行自动适配。` : `Template parsed! Data start row auto-adapted.`);
         }
       } catch (err: any) {
         console.error("Upload error:", err);
@@ -332,7 +338,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Dual-Row Smart Mapping</p>
+            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Adaptive Row Recognition</p>
           </div>
         </div>
         <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
@@ -374,7 +380,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex flex-col">
                   <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Displaying localized field names from Row {selectedTemplate.mappings?.__header_row_idx || 0}</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Localized Header Row Detected: {selectedTemplate.mappings?.__header_row_idx || 0}</p>
                 </div>
                 <div className="flex items-center gap-4 w-full sm:w-auto">
                   <div className="relative flex-1 sm:w-64">

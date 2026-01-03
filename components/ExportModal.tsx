@@ -60,9 +60,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       
       if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found.`);
 
-      // 修正偏移：技术标识符行 -> 示例行 -> 正式数据
+      // 动态计算数据起始行
+      // techRowIdx (N): 标识符行
+      // exampleRow (N+1): 示例数据
+      // noticeRow (N+2): 可能是预填提示行
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 3;
-      const startDataRowIdx = techRowIdx + 2; 
+      const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
+      
+      // 如果有预填提示行，从 N+3 开始；否则从 N+2 开始
+      const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
