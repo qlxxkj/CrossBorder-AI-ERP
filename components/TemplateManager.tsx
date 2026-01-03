@@ -74,7 +74,7 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
     const lowerName = name.toLowerCase();
     let baseScore = 0;
     if (EXCLUDE_SHEET_KEYWORDS.some(kw => lowerName.includes(kw))) {
-      baseScore = -100; // 严厉排除说明页
+      baseScore = -100; 
     }
 
     const sheet = workbook.Sheets[name];
@@ -115,16 +115,13 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
   return bestSheet;
 };
 
-/**
- * 改良表头定位逻辑
- */
 const findHeaderRowIndex = (rows: any[][]): number => {
   let bestIdx = 3; 
   let found = false;
 
   for (let i = 0; i < Math.min(rows.length, 30); i++) {
     const row = rows[i];
-    if (!row || row.length < 5) continue; // 表头通常有很多列
+    if (!row || row.length < 5) continue; 
     
     const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
     
@@ -132,18 +129,15 @@ const findHeaderRowIndex = (rows: any[][]): number => {
     HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) currentScore += 20; });
     MED_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) currentScore += 5; });
 
-    // 关键特征：API 字段行通常由小写字母、下划线组成，且很少有空格
     const underscoreCount = (rowStr.match(/_/g) || []).length;
     const spaceCount = (rowStr.match(/ /g) || []).length;
     
-    // 如果下划线很多且空格很少，这极大概率是 API 字段行
     if (underscoreCount > 5 && spaceCount < underscoreCount) currentScore += 30;
 
-    // 采用“首次匹配优先”原则，且必须达到高置信度门槛
     if (currentScore >= 40) {
       bestIdx = i;
       found = true;
-      break; // 找到第一个符合技术特征的行即停止，防止由于下方说明行也有关键字导致的偏移
+      break; 
     }
   }
 
@@ -214,57 +208,66 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const finalTplName = findAmazonTemplateSheet(workbook);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[finalTplName], { header: 1, defval: '' });
         
-        const headerRowIdx = findHeaderRowIndex(jsonData);
-        const headerRow = jsonData[headerRowIdx];
-        const dataRowIdx = headerRowIdx + 4;
-        const dataRow = jsonData[dataRowIdx] || [];
+        // 核心改动：技术标识符行（Tech Row）
+        const techRowIdx = findHeaderRowIndex(jsonData);
+        const techRow = jsonData[techRowIdx];
+        
+        // 人类可读标题行（Human Row）：通常位于技术行上一行
+        const humanRow = (techRowIdx > 0) ? jsonData[techRowIdx - 1] : techRow;
+        
+        // 示例数据及起始位置：API 标识符 -> 示例行 -> 用户数据起始
+        const exampleRowIdx = techRowIdx + 1;
+        const exampleRow = jsonData[exampleRowIdx] || [];
 
-        if (!headerRow || headerRow.length < 2) {
-          throw new Error(uiLang === 'zh' ? `无法定位到 API 字段行。请确保模板工作表“${finalTplName}”格式正确。` : `Could not identify API headers in sheet "${finalTplName}".`);
+        if (!techRow || techRow.length < 2) {
+          throw new Error(uiLang === 'zh' ? `无法定位到 API 标识符行。请确保模板“${finalTplName}”格式正确。` : `Could not identify API headers in sheet "${finalTplName}".`);
         }
 
-        const foundHeaders = headerRow.map(h => String(h || '').trim());
-        const rowDataDefaults = headerRow.map((_, i) => String(dataRow?.[i] || '').trim());
-
+        // 保存显示用的表头（人眼可读），但基于技术名进行自动映射
+        const foundHeaders = humanRow.map((h, idx) => String(h || techRow[idx] || '').trim());
         const mappings: Record<string, any> = {};
         let imgCount = 0, bulletCount = 0;
 
         foundHeaders.forEach((h, i) => {
-          if (!h) return;
-          const lowerH = h.toLowerCase();
+          const apiField = String(techRow[i] || '').toLowerCase().trim();
+          if (!apiField) return;
+
           const key = `col_${i}`;
-          let source: any = rowDataDefaults[i] ? 'template_default' : 'custom';
+          const exampleVal = String(exampleRow[i] || '').trim();
+          
+          let source: any = exampleVal ? 'template_default' : 'custom';
           let field = '';
 
-          if (lowerH.includes('sku') || lowerH.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
-          else if (lowerH.includes('item_name') || lowerH === 'title' || lowerH.includes('product_name') || lowerH.includes('nombre_del_producto')) { source = 'listing'; field = 'title'; }
-          else if (lowerH.match(/image_url|image_location|附图|ubicación_de_la_imagen|url_de_la_imagen/)) { 
+          // 自动映射逻辑：始终基于 API 标识符字段（如 item_sku, vendedor_sku）
+          if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
+          else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name') || apiField.includes('nombre_del_producto')) { source = 'listing'; field = 'title'; }
+          else if (apiField.match(/image_url|image_location|附图|ubicación_de_la_imagen|url_de_la_imagen/)) { 
             imgCount++;
             source = 'listing'; 
             field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; 
           }
-          else if (lowerH.match(/bullet_point|商品要点|puntos_clave/)) {
+          else if (apiField.match(/bullet_point|商品要点|puntos_clave/)) {
             bulletCount++;
             source = 'listing';
             field = `feature${bulletCount}`;
           }
-          else if (lowerH.includes('standard_price') || lowerH.includes('precio_estándar')) {
+          else if (apiField.includes('standard_price') || apiField.includes('precio_estándar')) {
             source = 'listing';
             field = 'price';
           }
 
           mappings[key] = {
-            header: h,
+            header: h, // 存储人眼可读的标题
             source,
             listingField: field,
-            defaultValue: rowDataDefaults[i],
-            templateDefault: rowDataDefaults[i],
+            defaultValue: exampleVal,
+            templateDefault: exampleVal,
             acceptedValues: []
           };
         });
 
         mappings['__binary'] = base64File;
-        mappings['__header_row_idx'] = headerRowIdx;
+        mappings['__header_row_idx'] = techRowIdx; // 存入识别到的技术行索引
         mappings['__sheet_name'] = finalTplName;
 
         const { data: { session } } = await supabase.auth.getSession();
@@ -280,7 +283,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         if (insertError) throw new Error(insertError.message);
         if (inserted && inserted.length > 0) {
           await fetchTemplates(inserted[0].id);
-          alert(uiLang === 'zh' ? `模板识别成功！表头位于第 ${headerRowIdx + 1} 行。` : `Success! Header found at row ${headerRowIdx + 1}.`);
+          alert(uiLang === 'zh' ? `模板解析成功！识别到 ${foundHeaders.length} 个字段。` : `Success! ${foundHeaders.length} fields identified.`);
         }
       } catch (err: any) {
         console.error("Upload error:", err);
@@ -329,7 +332,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Macro-Enabled Engine • Advanced Row Detection</p>
+            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Dual-Row Smart Mapping</p>
           </div>
         </div>
         <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
@@ -371,7 +374,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex flex-col">
                   <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Global Field Mappings & Rule Configuration</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Displaying localized field names from Row {selectedTemplate.mappings?.__header_row_idx || 0}</p>
                 </div>
                 <div className="flex items-center gap-4 w-full sm:w-auto">
                   <div className="relative flex-1 sm:w-64">

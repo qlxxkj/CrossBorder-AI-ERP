@@ -55,15 +55,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const bytes = safeDecode(fileBinary);
       const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true, cellNF: true, cellText: true });
       
-      // 优先使用上传时记录的工作表名称
       const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[workbook.SheetNames.length - 1];
       const sheet = workbook.Sheets[tplSheetName];
       
-      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found in the original workbook.`);
+      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found.`);
 
-      // 获取模板上传时识别到的表头行索引，数据通常在其下方第 4 行开始
-      const headerRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 3;
-      const startDataRowIdx = headerRowIdx + 4; 
+      // 修正偏移：技术标识符行 -> 示例行 -> 正式数据
+      const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 3;
+      const startDataRowIdx = techRowIdx + 2; 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
