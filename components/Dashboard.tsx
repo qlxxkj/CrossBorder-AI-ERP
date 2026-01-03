@@ -1,8 +1,9 @@
 
-import React from 'react';
-import { CheckCircle, TrendingUp, Package, Sparkles, Globe, Clock, Zap, RefreshCcw, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { CheckCircle, TrendingUp, Package, Sparkles, Globe, Clock, Zap, RefreshCcw, Loader2, Layout } from 'lucide-react';
 import { Listing, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface DashboardProps {
   listings: Listing[];
@@ -13,6 +14,16 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing, onRefresh }) => {
   const t = useTranslation(lang);
+  const [templateCount, setTemplateCount] = useState(0);
+
+  useEffect(() => {
+    const fetchTemplateCount = async () => {
+      if (!isSupabaseConfigured()) return;
+      const { count } = await supabase.from('templates').select('*', { count: 'exact', head: true });
+      setTemplateCount(count || 0);
+    };
+    fetchTemplateCount();
+  }, []);
 
   const stats = {
     total: listings.length,
@@ -49,11 +60,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
         <StatCard title={t('totalListings')} value={stats.total} icon={<Package className="text-blue-500" />} />
         <StatCard title={t('optimized')} value={stats.optimized} icon={<Sparkles className="text-indigo-500" />} color="indigo" />
         <StatCard title={lang === 'zh' ? '多语言版本' : 'Translations'} value={stats.translated} icon={<Globe className="text-purple-500" />} color="purple" />
-        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-[2.5rem] shadow-xl text-white flex flex-col justify-between">
-          <h3 className="text-blue-100 text-[10px] font-black uppercase tracking-widest">{t('extensionStatus')}</h3>
-          <div className="flex items-center gap-3 mt-4">
-            <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.8)]"></div>
-            <p className="text-2xl font-black">{t('connected')}</p>
+        <div className="bg-gradient-to-br from-indigo-600 to-blue-700 p-6 rounded-[2.5rem] shadow-xl text-white flex flex-col justify-between group hover:scale-[1.02] transition-transform">
+          <h3 className="text-indigo-100 text-[10px] font-black uppercase tracking-widest">{lang === 'zh' ? '已维护模板' : 'Active Templates'}</h3>
+          <div className="flex items-end justify-between mt-4">
+            <p className="text-4xl font-black">{templateCount}</p>
+            <Layout className="text-white/20" size={32} />
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Download, FileSpreadsheet, Loader2, CheckCircle2 } from 'lucide-react';
+import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Globe, Languages } from 'lucide-react';
 import { Listing, ExportTemplate, UILanguage, FieldMapping, CleanedData, OptimizedData } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -12,9 +12,15 @@ interface ExportModalProps {
   onClose: () => void;
 }
 
-/**
- * 安全的 Base64 解码
- */
+const TARGET_MARKETS = [
+  { code: 'en', name: 'USA/UK (Default)', flag: '🇺🇸' },
+  { code: 'de', name: 'Germany', flag: '🇩🇪' },
+  { code: 'fr', name: 'France', flag: '🇫🇷' },
+  { code: 'jp', name: 'Japan', flag: '🇯🇵' },
+  { code: 'it', name: 'Italy', flag: '🇮🇹' },
+  { code: 'es', name: 'Spain', flag: '🇪🇸' },
+];
+
 function safeDecode(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -29,6 +35,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const t = useTranslation(uiLang);
   const [templates, setTemplates] = useState<ExportTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<ExportTemplate | null>(null);
+  const [targetMarket, setTargetMarket] = useState('en');
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
@@ -38,34 +45,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const fetchTemplates = async () => {
     if (!isSupabaseConfigured()) return;
     const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
-    if (data) setTemplates(data);
-  };
-
-  const calculateEANCheckDigit = (base: string) => {
-    let sumOdd = 0, sumEven = 0;
-    for (let i = 0; i < 12; i++) {
-      const digit = parseInt(base[i]);
-      if (i % 2 === 0) sumOdd += digit;
-      else sumEven += digit;
+    if (data) {
+      setTemplates(data);
+      if (data.length > 0) setSelectedTemplate(data[0]);
     }
-    const total = sumOdd + (sumEven * 3);
-    const remainder = total % 10;
-    return remainder === 0 ? 0 : 10 - remainder;
-  };
-
-  const generateEAN = () => {
-    const country = "608";
-    const enterprise = Math.floor(1000 + Math.random() * 9000).toString();
-    const sequence = Math.floor(10000 + Math.random() * 90000).toString();
-    const base = country + enterprise + sequence;
-    return base + calculateEANCheckDigit(base);
-  };
-
-  const generateRandomStr = () => {
-    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const prefix = Array(3).fill(0).map(() => letters[Math.floor(Math.random() * letters.length)]).join('');
-    const suffix = Math.floor(1000 + Math.random() * 9000).toString();
-    return prefix + suffix;
   };
 
   const handleExport = async () => {
@@ -86,30 +69,27 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         cellText: true
       });
 
-      const sheetNames = workbook.SheetNames;
-      const tplSheetName = (sheetNames.find(n => n === 'Template') || 
-                          sheetNames.find(n => n.toLowerCase() === 'template') ||
-                          sheetNames.find(n => n.includes('模板')) ||
-                          sheetNames[0]) as string;
+      const tplSheetName = workbook.SheetNames.find(n => 
+        n === 'Template' || n.toLowerCase() === 'template' || n.includes('模板')
+      ) || workbook.SheetNames[0];
       
       const sheet = workbook.Sheets[tplSheetName];
-      if (!sheet) throw new Error("Could not find Template worksheet");
-
       const startDataRowIdx = 7; 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
-        
         const cleaned = (listing.cleaned || {}) as CleanedData;
-        const optimized = (listing.optimized || {}) as OptimizedData;
         
-        const otherImages = cleaned.other_images || [];
-        const features = (optimized.optimized_features && optimized.optimized_features.length > 0) 
-          ? optimized.optimized_features 
-          : (cleaned.features || []);
+        // 自动选择语言内容
+        let content: OptimizedData = listing.optimized || {} as OptimizedData;
+        if (targetMarket !== 'en' && listing.translations?.[targetMarket]) {
+           content = listing.translations[targetMarket];
+        }
 
-        const displayTitle = optimized.optimized_title || cleaned.title || '';
-        const displayDesc = optimized.optimized_description || cleaned.description || '';
+        const otherImages = cleaned.other_images || [];
+        const features = content.optimized_features && content.optimized_features.length > 0 
+          ? content.optimized_features 
+          : (cleaned.features || []);
 
         selectedTemplate.headers.forEach((h, colIdx) => {
           const mappingKey = `col_${colIdx}`;
@@ -120,17 +100,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
             if (f === 'asin') val = listing.asin;
-            else if (f === 'title') val = displayTitle;
+            else if (f === 'title') val = content.optimized_title || cleaned.title || '';
             else if (f === 'price') val = cleaned.price;
             else if (f === 'shipping') val = cleaned.shipping;
             else if (f === 'brand') val = cleaned.brand;
-            else if (f === 'description') val = displayDesc;
+            else if (f === 'description') val = content.optimized_description || cleaned.description || '';
             else if (f === 'item_weight_value') val = cleaned.item_weight_value || '';
             else if (f === 'item_weight_unit') val = cleaned.item_weight_unit || '';
-            else if (f === 'item_length') val = cleaned.item_length || '';
-            else if (f === 'item_width') val = cleaned.item_width || '';
-            else if (f === 'item_height') val = cleaned.item_height || '';
-            else if (f === 'item_size_unit') val = cleaned.item_size_unit || '';
             else if (f === 'main_image') val = cleaned.main_image;
             else if (f?.startsWith('other_image')) {
               const num = parseInt(f.replace('other_image', '')) || 1;
@@ -143,63 +119,28 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             val = mapping.defaultValue || '';
           } else if (mapping.source === 'template_default') {
             val = mapping.templateDefault || '';
-          } else if (mapping.source === 'random') {
-            const lowH = h.toLowerCase();
-            if (lowH.includes('product id') && !lowH.includes('type')) val = generateEAN();
-            else val = generateRandomStr();
           }
 
           if (!val && mapping.templateDefault) val = mapping.templateDefault;
 
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
-
-          let prototypeCell = null;
-          for (let pr = 4; pr < 8; pr++) {
-            const prRef = XLSX.utils.encode_cell({ r: pr, c: colIdx });
-            if (sheet[prRef]) {
-               prototypeCell = sheet[prRef];
-               break;
-            }
-          }
-
-          if (prototypeCell) {
-            sheet[cellRef] = { ...prototypeCell, v: val, t: typeof val === 'number' ? 'n' : 's' };
-            delete (sheet[cellRef] as any).w; 
-          } else {
-            sheet[cellRef] = { v: val, t: typeof val === 'number' ? 'n' : 's' };
-          }
+          sheet[cellRef] = { v: val, t: typeof val === 'number' ? 'n' : 's' };
         });
       });
 
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
-      const lastRowIdx = startDataRowIdx + selectedListings.length - 1;
-      const lastColIdx = selectedTemplate.headers.length - 1;
-      
-      range.e.r = Math.max(range.e.r, lastRowIdx);
-      range.e.c = Math.max(range.e.c, lastColIdx);
+      range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
 
-      const outData = XLSX.write(workbook, { 
-        type: 'array', 
-        bookType: 'xlsm', 
-        bookVBA: true, 
-        cellStyles: true,
-        compression: true
-      });
-
+      const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm', bookVBA: true });
       const blob = new Blob([outData], { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `AMZ_Export_${selectedTemplate.marketplace}_${Date.now()}.xlsm`;
-      document.body.appendChild(link);
+      link.download = `AMZ_Export_${targetMarket.toUpperCase()}_${Date.now()}.xlsm`;
       link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
     } catch (err: any) {
-      console.error("Export Critical Error:", err);
-      alert(uiLang === 'zh' ? `导出失败: ${err.message}` : `Export failed: ${err.message}`);
+      alert("Export failed: " + err.message);
     } finally {
       setExporting(false);
       onClose();
@@ -208,7 +149,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
+      <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
         <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
             <Download className="text-indigo-600" /> {t('confirmExport')}
@@ -216,40 +157,60 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-400"><X size={24} /></button>
         </div>
 
-        <div className="p-8 space-y-6">
+        <div className="p-8 space-y-8 flex-1 overflow-y-auto">
           <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex items-center gap-4">
              <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm">
                 <CheckCircle2 size={24} />
              </div>
              <div>
-                <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} 已选</p>
-                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Data start at Row 8 &bull; Macros Protected</p>
+                <p className="text-sm font-black text-indigo-900">{selectedListings.length} {t('listings')} Selected</p>
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">Ready for multi-site publishing</p>
              </div>
           </div>
 
-          <div className="space-y-3">
-             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('selectTemplate')}</label>
-             <div className="grid grid-cols-1 gap-3 max-h-64 overflow-y-auto p-1 custom-scrollbar">
-                {templates.length === 0 ? (
-                  <div className="p-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                    <p className="text-xs font-bold text-slate-400 uppercase">No templates available</p>
-                  </div>
-                ) : templates.map(tmp => (
-                  <button 
-                    key={tmp.id} 
-                    onClick={() => setSelectedTemplate(tmp)} 
-                    className={`flex items-center gap-4 p-5 rounded-[1.5rem] border text-left transition-all group ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-md ring-2 ring-indigo-500/10' : 'border-slate-100 bg-white hover:border-slate-300'}`}
-                  >
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${selectedTemplate?.id === tmp.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                       <FileSpreadsheet size={20} />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-4">
+               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                 <Languages size={14} className="text-blue-500" /> Target Marketplace (Language)
+               </label>
+               <div className="grid grid-cols-2 gap-2">
+                 {TARGET_MARKETS.map(m => (
+                   <button 
+                     key={m.code} 
+                     onClick={() => setTargetMarket(m.code)}
+                     className={`px-4 py-3 rounded-xl border text-left text-xs font-bold transition-all ${
+                       targetMarket === m.code ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'
+                     }`}
+                   >
+                     <span className="mr-2">{m.flag}</span> {m.name}
+                   </button>
+                 ))}
+               </div>
+            </div>
+
+            <div className="space-y-4">
+               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                 <FileSpreadsheet size={14} className="text-indigo-500" /> {t('selectTemplate')}
+               </label>
+               <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                  {templates.length === 0 ? (
+                    <div className="p-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      <p className="text-xs font-bold text-slate-400 uppercase">No templates available</p>
                     </div>
-                    <div className="flex flex-col flex-1 overflow-hidden">
-                      <span className="font-black text-sm truncate">{tmp.name}</span>
-                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{tmp.marketplace} MARKETPLACE</span>
-                    </div>
-                  </button>
-                ))}
-             </div>
+                  ) : templates.map(tmp => (
+                    <button 
+                      key={tmp.id} 
+                      onClick={() => setSelectedTemplate(tmp)} 
+                      className={`w-full flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100 bg-white hover:border-slate-300'}`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${selectedTemplate?.id === tmp.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                         <FileSpreadsheet size={16} />
+                      </div>
+                      <span className="font-black text-[11px] truncate flex-1">{tmp.name}</span>
+                    </button>
+                  ))}
+               </div>
+            </div>
           </div>
         </div>
 
@@ -261,7 +222,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
              className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 disabled:opacity-50 shadow-2xl active:scale-95 transition-all"
            >
              {exporting ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
-             {exporting ? (uiLang === 'zh' ? '正在写入数据...' : 'Writing Data...') : t('downloadCsv')}
+             {exporting ? 'Exporting...' : t('downloadCsv')}
            </button>
         </div>
       </div>

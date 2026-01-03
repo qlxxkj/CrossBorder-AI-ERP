@@ -4,14 +4,13 @@ import {
   Plus, Search, CheckCircle, Trash2, Download, Filter, Package, 
   Loader2, Zap, Globe, Trash, ChevronLeft, ChevronRight, 
   ChevronsLeft, ChevronsRight, AlertCircle, RefreshCcw, 
-  Database, ShieldCheck, Languages, MoreHorizontal, DollarSign
+  Database, ShieldCheck, Languages, MoreHorizontal, DollarSign, Calendar
 } from 'lucide-react';
 import { Listing, UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { ManualListingModal } from './ManualListingModal';
 import { ExportModal } from './ExportModal';
-import { BulkScrapeModal } from './BulkScrapeModal';
 
 interface ListingsManagerProps {
   onSelectListing: (listing: Listing) => void;
@@ -23,12 +22,12 @@ interface ListingsManagerProps {
 }
 
 const MARKETPLACES_LIST = [
-  { code: 'ALL', name: 'All Sites', flag: '🌍' },
-  { code: 'US', name: 'USA', flag: '🇺🇸' },
-  { code: 'UK', name: 'UK', flag: '🇬🇧' },
-  { code: 'DE', name: 'Germany', flag: '🇩🇪' },
-  { code: 'FR', name: 'France', flag: '🇫🇷' },
-  { code: 'JP', name: 'Japan', flag: '🇯🇵' },
+  { code: 'ALL', name: 'All Sites', flag: '🌍', currency: '¤' },
+  { code: 'US', name: 'USA', flag: '🇺🇸', currency: '$' },
+  { code: 'UK', name: 'UK', flag: '🇬🇧', currency: '£' },
+  { code: 'DE', name: 'Germany', flag: '🇩🇪', currency: '€' },
+  { code: 'FR', name: 'France', flag: '🇫🇷', currency: '€' },
+  { code: 'JP', name: 'Japan', flag: '🇯🇵', currency: '¥' },
 ];
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -46,7 +45,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   const [filterMarketplace, setFilterMarketplace] = useState('ALL');
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [isBulkScrapeOpen, setIsBulkScrapeOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
 
@@ -115,6 +113,20 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   }, [listings, searchTerm, filterMarketplace]);
 
   const totalPages = Math.ceil(filteredListings.length / itemsPerPage);
+  
+  const pageButtons = useMemo(() => {
+    const range = 2;
+    const buttons = [];
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= currentPage - range && i <= currentPage + range)) {
+        buttons.push(i);
+      } else if (buttons[buttons.length - 1] !== -1) {
+        buttons.push(-1); // Ellipsis placeholder
+      }
+    }
+    return buttons;
+  }, [totalPages, currentPage]);
+
   const paginatedListings = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredListings.slice(start, start + itemsPerPage);
@@ -156,7 +168,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     const endIdx = Math.min(currentPage * itemsPerPage, filteredListings.length);
 
     return (
-      <div className="px-8 py-6 bg-white border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-6">
+      <div className="px-8 py-6 bg-white border-t border-slate-100 flex flex-col xl:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{lang === 'zh' ? '每页显示' : 'Rows per page'}</span>
@@ -169,38 +181,70 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
             </select>
           </div>
           <p className="text-xs font-bold text-slate-500">
-            {lang === 'zh' ? `显示 ${startIdx}-${endIdx} 条 / 共 ${filteredListings.length} 条` : `Showing ${startIdx}-${endIdx} of ${filteredListings.length}`}
+            {lang === 'zh' ? `第 ${startIdx}-${endIdx} 条 / 共 ${filteredListings.length} 条` : `Showing ${startIdx}-${endIdx} of ${filteredListings.length}`}
           </p>
         </div>
 
-        <div className="flex items-center gap-4">
-          <nav className="flex items-center gap-1 shadow-sm rounded-xl overflow-hidden border border-slate-100">
-            <button onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="p-2.5 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-500 transition-colors border-r border-slate-100">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={() => setCurrentPage(1)} 
+              disabled={currentPage === 1} 
+              className="p-2 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-500 rounded-lg border border-slate-100 transition-all"
+            >
               <ChevronsLeft size={16} />
             </button>
-            <button onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1} className="p-2.5 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-500 transition-colors border-r border-slate-100">
+            <button 
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} 
+              disabled={currentPage === 1} 
+              className="p-2 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-500 rounded-lg border border-slate-100 transition-all"
+            >
               <ChevronLeft size={16} />
             </button>
-            
-            <div className="px-6 py-2.5 bg-slate-50 text-xs font-black text-indigo-600 border-r border-slate-100">
-              {currentPage} / {totalPages}
+
+            <div className="flex items-center gap-1 mx-2">
+              {pageButtons.map((p, idx) => (
+                p === -1 ? (
+                  <span key={`ell-${idx}`} className="px-2 text-slate-300">...</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setCurrentPage(p)}
+                    className={`min-w-[32px] h-8 px-2 rounded-lg text-xs font-black transition-all ${
+                      currentPage === p 
+                        ? 'bg-indigo-600 text-white shadow-lg' 
+                        : 'bg-white text-slate-500 hover:border-slate-300 border border-slate-100'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              ))}
             </div>
 
-            <button onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages} className="p-2.5 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-500 transition-colors border-r border-slate-100">
+            <button 
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} 
+              disabled={currentPage === totalPages} 
+              className="p-2 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-500 rounded-lg border border-slate-100 transition-all"
+            >
               <ChevronRight size={16} />
             </button>
-            <button onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="p-2.5 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-500 transition-colors">
+            <button 
+              onClick={() => setCurrentPage(totalPages)} 
+              disabled={currentPage === totalPages} 
+              className="p-2 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-500 rounded-lg border border-slate-100 transition-all"
+            >
               <ChevronsRight size={16} />
             </button>
-          </nav>
+          </div>
 
-          <form onSubmit={handleJumpPage} className="flex items-center gap-2">
+          <form onSubmit={handleJumpPage} className="flex items-center gap-2 ml-4">
             <input 
               type="number" 
               placeholder="Go" 
               value={jumpPage}
               onChange={(e) => setJumpPage(e.target.value)}
-              className="w-14 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-indigo-500/20 outline-none"
+              className="w-12 px-2 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-indigo-500/20 outline-none"
             />
             <button type="submit" className="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase hover:bg-slate-200 transition-all">
               {lang === 'zh' ? '跳转' : 'Jump'}
@@ -211,15 +255,18 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     );
   };
 
+  const getCurrencySymbol = (marketplaceCode: string) => {
+    return MARKETPLACES_LIST.find(m => m.code === marketplaceCode)?.currency || '$';
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       {isManualModalOpen && <ManualListingModal uiLang={lang} onClose={() => setIsManualModalOpen(false)} onSave={() => { setIsManualModalOpen(false); refreshListings(); }} />}
-      {isBulkScrapeOpen && <BulkScrapeModal uiLang={lang} onClose={() => setIsBulkScrapeOpen(false)} onFinished={() => { setIsBulkScrapeOpen(false); refreshListings(); }} />}
       {isExportModalOpen && <ExportModal uiLang={lang} selectedListings={listings.filter(l => selectedIds.has(l.id))} onClose={() => setIsExportModalOpen(false)} />}
 
       <div className="flex flex-col gap-2">
         <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('listings')}</h2>
-        <p className="text-slate-400 font-medium text-sm">Efficient inventory management for Amazon sellers.</p>
+        <p className="text-slate-400 font-medium text-sm">Organize and process your cross-border inventory.</p>
       </div>
 
       <div className="flex flex-col lg:flex-row justify-between items-center gap-4">
@@ -247,24 +294,22 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
         </div>
 
         <div className="flex gap-3 w-full lg:w-auto">
-           {selectedIds.size > 0 && (
-             <div className="flex gap-2 animate-in slide-in-from-right-4 duration-300">
-               <button 
-                 onClick={handleBulkDelete} 
-                 disabled={isBatchDeleting}
-                 className="px-6 py-3.5 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 font-black text-xs border border-red-100 uppercase tracking-widest transition-all flex items-center gap-2"
-               >
-                 {isBatchDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-                 {lang === 'zh' ? '删除' : 'Delete'} ({selectedIds.size})
-               </button>
-               <button onClick={() => setIsExportModalOpen(true)} className="px-6 py-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 font-black text-xs border border-indigo-100 uppercase tracking-widest transition-all flex items-center gap-2">
-                 <Download size={16} /> {t('export')}
-               </button>
-             </div>
-           )}
-           <button onClick={() => setIsBulkScrapeOpen(true)} className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-3.5 bg-amber-500 text-white rounded-2xl hover:bg-amber-600 font-black text-xs shadow-xl shadow-amber-100 uppercase tracking-widest transition-all border border-amber-400">
-            <Zap size={16} /> {t('bulkScrape')}
+           <button 
+             onClick={handleBulkDelete} 
+             disabled={isBatchDeleting || selectedIds.size === 0}
+             className="px-6 py-3.5 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 font-black text-xs border border-red-100 uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-40 disabled:grayscale"
+           >
+             {isBatchDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+             {lang === 'zh' ? '批量删除' : 'Delete'} {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
            </button>
+           <button 
+             onClick={() => setIsExportModalOpen(true)} 
+             disabled={selectedIds.size === 0}
+             className="px-6 py-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 font-black text-xs border border-indigo-100 uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-40 disabled:grayscale"
+           >
+             <Download size={16} /> {t('export')} {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+           </button>
+           <div className="w-px h-8 bg-slate-200 mx-1 hidden lg:block self-center"></div>
            <button onClick={() => setIsManualModalOpen(true)} className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-8 py-3.5 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 font-black text-xs shadow-xl transition-all uppercase tracking-widest">
             <Plus size={16} /> {t('manualAdd')}
            </button>
@@ -288,8 +333,8 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                 <th className="p-6">Market</th>
                 <th className="p-6">ASIN</th>
                 <th className="p-6 w-1/3">Product Information</th>
-                <th className="p-6">Translations</th>
-                <th className="p-6">Price (USD)</th>
+                <th className="p-6">Price</th>
+                <th className="p-6">Update Date</th>
                 <th className="p-6">Status</th>
                 <th className="p-6 text-right">Actions</th>
               </tr>
@@ -307,11 +352,11 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                       <div className="space-y-2">
                         <p className="font-black uppercase tracking-widest text-sm text-slate-900">{searchTerm ? 'No search results' : 'Inventory Empty'}</p>
                         <p className="text-xs text-slate-400 font-medium leading-relaxed">
-                          {searchTerm ? 'Adjust your search filters.' : 'Use Bulk Scrape to gather product data from Amazon automatically.'}
+                          {searchTerm ? 'Adjust your search filters.' : 'Manually add your first listing or use the collector plugin.'}
                         </p>
                       </div>
-                      <button onClick={() => setIsBulkScrapeOpen(true)} className="flex items-center gap-2 px-8 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl transition-all active:scale-95">
-                         <Zap size={14} /> Start First Scrape
+                      <button onClick={() => setIsManualModalOpen(true)} className="flex items-center gap-2 px-8 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl transition-all active:scale-95">
+                         <Plus size={14} /> Add First Product
                       </button>
                     </div>
                   </td>
@@ -356,27 +401,33 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                         <span className="font-mono text-[10px] font-black text-slate-400 bg-slate-50 px-2 py-1 rounded border border-slate-100 tracking-tighter">{listing.asin}</span>
                       </td>
                       <td className="p-6">
-                        <p className="text-xs font-black text-slate-800 line-clamp-2 leading-relaxed max-w-xs">{title}</p>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-1.5 flex items-center gap-1.5">
-                           {listing.cleaned?.brand || 'Generic'} &bull; Updated {new Date(listing.updated_at || listing.created_at).toLocaleDateString()}
-                        </p>
+                        <p className="text-xs font-black text-slate-800 line-clamp-2 leading-relaxed max-w-xs mb-2">{title}</p>
+                        <div className="flex items-center gap-2">
+                           <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[8px] font-black uppercase border border-indigo-100 flex items-center gap-1">
+                             <Languages size={10} /> {translatedMarkets.length} Translations
+                           </span>
+                           {translatedMarkets.slice(0, 3).map(m => (
+                             <span key={m} className="px-1.5 py-0.5 bg-slate-100 text-slate-500 border border-slate-200 rounded text-[8px] font-black uppercase">{m}</span>
+                           ))}
+                           {translatedMarkets.length > 3 && <span className="text-[8px] font-bold text-slate-300">+{translatedMarkets.length - 3}</span>}
+                        </div>
                       </td>
                       <td className="p-6">
-                         <div className="flex flex-wrap gap-1 max-w-[120px]">
-                            {translatedMarkets.length > 0 ? (
-                              translatedMarkets.map(m => (
-                                <span key={m} className="px-1.5 py-0.5 bg-purple-50 text-purple-600 border border-purple-100 rounded text-[8px] font-black uppercase">{m}</span>
-                              ))
-                            ) : (
-                              <span className="text-[8px] font-black text-slate-300 uppercase italic">English Only</span>
+                         <div className="flex flex-col">
+                            <span className="text-xs font-black text-slate-900 flex items-center gap-0.5">
+                              <span className="text-slate-400 font-bold">{getCurrencySymbol(listing.marketplace)}</span>
+                              {listing.cleaned?.price || '0.00'}
+                            </span>
+                            {listing.cleaned?.shipping > 0 && (
+                              <span className="text-[9px] font-bold text-slate-400">+{listing.cleaned.shipping} Ship</span>
                             )}
                          </div>
                       </td>
                       <td className="p-6">
-                         <div className="flex flex-col">
-                            <span className="text-xs font-black text-slate-900 flex items-center gap-0.5"><DollarSign size={10} className="text-emerald-500" />{listing.cleaned?.price || '0.00'}</span>
-                            {listing.cleaned?.shipping > 0 && <span className="text-[9px] font-bold text-slate-400">+{listing.cleaned.shipping} Ship</span>}
-                         </div>
+                        <div className="flex items-center gap-2 text-slate-400 font-bold text-[11px]">
+                          <Calendar size={12} className="text-slate-300" />
+                          {new Date(listing.updated_at || listing.created_at).toLocaleDateString()}
+                        </div>
                       </td>
                       <td className="p-6">
                         {listing.status === 'optimized' ? (
