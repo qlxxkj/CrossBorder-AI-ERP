@@ -24,7 +24,7 @@ const LISTING_SOURCE_FIELDS = [
   { value: 'item_height', label: 'Item Height' },
   { value: 'item_size_unit', label: 'Item Size Unit' },
   { value: 'feature1', label: 'Bullet Point 1' },
-  { value: 'feature2', label: 'Bullet Point 1' },
+  { value: 'feature2', label: 'Bullet Point 2' },
   { value: 'feature3', label: 'Bullet Point 3' },
   { value: 'feature4', label: 'Bullet Point 4' },
   { value: 'feature5', label: 'Bullet Point 5' },
@@ -65,24 +65,28 @@ const findAmazonTemplateSheet = (sheetNames: string[]): string => {
 };
 
 /**
- * 动态搜索表头行：在不同语言模板中，API 字段行位置可能不同
+ * 动态搜索表头行：在墨西哥（MX）等非英语模板中，表头关键词可能不同。
+ * 增加了对西班牙语、德语等常见 API 内部字段名的扫描。
  */
 const findHeaderRowIndex = (rows: any[][]): number => {
-  for (let i = 0; i < Math.min(rows.length, 12); i++) {
+  const headerKeywords = [
+    'sku', 'item_name', 'external_product_id', 'product_type', 'feed_product_type',
+    'vendedor_sku', 'nombre_del_producto', 'identificador_de_producto', // Spanish MX
+    'item_sku', 'brand_name', 'standard_product_id'
+  ];
+
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
     const row = rows[i];
-    if (!row || row.length < 5) continue;
+    if (!row || row.length < 3) continue; // 降低列数限制以适配轻量模板
     const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
-    // 亚马逊模板特征字段：通常包含 sku, item_name, feed_product_type 等
-    if (
-      rowStr.includes('sku') || 
-      rowStr.includes('item_name') || 
-      rowStr.includes('external_product_id') ||
-      rowStr.includes('product_type')
-    ) {
+    
+    const matchCount = headerKeywords.filter(kw => rowStr.includes(kw)).length;
+    // 如果该行包含至少两个亚马逊特征关键词，则认定为 API 字段行
+    if (matchCount >= 2) {
       return i;
     }
   }
-  return 3; // 默认回退到 Row 4 (Index 3)
+  return 3; // 默认回退
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -155,13 +159,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           n.includes('有效值') || 
           n.toLowerCase().includes('valeurs') || 
           n.toLowerCase().includes('gültige') ||
-          n.toLowerCase().includes('valores') // 增加对 MX/BR 站点的支持
+          n.toLowerCase().includes('valores')
         );
 
         if (vvSheet) {
           const rawData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[vvSheet], { header: 1 });
           let fCol = -1, vCol = -1;
-          for (let i = 0; i < Math.min(rawData.length, 25); i++) {
+          for (let i = 0; i < Math.min(rawData.length, 30); i++) {
             const row = rawData[i];
             const fIdx = row?.findIndex(c => String(c || '').toLowerCase().includes('field name') || String(c || '').includes('字段名称') || String(c || '').toLowerCase().includes('nombre del campo'));
             const vIdx = row?.findIndex(c => String(c || '').toLowerCase().includes('valid value') || String(c || '').includes('有效值') || String(c || '').toLowerCase().includes('valor'));
@@ -172,8 +176,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             rawData.forEach(row => {
               const f = String(row[fCol] || '').trim();
               const v = String(row[vCol] || '').trim();
-              if (f && f.toLowerCase() !== 'field name' && f !== '字段名称' && !f.includes('nombre')) lastF = f;
-              if (lastF && v && v.toLowerCase() !== 'valid value' && v !== '有效值' && v.toLowerCase() !== 'none' && !v.includes('valor')) {
+              if (f && f.toLowerCase() !== 'field name' && f !== '字段名称' && !f.toLowerCase().includes('nombre')) lastF = f;
+              if (lastF && v && v.toLowerCase() !== 'valid value' && v !== '有效值' && v.toLowerCase() !== 'none' && !v.toLowerCase().includes('valor')) {
                 if (!fieldDefinitions[lastF]) fieldDefinitions[lastF] = [];
                 if (!fieldDefinitions[lastF].includes(v)) fieldDefinitions[lastF].push(v);
               }
@@ -184,16 +188,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const finalTplName = findAmazonTemplateSheet(workbook.SheetNames);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[finalTplName], { header: 1, defval: '' });
         
-        // 核心修复：动态寻找表头行
         const headerRowIdx = findHeaderRowIndex(jsonData);
         const headerRow = jsonData[headerRowIdx];
-        
-        // 数据起始行：通常比亚马逊 API 字段行（表头行）低 4 行
         const dataRowIdx = headerRowIdx + 4;
         const dataRow = jsonData[dataRowIdx] || [];
 
-        if (!headerRow || headerRow.length < 5) {
-          throw new Error(uiLang === 'zh' ? "无法在工作表中找到有效的亚马逊表头字段，请确保文件未被损坏。" : "Could not identify template headers in the selected sheet.");
+        if (!headerRow || headerRow.length < 3) {
+          throw new Error(uiLang === 'zh' ? "无法在工作表中找到有效的亚马逊表头字段，请确保文件未被损坏并包含 API 名称行。" : "Could not identify template headers. Ensure the file contains the API name row.");
         }
 
         foundHeaders = headerRow.map(h => String(h || '').trim());
@@ -209,18 +210,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let source: any = rowDataDefaults[i] ? 'template_default' : 'custom';
           let field = '';
 
-          // 增强匹配关键词
           if (lowerH.includes('sku') || lowerH.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (lowerH.includes('item_name') || lowerH === 'title' || lowerH.includes('product_name') || lowerH.includes('nombre_del_producto')) { source = 'listing'; field = 'title'; }
-          else if (lowerH.match(/image_url|image_location|附图|ubicación_de_la_imagen/)) { 
+          else if (lowerH.match(/image_url|image_location|附图|ubicación_de_la_imagen|url_de_la_imagen/)) { 
             imgCount++;
             source = 'listing'; 
-            field = `other_image${imgCount}`; 
+            field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; 
           }
           else if (lowerH.match(/bullet_point|商品要点|puntos_clave/)) {
             bulletCount++;
             source = 'listing';
             field = `feature${bulletCount}`;
+          }
+          else if (lowerH.includes('standard_price') || lowerH.includes('precio_estándar')) {
+            source = 'listing';
+            field = 'price';
           }
 
           mappings[key] = {
@@ -234,7 +238,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         });
 
         mappings['__binary'] = base64File;
-        // 记录表头所在行，以便导出时精准定位
         mappings['__header_row_idx'] = headerRowIdx;
 
         const { data: { session } } = await supabase.auth.getSession();
