@@ -46,49 +46,51 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const handleExport = async () => {
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     if (!selectedTemplate || !fileBinary) {
-      alert("Template error: Binary data missing.");
+      alert("Template Error: Original master file not found.");
       return;
     }
     setExporting(true);
 
     try {
-      // 1. 读取母版文件，保留样式和VBA
+      // 1. 读取上传的母版，启用所有特性以保留原有样式和宏
       const bytes = safeDecode(fileBinary);
-      const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true, cellNF: true, cellText: true });
+      const workbook = XLSX.read(bytes, { 
+        type: 'array', 
+        cellStyles: true, 
+        bookVBA: true, 
+        cellNF: true, 
+        cellText: true,
+        bookDeps: true
+      });
       
       const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[workbook.SheetNames.length - 1];
       const sheet = workbook.Sheets[tplSheetName];
       
-      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found.`);
+      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found in master template.`);
 
-      // 2. 计算起始行
-      const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 2;
-      const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
-      
-      // 数据起始行逻辑：
-      // Row N: 技术行
-      // Row N+1: 示例行
-      // Row N+2: 可能是 Notice 或者 数据起始
-      // Row N+3: 如果有 Notice，数据从这里开始
-      const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
+      // 2. 核心：计算数据写入起始行
+      // techRowIdx 是 API 行，通常下一行是示例，下下一行或是 Notice 或是数据起始
+      const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 1;
+      // 策略：直接从示例行 (techRowIdx + 1) 开始覆盖写入，确保数据紧接在标题下
+      const startDataRowIdx = techRowIdx + 1; 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
         const cleaned = (listing.cleaned || {}) as CleanedData;
         
-        // 核心修复：内容源深度回退
+        // 提取可用内容：优先选对应站点的翻译，没有则选 optimized，再没有则选原始 cleaned
         let content: OptimizedData | null = null;
-        if (targetMarket === 'US' || targetMarket === 'UK') {
+        if (targetMarket === 'US' || targetMarket === 'UK' || targetMarket === 'CA') {
           content = listing.optimized || null;
         } else if (listing.translations?.[targetMarket]) {
           content = listing.translations[targetMarket];
         }
         
-        // 关键回退逻辑：如果优化内容不存在或为空，强制使用 cleaned 内容
-        const isContentInvalid = !content || Object.keys(content).length === 0;
+        // 判定内容是否实质有效
+        const isContentValid = content && Object.keys(content).length > 0;
 
         const otherImages = cleaned.other_images || [];
-        const features = (!isContentInvalid && content?.optimized_features?.length) ? content.optimized_features : (cleaned.features || []);
+        const features = (isContentValid && content?.optimized_features?.length) ? content.optimized_features : (cleaned.features || []);
 
         selectedTemplate.headers.forEach((h, colIdx) => {
           const mappingKey = `col_${colIdx}`;
@@ -101,7 +103,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             if (f === 'asin') {
               val = listing.asin || cleaned.asin || '';
             } else if (f === 'title') {
-              val = (!isContentInvalid && content?.optimized_title) ? content.optimized_title : (cleaned.title || '');
+              val = (isContentValid && content?.optimized_title) ? content.optimized_title : (cleaned.title || '');
             } else if (f === 'price') {
               val = cleaned.price || '';
             } else if (f === 'shipping') {
@@ -109,7 +111,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             } else if (f === 'brand') {
               val = cleaned.brand || '';
             } else if (f === 'description') {
-              val = (!isContentInvalid && content?.optimized_description) ? content.optimized_description : (cleaned.description || '');
+              val = (isContentValid && content?.optimized_description) ? content.optimized_description : (cleaned.description || '');
             } else if (f === 'item_weight_value') {
               val = cleaned.item_weight_value || '';
             } else if (f === 'item_weight_unit') {
@@ -136,34 +138,46 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           } else if (mapping.source === 'template_default') {
             val = mapping.templateDefault || '';
           } else if (mapping.source === 'random') {
-            val = Math.floor(Math.random() * 900000000 + 100000000).toString();
+            // 简单随机数模拟 SKU 或标识符
+            val = "R-" + Math.floor(Math.random() * 90000000 + 10000000).toString();
           }
 
           const finalVal = (val === undefined || val === null) ? '' : val;
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
           
-          sheet[cellRef] = { 
-            v: finalVal, 
-            t: (typeof finalVal === 'number' && !isNaN(finalVal)) ? 'n' : 's' 
-          };
+          // 写入单元格，保留原有单元格对象以尽可能维持格式
+          if (!sheet[cellRef]) {
+            sheet[cellRef] = { v: finalVal, t: (typeof finalVal === 'number' && !isNaN(finalVal)) ? 'n' : 's' };
+          } else {
+            sheet[cellRef].v = finalVal;
+            sheet[cellRef].t = (typeof finalVal === 'number' && !isNaN(finalVal)) ? 'n' : 's';
+          }
         });
       });
 
-      // 3. 更新有效范围并导出
+      // 3. 更新 sheet 的有效范围
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
 
-      const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm', bookVBA: true });
+      // 4. 导出为原有的 xlsm 格式
+      const outData = XLSX.write(workbook, { 
+        type: 'array', 
+        bookType: 'xlsm', 
+        bookVBA: true,
+        cellStyles: true 
+      });
+      
       const blob = new Blob([outData], { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `AMZ_Export_${targetMarket}_${Date.now()}.xlsm`;
+      link.download = `AMZ_MasterExport_${targetMarket}_${Date.now()}.xlsm`;
       link.click();
+      URL.revokeObjectURL(url);
     } catch (err: any) { 
-      console.error("Export Error:", err);
-      alert("Export failed: " + err.message); 
+      console.error("Export System Failure:", err);
+      alert("Critical Export Error: " + err.message); 
     } finally { 
       setExporting(false); 
       onClose(); 
@@ -177,7 +191,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
             <Download className="text-indigo-600" /> {t('confirmExport')}
           </h2>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-400">
+          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors">
             <X size={24} />
           </button>
         </div>
@@ -188,9 +202,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               <CheckCircle2 size={24} />
             </div>
             <div>
-              <p className="text-sm font-black text-indigo-900">{selectedListings.length} Products Selected</p>
+              <p className="text-sm font-black text-indigo-900">{selectedListings.length} Products Selected for Global Launch</p>
               <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">
-                Export will use the original master template as a base.
+                Exporting with Original Master Styles & Macros (Target: {targetMarket})
               </p>
             </div>
           </div>
@@ -198,7 +212,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
             <div className="space-y-4">
                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                 <Globe size={14} className="text-blue-500" /> Target Marketplace
+                 <Globe size={14} className="text-blue-500" /> Select Target Marketplace
                </label>
                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                  {AMAZON_MARKETPLACES.map(m => (
@@ -214,35 +228,41 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             </div>
             <div className="space-y-4">
                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                 <FileSpreadsheet size={14} className="text-emerald-500" /> Select Master Template
+                 <FileSpreadsheet size={14} className="text-emerald-500" /> Choose Master Template
                </label>
                <div className="space-y-2">
-                {templates.map(tmp => (
-                  <button 
-                    key={tmp.id} 
-                    onClick={() => setSelectedTemplate(tmp)} 
-                    className={`w-full flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100 bg-white hover:border-slate-200'}`}
-                  >
-                    <FileSpreadsheet size={18} className={selectedTemplate?.id === tmp.id ? 'text-indigo-600' : 'text-slate-300'} />
-                    <span className="font-black text-xs truncate flex-1">{tmp.name}</span>
-                  </button>
-                ))}
+                {templates.length === 0 ? (
+                  <div className="p-10 text-center bg-slate-50 rounded-2xl border-dashed border-2 border-slate-200">
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">No master templates uploaded</p>
+                  </div>
+                ) : (
+                  templates.map(tmp => (
+                    <button 
+                      key={tmp.id} 
+                      onClick={() => setSelectedTemplate(tmp)} 
+                      className={`w-full flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-sm' : 'border-slate-100 bg-white hover:border-slate-200'}`}
+                    >
+                      <FileSpreadsheet size={18} className={selectedTemplate?.id === tmp.id ? 'text-indigo-600' : 'text-slate-300'} />
+                      <span className="font-black text-xs truncate flex-1">{tmp.name}</span>
+                    </button>
+                  ))
+                )}
                </div>
             </div>
           </div>
         </div>
 
         <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-4">
-          <button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">
+          <button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">
             Cancel
           </button>
           <button 
             disabled={!selectedTemplate || exporting} 
             onClick={handleExport} 
-            className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl transition-all disabled:opacity-50"
+            className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
           >
             {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} 
-            {exporting ? 'Processing...' : 'Download Template Package'}
+            {exporting ? 'Generating...' : 'Download Master Template Package'}
           </button>
         </div>
       </div>

@@ -95,7 +95,7 @@ const findHeaderRowIndex = (rows: any[][]): number => {
     if (underscoreCount > 5) score += 30;
     if (score >= 40) return i;
   }
-  return 2; // Default to row 3 (0-indexed 2)
+  return 1; // 默认为第2行 (0-indexed 1)
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -188,7 +188,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let source: any = 'custom';
           let field = '';
 
-          // 智能映射
+          // 核心自动识别逻辑
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name')) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|附图/)) { 
@@ -276,7 +276,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Logic based on Master File</p>
+            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Adaptive Mapping Technology</p>
           </div>
         </div>
         <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
@@ -301,7 +301,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                 <div className="flex items-center justify-between">
                   <div className="flex-1 overflow-hidden pr-2">
                     <p className="font-black text-xs truncate">{tmp.name}</p>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Ready for {tmp.marketplace}</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Multi-site Template</p>
                   </div>
                   <button onClick={(e) => handleDeleteTemplate(e, tmp.id)} className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={14} /></button>
                 </div>
@@ -316,14 +316,14 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex flex-col">
                   <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tech Row: {selectedTemplate.mappings?.__header_row_idx || 0}</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Master Tech Row Index: {selectedTemplate.mappings?.__header_row_idx || 0}</p>
                 </div>
                 <div className="flex items-center gap-4 w-full sm:w-auto">
                   <div className="relative flex-1 sm:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
-                    <input type="text" placeholder={uiLang === 'zh' ? "搜索字段..." : "Search fields..."} value={fieldSearchQuery} onChange={(e) => setFieldSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none" />
+                    <input type="text" placeholder={uiLang === 'zh' ? "搜索字段..." : "Search fields..."} value={fieldSearchQuery} onChange={(e) => setFieldSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none transition-all" />
                   </div>
-                  <button onClick={saveMappings} className="px-8 py-2.5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all">
+                  <button onClick={saveMappings} className="px-8 py-2.5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all active:scale-95">
                     <Save size={16} /> {t('save')}
                   </button>
                 </div>
@@ -333,23 +333,40 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   const key = `col_${i}`;
                   const mapping = selectedTemplate.mappings?.[key] || { header: h, source: 'custom', defaultValue: '' };
                   return (
-                    <div key={key} className="p-6 rounded-[2rem] border bg-slate-50/30 border-slate-50 transition-all hover:border-indigo-100">
+                    <div key={key} className="p-6 rounded-[2rem] border bg-slate-50/30 border-slate-50 transition-all hover:border-indigo-100 group/field">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                        <div className="space-y-1"><span className="text-[11px] font-black text-slate-600">{h}</span><p className="text-[8px] font-black text-slate-400 uppercase">Col: {i + 1}</p></div>
-                        <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none cursor-pointer">
-                          <option value="custom">Manual Value</option>
-                          <option value="listing">Listing Data</option>
-                          <option value="template_default">Template_Default</option>
-                          <option value="random">Random Generate</option>
-                        </select>
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-black text-slate-600 break-all">{h}</span>
+                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Master Index: {i + 1}</p>
+                        </div>
+                        <div className="relative">
+                          <select 
+                            value={mapping.source} 
+                            onChange={(e) => updateMapping(key, { source: e.target.value as any })} 
+                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none appearance-none cursor-pointer focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                          >
+                            <option value="custom">Manual Value</option>
+                            <option value="listing">Listing Data</option>
+                            <option value="template_default">Template_Default</option>
+                            <option value="random">Random Generate</option>
+                          </select>
+                          <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" />
+                        </div>
                         <div className="flex-1">
                           {mapping.source === 'listing' ? (
                             <select value={mapping.listingField} onChange={(e) => updateMapping(key, { listingField: e.target.value })} className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black"><option value="">-- Choose Data --</option>{LISTING_SOURCE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}</select>
                           ) : mapping.source === 'custom' ? (
-                            <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold" placeholder="Enter value..." />
+                            <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold" placeholder="Enter fixed value..." />
                           ) : (
-                            <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-500 uppercase italic">
-                              {mapping.source === 'random' ? 'Random Generate' : `Default: ${mapping.templateDefault || 'None'}`}
+                            <div className="px-5 py-3 bg-slate-100 border border-slate-200 rounded-xl flex items-center gap-3">
+                              {mapping.source === 'random' ? (
+                                <div className="flex items-center gap-2 text-[10px] font-black text-indigo-500 uppercase tracking-widest"><Shuffle size={12} /> Random Generate</div>
+                              ) : (
+                                <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest truncate">
+                                  <Database size={12} className="text-slate-400 shrink-0" />
+                                  Default: <span className="text-slate-900 ml-1">{mapping.templateDefault || 'None'}</span>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -360,7 +377,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center opacity-20"><Layout size={64} className="mb-4" /><p className="font-black uppercase tracking-widest text-sm">Select a template</p></div>
+            <div className="flex-1 flex flex-col items-center justify-center opacity-20"><Layout size={64} className="mb-4" /><p className="font-black uppercase tracking-widest text-sm">Select a master template</p></div>
           )}
         </div>
       </div>
