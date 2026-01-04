@@ -46,13 +46,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const handleExport = async () => {
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     if (!selectedTemplate || !fileBinary) {
-      alert("Template Error: Original master file not found in database.");
+      alert("Template Binary not found. Please re-upload the template.");
       return;
     }
     setExporting(true);
 
     try {
-      // 1. 读取上传的母版，启用所有特性以保留原有样式和宏
+      // 1. 读取原件，必须保留所有原始特性
       const bytes = safeDecode(fileBinary);
       const workbook = XLSX.read(bytes, { 
         type: 'array', 
@@ -63,21 +63,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         bookDeps: true
       });
       
-      const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[workbook.SheetNames.length - 1];
+      const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[0];
       const sheet = workbook.Sheets[tplSheetName];
-      
-      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found in master template.`);
+      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found.`);
 
-      // 2. 核心：计算数据写入起始行
-      // techRowIdx 是 API 标识符行（通常是第2行），下一行通常是示例，数据从 Row 4 (index 3) 开始
-      const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 1;
-      const startDataRowIdx = techRowIdx + 2; 
+      // 2. 数据起始行动态定位 (基于用户反馈校准)
+      // 用户反馈：技术行在 Row 5 (Index 4)，示例在 Row 6 (Index 5)
+      // 美国站有提示行在 Row 7 (Index 6)，数据从 Row 8 (Index 7) 开始
+      const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 4;
+      const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
+      const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
         const cleaned = (listing.cleaned || {}) as CleanedData;
         
-        // 提取可用内容：优先选对应站点的翻译，没有则选 optimized，再没有则选原始 cleaned
+        // 提取优化后的内容或回退到原始数据
         let content: OptimizedData | null = null;
         if (targetMarket === 'US' || targetMarket === 'UK' || targetMarket === 'CA') {
           content = listing.optimized || null;
@@ -85,11 +86,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           content = listing.translations[targetMarket];
         }
         
-        // 判定内容是否实质有效（防空校验）
-        const hasOptimized = content && Object.keys(content).length > 0;
+        // 防空校验
+        const isContentValid = content && Object.keys(content).length > 0 && content.optimized_title;
 
         const otherImages = cleaned.other_images || [];
-        const features = (hasOptimized && content?.optimized_features?.length) ? content.optimized_features : (cleaned.features || []);
+        const features = (isContentValid && content?.optimized_features?.length) ? content.optimized_features : (cleaned.features || []);
 
         selectedTemplate.headers.forEach((h, colIdx) => {
           const mappingKey = `col_${colIdx}`;
@@ -99,34 +100,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           let val: any = "";
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
-            // 深度取值逻辑，确保 fallback 到 cleaned 属性
-            if (f === 'asin') {
-              val = listing.asin || cleaned.asin || '';
-            } else if (f === 'title') {
-              val = (hasOptimized && content?.optimized_title) ? content.optimized_title : (cleaned.title || '');
-            } else if (f === 'price') {
-              val = cleaned.price || '';
-            } else if (f === 'shipping') {
-              val = cleaned.shipping || 0;
-            } else if (f === 'brand') {
-              val = cleaned.brand || '';
-            } else if (f === 'description') {
-              val = (hasOptimized && content?.optimized_description) ? content.optimized_description : (cleaned.description || '');
-            } else if (f === 'item_weight_value') {
-              val = cleaned.item_weight_value || '';
-            } else if (f === 'item_weight_unit') {
-              val = cleaned.item_weight_unit || '';
-            } else if (f === 'item_length') {
-              val = cleaned.item_length || '';
-            } else if (f === 'item_width') {
-              val = cleaned.item_width || '';
-            } else if (f === 'item_height') {
-              val = cleaned.item_height || '';
-            } else if (f === 'item_size_unit') {
-              val = cleaned.item_size_unit || '';
-            } else if (f === 'main_image') {
-              val = cleaned.main_image || '';
-            } else if (f?.startsWith('other_image')) {
+            if (f === 'asin') { val = listing.asin || cleaned.asin || ''; }
+            else if (f === 'title') { val = isContentValid ? content?.optimized_title : (cleaned.title || ''); }
+            else if (f === 'price') { val = cleaned.price || ''; }
+            else if (f === 'shipping') { val = cleaned.shipping || 0; }
+            else if (f === 'brand') { val = cleaned.brand || ''; }
+            else if (f === 'description') { val = isContentValid ? content?.optimized_description : (cleaned.description || ''); }
+            else if (f === 'item_weight_value') { val = cleaned.item_weight_value || ''; }
+            else if (f === 'item_weight_unit') { val = cleaned.item_weight_unit || ''; }
+            else if (f === 'item_length') { val = cleaned.item_length || ''; }
+            else if (f === 'item_width') { val = cleaned.item_width || ''; }
+            else if (f === 'item_height') { val = cleaned.item_height || ''; }
+            else if (f === 'item_size_unit') { val = cleaned.item_size_unit || ''; }
+            else if (f === 'main_image') { val = cleaned.main_image || ''; }
+            else if (f?.startsWith('other_image')) {
               const num = parseInt(f.replace('other_image', '')) || 1;
               val = otherImages[num - 1] || '';
             } else if (f?.startsWith('feature')) {
@@ -138,29 +125,28 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           } else if (mapping.source === 'template_default') {
             val = mapping.templateDefault || '';
           } else if (mapping.source === 'random') {
-            // 模拟随机唯一 SKU
-            val = "SKU-" + Math.floor(Math.random() * 90000000 + 10000000).toString();
+            val = "AMZ-" + Math.floor(Math.random() * 899999 + 100000).toString();
           }
 
           const finalVal = (val === undefined || val === null) ? '' : val;
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
           
-          // 原位写入：如果母版该单元格有样式，仅覆盖其值 (v)
+          // 原位写入：仅更新数值和类型，不破坏单元格原有样式对象
           if (!sheet[cellRef]) {
-            sheet[cellRef] = { v: finalVal, t: (typeof finalVal === 'number' && !isNaN(finalVal)) ? 'n' : 's' };
+            sheet[cellRef] = { v: finalVal, t: (typeof finalVal === 'number') ? 'n' : 's' };
           } else {
             sheet[cellRef].v = finalVal;
-            sheet[cellRef].t = (typeof finalVal === 'number' && !isNaN(finalVal)) ? 'n' : 's';
+            sheet[cellRef].t = (typeof finalVal === 'number') ? 'n' : 's';
           }
         });
       });
 
-      // 3. 更新有效数据范围
+      // 3. 更新 sheet 的有效范围以包含新写入的数据
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
 
-      // 4. 写回为 xlsm 格式，保留母版所有底层特性
+      // 4. 以二进制 xlsm 格式写回，保留所有宏和样式
       const outData = XLSX.write(workbook, { 
         type: 'array', 
         bookType: 'xlsm', 
@@ -172,12 +158,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `AMZ_MasterExport_${targetMarket}_${Date.now()}.xlsm`;
+      link.download = `AMZ_Export_${targetMarket}_${new Date().toISOString().slice(0,10)}.xlsm`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (err: any) { 
-      console.error("Export System Failure:", err);
-      alert("Critical Export Error: " + err.message); 
+      console.error("Export System Error:", err);
+      alert("Export failed: " + err.message); 
     } finally { 
       setExporting(false); 
       onClose(); 
@@ -185,65 +171,68 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
-        <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
-            <Download className="text-indigo-600" /> {t('confirmExport')}
+    <div className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[3rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
+        <div className="px-10 py-7 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="text-3xl font-black text-slate-900 flex items-center gap-4 tracking-tighter">
+            <Download className="text-indigo-600" size={32} /> {t('confirmExport')}
           </h2>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors">
-            <X size={24} />
+          <button onClick={onClose} className="p-3 hover:bg-slate-100 rounded-full text-slate-400 transition-colors">
+            <X size={28} />
           </button>
         </div>
         
-        <div className="p-8 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
-          <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex items-center gap-4">
-            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm">
-              <CheckCircle2 size={24} />
+        <div className="p-10 space-y-10 flex-1 overflow-y-auto custom-scrollbar">
+          <div className="bg-indigo-600 p-8 rounded-[2rem] shadow-2xl shadow-indigo-200 text-white flex items-center gap-6">
+            <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-white backdrop-blur-md">
+              <CheckCircle2 size={32} />
             </div>
             <div>
-              <p className="text-sm font-black text-indigo-900">{selectedListings.length} Products for Global Launch</p>
-              <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">
-                Master Template Integrity Mode (Target: {targetMarket})
-              </p>
+              <p className="text-xl font-black">{selectedListings.length} Listings Selected</p>
+              <p className="text-xs font-bold text-indigo-100 opacity-80 uppercase tracking-widest mt-1">Master Integrity Mode: VBA Macros & Styles Preserved</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
             <div className="space-y-4">
                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                 <Globe size={14} className="text-blue-500" /> Target Marketplace
+                 <Globe size={14} className="text-blue-500" /> Target Site
                </label>
-               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+               <div className="grid grid-cols-2 gap-2">
                  {AMAZON_MARKETPLACES.filter(m => ['US', 'CA', 'UK', 'DE', 'FR', 'JP'].includes(m.code)).map(m => (
                    <button 
                     key={m.code} 
                     onClick={() => setTargetMarket(m.code)} 
-                    className={`px-2 py-3 rounded-xl border text-left text-[10px] font-black transition-all ${targetMarket === m.code ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'}`}
+                    className={`px-4 py-4 rounded-2xl border text-left text-xs font-black transition-all ${targetMarket === m.code ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl scale-105' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'}`}
                    >
-                     <span className="mr-1">{m.flag}</span> {m.code}
+                     <span className="text-lg mr-2">{m.flag}</span> {m.code}
                    </button>
                  ))}
                </div>
             </div>
             <div className="space-y-4">
                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                 <FileSpreadsheet size={14} className="text-emerald-500" /> Choose Master Template
+                 <FileSpreadsheet size={14} className="text-emerald-500" /> Loaded Template
                </label>
-               <div className="space-y-2">
+               <div className="space-y-3">
                 {templates.length === 0 ? (
-                  <div className="p-10 text-center bg-slate-50 rounded-2xl border-dashed border-2 border-slate-200">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">No master templates found</p>
+                  <div className="p-12 text-center bg-slate-50 rounded-3xl border-dashed border-2 border-slate-200">
+                    <p className="text-xs font-black text-slate-300 uppercase">No templates in database</p>
                   </div>
                 ) : (
                   templates.map(tmp => (
                     <button 
                       key={tmp.id} 
                       onClick={() => setSelectedTemplate(tmp)} 
-                      className={`w-full flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-sm' : 'border-slate-100 bg-white hover:border-slate-200'}`}
+                      className={`w-full flex items-center gap-4 p-5 rounded-2xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-lg' : 'border-slate-100 bg-white hover:border-slate-200'}`}
                     >
-                      <FileSpreadsheet size={18} className={selectedTemplate?.id === tmp.id ? 'text-indigo-600' : 'text-slate-300'} />
-                      <span className="font-black text-xs truncate flex-1">{tmp.name}</span>
+                      <div className={`p-2 rounded-lg ${selectedTemplate?.id === tmp.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                        <FileSpreadsheet size={20} />
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                        <span className="font-black text-sm block truncate">{tmp.name}</span>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">Tech Row Index: {tmp.mappings?.__header_row_idx + 1}</span>
+                      </div>
                     </button>
                   ))
                 )}
@@ -252,17 +241,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           </div>
         </div>
 
-        <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-4">
-          <button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">
+        <div className="p-10 bg-slate-50 border-t border-slate-100 flex justify-end gap-5">
+          <button onClick={onClose} className="px-10 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">
             Cancel
           </button>
           <button 
             disabled={!selectedTemplate || exporting} 
             onClick={handleExport} 
-            className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
+            className="px-14 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
           >
-            {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} 
-            {exporting ? 'Generating...' : 'Download Template Package'}
+            {exporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} 
+            {exporting ? 'Rendering xlsm...' : 'Start Global Launch Export'}
           </button>
         </div>
       </div>
