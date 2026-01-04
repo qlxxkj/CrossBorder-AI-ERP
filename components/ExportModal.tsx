@@ -46,7 +46,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const handleExport = async () => {
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     if (!selectedTemplate || !fileBinary) {
-      alert("Template error: Binary missing.");
+      alert("Template error: Binary data missing.");
       return;
     }
     setExporting(true);
@@ -58,24 +58,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[workbook.SheetNames.length - 1];
       const sheet = workbook.Sheets[tplSheetName];
       
-      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found in workbook.`);
+      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found.`);
 
       // 计算起始行
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 2;
       const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
       
       // 数据起始行计算
-      // Row N (techRowIdx): 标识符
-      // Row N+1: 示例
-      // Row N+2: 可能是 Notice 或者 数据起始
-      // Row N+3: 如果有 Notice，这里才是真正数据起始
       const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
         const cleaned = (listing.cleaned || {}) as CleanedData;
         
-        // 核心提取逻辑：确定内容源（优化版、翻译版或原始版）
+        // 核心提取逻辑：确定内容源
         let content: OptimizedData | null = null;
         if (targetMarket === 'US' || targetMarket === 'UK') {
           content = listing.optimized || null;
@@ -83,11 +79,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           content = listing.translations[targetMarket];
         }
         
-        // 如果 content 只是一个空对象 {} 则视为 null
-        if (content && Object.keys(content).length === 0) content = null;
+        // 检查 content 是否有效
+        const isContentEmpty = !content || Object.keys(content).length === 0;
 
         const otherImages = cleaned.other_images || [];
-        const features = content?.optimized_features?.length ? content.optimized_features : (cleaned.features || []);
+        const features = (!isContentEmpty && content?.optimized_features?.length) ? content.optimized_features : (cleaned.features || []);
 
         selectedTemplate.headers.forEach((h, colIdx) => {
           const mappingKey = `col_${colIdx}`;
@@ -100,7 +96,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             if (f === 'asin') {
               val = listing.asin || cleaned.asin || '';
             } else if (f === 'title') {
-              val = content?.optimized_title || cleaned.title || '';
+              val = (!isContentEmpty && content?.optimized_title) ? content.optimized_title : (cleaned.title || '');
             } else if (f === 'price') {
               val = cleaned.price || '';
             } else if (f === 'shipping') {
@@ -108,7 +104,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             } else if (f === 'brand') {
               val = cleaned.brand || '';
             } else if (f === 'description') {
-              val = content?.optimized_description || cleaned.description || '';
+              val = (!isContentEmpty && content?.optimized_description) ? content.optimized_description : (cleaned.description || '');
             } else if (f === 'item_weight_value') {
               val = cleaned.item_weight_value || '';
             } else if (f === 'item_weight_unit') {
@@ -135,11 +131,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           } else if (mapping.source === 'template_default') {
             val = mapping.templateDefault || '';
           } else if (mapping.source === 'random') {
-            // 这里可以添加随机数逻辑，目前先留空或固定值
-            val = Math.floor(Math.random() * 900000 + 100000).toString();
+            val = Math.floor(Math.random() * 900000000 + 100000000).toString();
           }
 
-          // 最终安全值处理
+          // 确保写入值安全
           const finalVal = (val === undefined || val === null) ? '' : val;
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
           
@@ -150,7 +145,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         });
       });
 
-      // 更新 Sheet 的有效范围，确保导出后 Excel 知道哪些行有数据
+      // 更新有效范围
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
@@ -189,9 +184,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               <CheckCircle2 size={24} />
             </div>
             <div>
-              <p className="text-sm font-black text-indigo-900">{selectedListings.length} Products for Global Launch</p>
+              <p className="text-sm font-black text-indigo-900">{selectedListings.length} Products Selected</p>
               <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">
-                Data Start Row: {selectedTemplate?.mappings?.__has_prefill_notice ? 'Row N+4' : 'Row N+3'}
+                Marketplace Targetting: {targetMarket} • Data Row Offset Applied
               </p>
             </div>
           </div>
@@ -240,7 +235,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         </div>
 
         <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-4">
-          <button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">
+          <button onClick={onClose} className="px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">
             Cancel
           </button>
           <button 
@@ -249,7 +244,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
           >
             {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} 
-            {exporting ? 'Exporting...' : 'Download Template Package'}
+            {exporting ? 'Processing...' : 'Download Template Package'}
           </button>
         </div>
       </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info, Star, Filter, ArrowRightLeft, Database, Copy, Shuffle, ChevronDown, RefreshCcw, Tag, ListFilter, Search, Globe, X, Edit3, Type as TypeIcon } from 'lucide-react';
+import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info, Star, Filter, ArrowRightLeft, Database, Copy, Shuffle, ChevronDown, RefreshCcw, Tag, ListFilter, Search, Globe, X } from 'lucide-react';
 import { ExportTemplate, UILanguage, FieldMapping } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -236,15 +236,14 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let source: any = 'custom';
           let field = '';
 
-          // 核心自动映射逻辑
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
-          else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name') || apiField.includes('nombre_del_producto')) { source = 'listing'; field = 'title'; }
-          else if (apiField.match(/image_url|image_location|附图|ubicación_de_la_imagen|url_de_la_imagen/)) { 
+          else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name')) { source = 'listing'; field = 'title'; }
+          else if (apiField.match(/image_url|image_location|附图/)) { 
             imgCount++;
             source = 'listing'; 
             field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; 
           }
-          else if (apiField.match(/bullet_point|商品要点|puntos_clave/)) {
+          else if (apiField.match(/bullet_point|商品要点/)) {
             bulletCount++;
             source = 'listing';
             field = `feature${bulletCount}`;
@@ -253,7 +252,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             source = 'listing';
             field = 'price';
           }
-          else if (apiField.includes('description') || apiField.includes('descripción_del_producto')) {
+          else if (apiField.includes('description')) {
             source = 'listing';
             field = 'description';
           }
@@ -334,7 +333,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Adaptive Marketplace logic</p>
+            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Dual-Row Smart Mapping</p>
           </div>
         </div>
         <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
@@ -376,9 +375,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex flex-col">
                   <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    Tech Row: {selectedTemplate.mappings?.__header_row_idx || 0} • {selectedTemplate.mappings?.__has_prefill_notice ? 'US Structure Detected' : 'Standard Structure'}
-                  </p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tech Row Index: {selectedTemplate.mappings?.__header_row_idx || 0}</p>
                 </div>
                 <div className="flex items-center gap-4 w-full sm:w-auto">
                   <div className="relative flex-1 sm:w-64">
@@ -400,23 +397,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   return (
                     <div key={key} className="p-6 rounded-[2rem] border bg-slate-50/30 border-slate-50 transition-all hover:border-indigo-100 group/field">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                        <div className="space-y-1">
-                          <span className="text-[11px] font-black text-slate-600 break-all">{h}</span>
-                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Col Index: {i + 1}</p>
-                        </div>
-                        <div className="relative">
-                          <select 
-                            value={mapping.source} 
-                            onChange={(e) => updateMapping(key, { source: e.target.value as any })} 
-                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all appearance-none cursor-pointer"
-                          >
-                            <option value="custom">Manual Value</option>
-                            <option value="listing">Listing Data</option>
-                            <option value="template_default">Template_Default</option>
-                            <option value="random">Random Generate</option>
-                          </select>
-                          <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                        </div>
+                        <div className="space-y-1"><span className="text-[11px] font-black text-slate-600 break-all">{h}</span><p className="text-[8px] font-black text-slate-400 uppercase">Column Index: {i + 1}</p></div>
+                        <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer">
+                          <option value="custom">Manual Value</option>
+                          <option value="listing">Listing Data</option>
+                          <option value="template_default">Template_Default</option>
+                          <option value="random">Random Generate</option>
+                        </select>
                         <div className="flex-1">
                           {mapping.source === 'listing' ? (
                             <select value={mapping.listingField} onChange={(e) => updateMapping(key, { listingField: e.target.value })} className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black"><option value="">-- Choose Data --</option>{LISTING_SOURCE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}</select>
@@ -425,15 +412,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                           ) : mapping.source === 'custom' ? (
                             <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" placeholder="Enter fixed value..." />
                           ) : (
-                            <div className="px-5 py-3 bg-slate-100 border border-slate-200 rounded-xl flex items-center gap-3">
-                              {mapping.source === 'random' ? (
-                                <div className="flex items-center gap-2 text-[10px] font-black text-indigo-500 uppercase tracking-widest"><Shuffle size={12} /> Random Generate</div>
-                              ) : (
-                                <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest truncate">
-                                  <Database size={12} className="text-slate-400 shrink-0" />
-                                  Default: <span className="text-slate-900 ml-1">{mapping.templateDefault || 'None'}</span>
-                                </div>
-                              )}
+                            <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-500 uppercase italic">
+                              {mapping.source === 'random' ? 'Random Generate' : `Default: ${mapping.templateDefault || 'None'}`}
                             </div>
                           )}
                         </div>
