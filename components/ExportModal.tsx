@@ -46,7 +46,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const handleExport = async () => {
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     if (!selectedTemplate || !fileBinary) {
-      alert("Template Error: Original master file not found.");
+      alert("Template Error: Original master file not found in database.");
       return;
     }
     setExporting(true);
@@ -69,10 +69,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found in master template.`);
 
       // 2. 核心：计算数据写入起始行
-      // techRowIdx 是 API 行，通常下一行是示例，下下一行或是 Notice 或是数据起始
+      // techRowIdx 是 API 标识符行（通常是第2行），下一行通常是示例，数据从 Row 4 (index 3) 开始
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 1;
-      // 策略：直接从示例行 (techRowIdx + 1) 开始覆盖写入，确保数据紧接在标题下
-      const startDataRowIdx = techRowIdx + 1; 
+      const startDataRowIdx = techRowIdx + 2; 
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
@@ -86,11 +85,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           content = listing.translations[targetMarket];
         }
         
-        // 判定内容是否实质有效
-        const isContentValid = content && Object.keys(content).length > 0;
+        // 判定内容是否实质有效（防空校验）
+        const hasOptimized = content && Object.keys(content).length > 0;
 
         const otherImages = cleaned.other_images || [];
-        const features = (isContentValid && content?.optimized_features?.length) ? content.optimized_features : (cleaned.features || []);
+        const features = (hasOptimized && content?.optimized_features?.length) ? content.optimized_features : (cleaned.features || []);
 
         selectedTemplate.headers.forEach((h, colIdx) => {
           const mappingKey = `col_${colIdx}`;
@@ -100,10 +99,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           let val: any = "";
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
+            // 深度取值逻辑，确保 fallback 到 cleaned 属性
             if (f === 'asin') {
               val = listing.asin || cleaned.asin || '';
             } else if (f === 'title') {
-              val = (isContentValid && content?.optimized_title) ? content.optimized_title : (cleaned.title || '');
+              val = (hasOptimized && content?.optimized_title) ? content.optimized_title : (cleaned.title || '');
             } else if (f === 'price') {
               val = cleaned.price || '';
             } else if (f === 'shipping') {
@@ -111,7 +111,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             } else if (f === 'brand') {
               val = cleaned.brand || '';
             } else if (f === 'description') {
-              val = (isContentValid && content?.optimized_description) ? content.optimized_description : (cleaned.description || '');
+              val = (hasOptimized && content?.optimized_description) ? content.optimized_description : (cleaned.description || '');
             } else if (f === 'item_weight_value') {
               val = cleaned.item_weight_value || '';
             } else if (f === 'item_weight_unit') {
@@ -138,14 +138,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           } else if (mapping.source === 'template_default') {
             val = mapping.templateDefault || '';
           } else if (mapping.source === 'random') {
-            // 简单随机数模拟 SKU 或标识符
-            val = "R-" + Math.floor(Math.random() * 90000000 + 10000000).toString();
+            // 模拟随机唯一 SKU
+            val = "SKU-" + Math.floor(Math.random() * 90000000 + 10000000).toString();
           }
 
           const finalVal = (val === undefined || val === null) ? '' : val;
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
           
-          // 写入单元格，保留原有单元格对象以尽可能维持格式
+          // 原位写入：如果母版该单元格有样式，仅覆盖其值 (v)
           if (!sheet[cellRef]) {
             sheet[cellRef] = { v: finalVal, t: (typeof finalVal === 'number' && !isNaN(finalVal)) ? 'n' : 's' };
           } else {
@@ -155,12 +155,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         });
       });
 
-      // 3. 更新 sheet 的有效范围
+      // 3. 更新有效数据范围
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
 
-      // 4. 导出为原有的 xlsm 格式
+      // 4. 写回为 xlsm 格式，保留母版所有底层特性
       const outData = XLSX.write(workbook, { 
         type: 'array', 
         bookType: 'xlsm', 
@@ -202,9 +202,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               <CheckCircle2 size={24} />
             </div>
             <div>
-              <p className="text-sm font-black text-indigo-900">{selectedListings.length} Products Selected for Global Launch</p>
+              <p className="text-sm font-black text-indigo-900">{selectedListings.length} Products for Global Launch</p>
               <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest italic">
-                Exporting with Original Master Styles & Macros (Target: {targetMarket})
+                Master Template Integrity Mode (Target: {targetMarket})
               </p>
             </div>
           </div>
@@ -212,10 +212,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
             <div className="space-y-4">
                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                 <Globe size={14} className="text-blue-500" /> Select Target Marketplace
+                 <Globe size={14} className="text-blue-500" /> Target Marketplace
                </label>
                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                 {AMAZON_MARKETPLACES.map(m => (
+                 {AMAZON_MARKETPLACES.filter(m => ['US', 'CA', 'UK', 'DE', 'FR', 'JP'].includes(m.code)).map(m => (
                    <button 
                     key={m.code} 
                     onClick={() => setTargetMarket(m.code)} 
@@ -233,7 +233,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                <div className="space-y-2">
                 {templates.length === 0 ? (
                   <div className="p-10 text-center bg-slate-50 rounded-2xl border-dashed border-2 border-slate-200">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">No master templates uploaded</p>
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">No master templates found</p>
                   </div>
                 ) : (
                   templates.map(tmp => (
@@ -262,7 +262,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             className="px-12 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
           >
             {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} 
-            {exporting ? 'Generating...' : 'Download Master Template Package'}
+            {exporting ? 'Generating...' : 'Download Template Package'}
           </button>
         </div>
       </div>

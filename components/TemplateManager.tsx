@@ -95,7 +95,7 @@ const findHeaderRowIndex = (rows: any[][]): number => {
     if (underscoreCount > 5) score += 30;
     if (score >= 40) return i;
   }
-  return 1; // 默认为第2行 (0-indexed 1)
+  return 1; // 默认第二行为 API 标识符行
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -171,7 +171,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const hasNotice = noticeRow.some(c => String(c || '').toLowerCase().includes("prefilled attributes") || String(c || '').includes("✅"));
 
         if (!techRow || techRow.length < 2) {
-          throw new Error("Could not detect tech headers.");
+          throw new Error("Could not detect tech headers. Please ensure you uploaded an official Amazon Flat File.");
         }
 
         const foundHeaders = humanRow.map((h, idx) => String(h || techRow[idx] || '').trim());
@@ -188,7 +188,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let source: any = 'custom';
           let field = '';
 
-          // 核心自动识别逻辑
+          // 核心自动映射逻辑
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name')) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|附图/)) { 
@@ -276,7 +276,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Adaptive Mapping Technology</p>
+            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Global Field Engine • Master Template Logic</p>
           </div>
         </div>
         <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
@@ -301,7 +301,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                 <div className="flex items-center justify-between">
                   <div className="flex-1 overflow-hidden pr-2">
                     <p className="font-black text-xs truncate">{tmp.name}</p>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Multi-site Template</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Multi-site Ready</p>
                   </div>
                   <button onClick={(e) => handleDeleteTemplate(e, tmp.id)} className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={14} /></button>
                 </div>
