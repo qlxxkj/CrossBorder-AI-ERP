@@ -4,6 +4,7 @@ export interface Category {
   name: string;
   user_id: string;
   created_at: string;
+  updated_at: string; // 新增：修改日期
 }
 
 export interface CleanedData {
