@@ -60,31 +60,27 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
   for (const name of sheetNames) {
     const lowerName = name.toLowerCase();
     if (lowerName.includes('instruction') || lowerName.includes('notice') || lowerName.includes('definitions') || lowerName.includes('valid values')) continue;
-
     const sheet = workbook.Sheets[name];
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0, defval: '' });
-    
     let sheetContentMaxScore = 0;
     for (let i = 0; i < Math.min(rows.length, 15); i++) {
       const row = rows[i];
       if (!row || row.length < 3) continue;
       const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
-      
       let rowScore = 0;
       HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) rowScore += 20; });
       if (rowScore > sheetContentMaxScore) sheetContentMaxScore = rowScore;
     }
-
     if (sheetContentMaxScore > maxScore) {
       maxScore = sheetContentMaxScore;
       bestSheet = name;
     }
   }
-
   return bestSheet || sheetNames[0];
 };
 
 const findHeaderRowIndex = (rows: any[][]): number => {
+  // Amazon 官方模板技术行通常在第5行 (Index 4)
   if (rows[4]) {
     const rowStr = rows[4].map(c => String(c || '').toLowerCase()).join('|');
     if (HIGH_CONFIDENCE_KEYWORDS.some(kw => rowStr.includes(kw))) return 4;
@@ -93,11 +89,7 @@ const findHeaderRowIndex = (rows: any[][]): number => {
     const row = rows[i];
     if (!row || row.length < 5) continue; 
     const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
-    let score = 0;
-    HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) score += 30; });
-    const underscoreCount = (rowStr.match(/_/g) || []).length;
-    if (underscoreCount > 8) score += 20;
-    if (score >= 50) return i;
+    if (HIGH_CONFIDENCE_KEYWORDS.some(kw => rowStr.includes(kw))) return i;
   }
   return 4;
 };
@@ -106,7 +98,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [templates, setTemplates] = useState<ExportTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ExportTemplate | null>(null);
   const [fieldSearchQuery, setFieldSearchQuery] = useState('');
@@ -117,16 +108,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   }, []);
 
   const fetchTemplates = async (selectId?: string) => {
-    if (!isSupabaseConfigured()) {
-      setLoading(false);
-      return;
-    }
-    const { data, error } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
-    if (error) {
-      console.error("Error fetching templates:", error);
-      setLoading(false);
-      return;
-    }
+    if (!isSupabaseConfigured()) return;
+    const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
     if (data) {
       setTemplates(data);
       if (selectId) {
@@ -136,18 +119,16 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         setSelectedTemplate(data[0]);
       }
     }
-    setLoading(false);
   };
 
   const handleDeleteTemplate = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!window.confirm(uiLang === 'zh' ? "确定要删除该模板吗？" : "Are you sure you want to delete this template?")) return;
-    try {
-      const { error } = await supabase.from('templates').delete().eq('id', id);
-      if (error) throw error;
+    if (!window.confirm(uiLang === 'zh' ? "确定要删除该模板吗？" : "Are you sure?")) return;
+    const { error } = await supabase.from('templates').delete().eq('id', id);
+    if (!error) {
       setTemplates(prev => prev.filter(t => t.id !== id));
       if (selectedTemplate?.id === id) setSelectedTemplate(null);
-    } catch (err: any) { alert("Delete failed: " + err.message); }
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -160,6 +141,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       try {
         const arrayBuffer = event.target?.result as ArrayBuffer;
         const bytes = new Uint8Array(arrayBuffer);
+        // 读取时强制保留样式
         const workbook = XLSX.read(bytes, { type: 'array', cellNF: true, cellText: true, cellStyles: true, bookVBA: true });
         const base64File = safeEncode(bytes);
 
@@ -168,17 +150,15 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         
         const techRowIdx = findHeaderRowIndex(jsonData);
         const techRow = jsonData[techRowIdx];
+        // 人类标题行通常在 API 行上方 1-2 行
         const humanRow = (techRowIdx > 1) ? jsonData[techRowIdx - 2] : (techRowIdx > 0 ? jsonData[techRowIdx - 1] : techRow);
         const exampleRow = jsonData[techRowIdx + 1] || [];
 
+        // 提示行扫描：检查 Row 7 (techRow + 2)
         const noticeRowIdx = techRowIdx + 2;
         const potentialNotice = jsonData[noticeRowIdx] || [];
         const noticeStr = potentialNotice.map(c => String(c || '')).join(' ');
-        const hasNotice = noticeStr.includes("✅") || noticeStr.includes("❌") || noticeStr.toLowerCase().includes("prefilled") || noticeStr.toLowerCase().includes("mandatory");
-
-        if (!techRow || techRow.length < 2) {
-          throw new Error("Could not detect tech headers. Ensure Row 5 contains field names like 'item_sku'.");
-        }
+        const hasNotice = noticeStr.includes("✅") || noticeStr.includes("❌") || noticeStr.toLowerCase().includes("prefilled");
 
         const foundHeaders = humanRow.map((h, idx) => String(h || techRow[idx] || '').trim());
         const mappings: Record<string, any> = {};
@@ -190,33 +170,16 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
           const key = `col_${i}`;
           const exampleVal = String(exampleRow[i] || '').trim();
-          
-          let source: any = 'custom';
-          let field = '';
+          let source: any = 'custom', field = '';
 
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name')) { source = 'listing'; field = 'title'; }
-          else if (apiField.match(/image_url|image_location|附图/)) { 
-            imgCount++;
-            source = 'listing'; 
-            field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; 
-          }
-          else if (apiField.match(/bullet_point|商品要点/)) {
-            bulletCount++;
-            source = 'listing';
-            field = `feature${bulletCount}`;
-          }
+          else if (apiField.match(/image_url|image_location/)) { imgCount++; source = 'listing'; field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; }
+          else if (apiField.match(/bullet_point/)) { bulletCount++; source = 'listing'; field = `feature${bulletCount}`; }
           else if (apiField.includes('standard_price')) { source = 'listing'; field = 'price'; }
           else if (apiField.includes('description')) { source = 'listing'; field = 'description'; }
 
-          mappings[key] = {
-            header: h, 
-            source,
-            listingField: field,
-            defaultValue: '', 
-            templateDefault: exampleVal,
-            acceptedValues: []
-          };
+          mappings[key] = { header: h, source, listingField: field, defaultValue: '', templateDefault: exampleVal };
         });
 
         mappings['__binary'] = base64File;
@@ -234,11 +197,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           created_at: new Date().toISOString()
         }]).select();
 
-        if (insertError) throw new Error(insertError.message);
-        if (inserted && inserted.length > 0) {
-          await fetchTemplates(inserted[0].id);
-          alert(uiLang === 'zh' ? "模板上传并解析成功！" : "Template uploaded and parsed!");
-        }
+        if (insertError) throw insertError;
+        if (inserted) await fetchTemplates(inserted[0].id);
       } catch (err: any) {
         alert("Upload failed: " + err.message);
       } finally {
@@ -258,11 +218,8 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
   const saveMappings = async () => {
     if (!selectedTemplate) return;
-    const { error } = await supabase.from('templates').update({ 
-        mappings: selectedTemplate.mappings 
-    }).eq('id', selectedTemplate.id);
-    if (error) alert("Save failed: " + error.message);
-    else alert(uiLang === 'zh' ? "配置已保存！" : "Configuration saved!");
+    const { error } = await supabase.from('templates').update({ mappings: selectedTemplate.mappings }).eq('id', selectedTemplate.id);
+    if (!error) alert(uiLang === 'zh' ? "配置已保存！" : "Saved!");
   };
 
   const filteredFields = useMemo(() => {
@@ -275,17 +232,11 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     <div className="p-8 max-w-7xl mx-auto space-y-8 font-inter">
       <div className="flex items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
         <div className="flex items-center gap-5">
-          <div className="w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-xl">
-            <FileSpreadsheet size={28} />
-          </div>
-          <div>
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2>
-            <p className="text-sm text-slate-400 font-bold uppercase tracking-widest italic">Amazon Master Template Engine (XLSM Support)</p>
-          </div>
+          <div className="w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-xl"><FileSpreadsheet size={28} /></div>
+          <div><h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2><p className="text-sm text-slate-400 font-bold uppercase tracking-widest italic">Row 5/7/8 Hybrid Logic Enabled</p></div>
         </div>
         <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
-          {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
-          {t('uploadTemplate')}
+          {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />} {t('uploadTemplate')}
         </button>
         <input type="file" ref={fileInputRef} className="hidden" accept=".xlsm,.xlsx" onChange={handleFileUpload} />
       </div>
@@ -303,10 +254,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             {templates.filter(tmp => tmp.name.toLowerCase().includes(templateSearchQuery.toLowerCase())).map(tmp => (
               <div key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`group relative p-5 rounded-3xl border cursor-pointer transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/30 ring-1 ring-indigo-500/10' : 'border-slate-50 bg-white hover:border-slate-200'}`}>
                 <div className="flex items-center justify-between">
-                  <div className="flex-1 overflow-hidden pr-2">
-                    <p className="font-black text-xs truncate">{tmp.name}</p>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Row {tmp.mappings?.__header_row_idx + 1} Tech</p>
-                  </div>
+                  <div className="flex-1 overflow-hidden pr-2"><p className="font-black text-xs truncate">{tmp.name}</p><p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Tech Row: {tmp.mappings?.__header_row_idx + 1}</p></div>
                   <button onClick={(e) => handleDeleteTemplate(e, tmp.id)} className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={14} /></button>
                 </div>
               </div>
@@ -321,20 +269,18 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                 <div className="flex flex-col">
                   <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
                   <div className="flex items-center gap-3 mt-1">
-                     <span className="text-[9px] font-black bg-slate-900 text-white px-2 py-0.5 rounded uppercase tracking-widest">Header Row: {selectedTemplate.mappings?.__header_row_idx + 1}</span>
+                     <span className="text-[9px] font-black bg-slate-900 text-white px-2 py-0.5 rounded uppercase tracking-widest">Tech: {selectedTemplate.mappings?.__header_row_idx + 1}</span>
                      <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-widest ${selectedTemplate.mappings?.__has_prefill_notice ? 'bg-amber-500 text-white' : 'bg-green-500 text-white'}`}>
-                        {selectedTemplate.mappings?.__has_prefill_notice ? 'With Notice Row' : 'Direct Entry'}
+                        Data Start: Row {selectedTemplate.mappings?.__header_row_idx + (selectedTemplate.mappings?.__has_prefill_notice ? 4 : 3)}
                      </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 w-full sm:w-auto">
                   <div className="relative flex-1 sm:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
-                    <input type="text" placeholder={uiLang === 'zh' ? "搜索字段..." : "Search fields..."} value={fieldSearchQuery} onChange={(e) => setFieldSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none shadow-inner" />
+                    <input type="text" placeholder={uiLang === 'zh' ? "搜索字段..." : "Search..."} value={fieldSearchQuery} onChange={(e) => setFieldSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none" />
                   </div>
-                  <button onClick={saveMappings} className="px-8 py-2.5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all active:scale-95">
-                    <Save size={16} /> {t('save')}
-                  </button>
+                  <button onClick={saveMappings} className="px-8 py-2.5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all"><Save size={16} /> {t('save')}</button>
                 </div>
               </div>
               <div className="p-8 flex-1 overflow-y-auto custom-scrollbar space-y-4">
@@ -344,28 +290,22 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   return (
                     <div key={key} className="p-6 rounded-[2rem] border bg-slate-50/30 border-slate-50 transition-all hover:border-indigo-100">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                        <div className="space-y-1">
-                          <span className="text-[11px] font-black text-slate-600 break-all">{h}</span>
-                          <p className="text-[8px] font-black text-slate-400 uppercase">Column Index: {i + 1}</p>
-                        </div>
-                        <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none cursor-pointer hover:border-indigo-300">
+                        <div className="space-y-1"><span className="text-[11px] font-black text-slate-600 break-all">{h}</span><p className="text-[8px] font-black text-slate-400 uppercase">Col: {i + 1}</p></div>
+                        <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold cursor-pointer">
                           <option value="custom">Manual Value</option>
                           <option value="listing">Listing Data</option>
                           <option value="template_default">Template Default</option>
-                          <option value="random">Random Generate</option>
                         </select>
                         <div className="flex-1">
                           {mapping.source === 'listing' ? (
-                            <select value={mapping.listingField} onChange={(e) => updateMapping(key, { listingField: e.target.value })} className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black outline-none focus:ring-2 focus:ring-indigo-300">
+                            <select value={mapping.listingField} onChange={(e) => updateMapping(key, { listingField: e.target.value })} className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black">
                               <option value="">-- Select Field --</option>
                               {LISTING_SOURCE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                             </select>
                           ) : mapping.source === 'custom' ? (
-                            <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold outline-none focus:border-indigo-400" placeholder="Enter value..." />
+                            <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold" placeholder="Enter value..." />
                           ) : (
-                            <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-500 uppercase italic truncate">
-                              {mapping.source === 'random' ? 'Random SKU/ID' : `Default Value: ${mapping.templateDefault || 'None'}`}
-                            </div>
+                            <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-black text-slate-500 uppercase italic truncate">{mapping.templateDefault || 'None'}</div>
                           )}
                         </div>
                       </div>
