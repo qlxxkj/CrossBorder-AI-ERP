@@ -59,7 +59,6 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
 
   for (const name of sheetNames) {
     const lowerName = name.toLowerCase();
-    // Skip non-template sheets
     if (lowerName.includes('instruction') || lowerName.includes('notice') || lowerName.includes('definitions') || lowerName.includes('valid values')) continue;
 
     const sheet = workbook.Sheets[name];
@@ -86,14 +85,11 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
 };
 
 const findHeaderRowIndex = (rows: any[][]): number => {
-  // Check Row 5 (Index 4) first as it's standard for Amazon
   if (rows[4]) {
     const rowStr = rows[4].map(c => String(c || '').toLowerCase()).join('|');
     if (HIGH_CONFIDENCE_KEYWORDS.some(kw => rowStr.includes(kw))) return 4;
   }
-
-  // Fallback search
-  for (let i = 0; i < Math.min(rows.length, 50); i++) {
+  for (let i = 0; i < Math.min(rows.length, 30); i++) {
     const row = rows[i];
     if (!row || row.length < 5) continue; 
     const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
@@ -103,7 +99,7 @@ const findHeaderRowIndex = (rows: any[][]): number => {
     if (underscoreCount > 8) score += 20;
     if (score >= 50) return i;
   }
-  return 4; // Default to index 4 (Row 5)
+  return 4;
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -164,7 +160,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       try {
         const arrayBuffer = event.target?.result as ArrayBuffer;
         const bytes = new Uint8Array(arrayBuffer);
-        // READ WITH bookVBA: true TO PRESERVE MACROS
         const workbook = XLSX.read(bytes, { type: 'array', cellNF: true, cellText: true, cellStyles: true, bookVBA: true });
         const base64File = safeEncode(bytes);
 
@@ -176,11 +171,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const humanRow = (techRowIdx > 1) ? jsonData[techRowIdx - 2] : (techRowIdx > 0 ? jsonData[techRowIdx - 1] : techRow);
         const exampleRow = jsonData[techRowIdx + 1] || [];
 
-        // US Template Notice Detection: Usually Row 7 (Index 6) if techRow is Row 5 (Index 4)
         const noticeRowIdx = techRowIdx + 2;
         const potentialNotice = jsonData[noticeRowIdx] || [];
         const noticeStr = potentialNotice.map(c => String(c || '')).join(' ');
-        // Check for specific US/CA icons or "prefilled" text
         const hasNotice = noticeStr.includes("✅") || noticeStr.includes("❌") || noticeStr.toLowerCase().includes("prefilled") || noticeStr.toLowerCase().includes("mandatory");
 
         if (!techRow || techRow.length < 2) {
@@ -201,7 +194,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           let source: any = 'custom';
           let field = '';
 
-          // Smart Auto-Mapping
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name')) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|附图/)) { 
@@ -227,7 +219,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           };
         });
 
-        // Store binary and row metadata
         mappings['__binary'] = base64File;
         mappings['__header_row_idx'] = techRowIdx;
         mappings['__sheet_name'] = sheetName;

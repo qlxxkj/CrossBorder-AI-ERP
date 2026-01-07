@@ -29,6 +29,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const [selectedTemplate, setSelectedTemplate] = useState<ExportTemplate | null>(null);
   const [targetMarket, setTargetMarket] = useState('US');
   const [exporting, setExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState('');
 
   useEffect(() => {
     fetchTemplates();
@@ -46,14 +47,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const handleExport = async () => {
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     if (!selectedTemplate || !fileBinary) {
-      alert("Template Error: Original master file not found.");
+      alert("Error: Template binary data missing. Please re-upload the template in Template Manager.");
       return;
     }
     setExporting(true);
+    setExportStatus('Reading master file...');
 
     try {
-      // 1. Read master file preserving all styles and macros
       const bytes = safeDecode(fileBinary);
+      // 重要：必须开启 cellStyles 和 bookVBA 以尽量保留宏和部分样式
       const workbook = XLSX.read(bytes, { 
         type: 'array', 
         cellStyles: true, 
@@ -67,19 +69,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const sheet = workbook.Sheets[tplSheetName];
       if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found in template.`);
 
-      // 2. Calculate Start Row
-      // Amazon Standard: Row 5 Tech Header (Index 4), Row 6 Example (Index 5).
-      // If Notice exists (Row 7 / Index 6), Data starts at Row 8 (Index 7).
-      // Else Data starts at Row 7 (Index 6).
+      // 计算起始行 (技术行 Row 5 -> Index 4)
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 4;
       const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
       const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
+
+      setExportStatus(`Injecting ${selectedListings.length} products starting at Row ${startDataRowIdx + 1}...`);
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = startDataRowIdx + rowOffset;
         const cleaned = (listing.cleaned || {}) as CleanedData;
         
-        // Data Fallback Strategy: Optimize -> Translation -> Cleaned
+        // 关键：多层数据兜底逻辑
         let opt: OptimizedData | null = null;
         if (targetMarket === 'US' || targetMarket === 'UK' || targetMarket === 'CA') {
           opt = listing.optimized || null;
@@ -87,21 +88,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           opt = listing.translations[targetMarket];
         }
         
-        // If content valid check
         const isOptValid = opt && (opt.optimized_title || opt.optimized_description);
 
         const otherImages = cleaned.other_images || [];
         const features = (isOptValid && opt?.optimized_features?.length) ? opt.optimized_features : (cleaned.features || []);
 
-        selectedTemplate.headers.forEach((h, colIdx) => {
-          const mappingKey = `col_${colIdx}`;
+        // 遍历所有映射过的列
+        Object.keys(selectedTemplate.mappings || {}).forEach(mappingKey => {
+          if (!mappingKey.startsWith('col_')) return;
+          const colIdx = parseInt(mappingKey.replace('col_', ''));
           const mapping = selectedTemplate.mappings?.[mappingKey] as FieldMapping | undefined;
           if (!mapping) return;
 
           let val: any = "";
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
-            // ROBUST FIELD EXTRACTION
             if (f === 'asin') val = listing.asin || cleaned.asin || '';
             else if (f === 'title') val = (isOptValid ? opt?.optimized_title : cleaned.title) || '';
             else if (f === 'price') val = cleaned.price || '';
@@ -133,7 +134,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
           const cellValue = (val === undefined || val === null) ? '' : val;
           
-          // Modify existing cell to preserve styles if present
+          // 原位写入以保持单元格原有对象中的样式属性（虽然社区版 XLSX 限制较大）
           if (!sheet[cellRef]) {
             sheet[cellRef] = { v: cellValue, t: (typeof cellValue === 'number') ? 'n' : 's' };
           } else {
@@ -143,12 +144,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         });
       });
 
-      // 3. Update Sheet Range
+      // 更新 Sheet 范围
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
 
-      // 4. Write back using ORIGINAL workbook to keep macros/VBA/styles
+      setExportStatus('Finalizing XLSM binary...');
+
+      // 以二进制 xlsm 格式写回
       const outData = XLSX.write(workbook, { 
         type: 'array', 
         bookType: 'xlsm', 
@@ -160,11 +163,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `AMZ_MasterExport_${targetMarket}_${Date.now()}.xlsm`;
+      link.download = `AMZ_Export_${targetMarket}_${Date.now()}.xlsm`;
       link.click();
       URL.revokeObjectURL(url);
+      setExportStatus('Download complete!');
     } catch (err: any) { 
-      console.error("Export Engine Failure:", err);
+      console.error("Export System Failure:", err);
       alert("Export failed: " + err.message); 
     } finally { 
       setExporting(false); 
@@ -192,7 +196,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             <div>
               <p className="text-xl font-black">{selectedListings.length} Products for Global Launch</p>
               <p className="text-xs font-bold text-indigo-100 opacity-80 uppercase tracking-widest mt-1">
-                Preserving VBA Macros & Master Styles (Target: {targetMarket})
+                Integrity Mode: Data Start Row {selectedTemplate?.mappings?.__has_prefill_notice ? '8' : '7'}
               </p>
             </div>
           </div>
@@ -235,7 +239,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                       </div>
                       <div className="flex-1 overflow-hidden">
                         <span className="font-black text-sm block truncate">{tmp.name}</span>
-                        <span className="text-[9px] font-bold text-slate-400 uppercase">Row {tmp.mappings?.__header_row_idx + 1} Tech Header</span>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">Row {tmp.mappings?.__header_row_idx + 1} Header</span>
                       </div>
                     </button>
                   ))
@@ -246,6 +250,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         </div>
 
         <div className="p-10 bg-slate-50 border-t border-slate-100 flex justify-end gap-5">
+          {exporting && (
+            <div className="mr-auto flex items-center gap-3 text-xs font-black text-indigo-600 uppercase animate-pulse">
+              <Loader2 className="animate-spin" size={16} /> {exportStatus}
+            </div>
+          )}
           <button onClick={onClose} className="px-10 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">
             Cancel
           </button>
@@ -255,7 +264,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             className="px-14 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
           >
             {exporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} 
-            {exporting ? 'Compiling XLSM...' : 'Download Template Package'}
+            {exporting ? 'Exporting...' : 'Start Global Launch'}
           </button>
         </div>
       </div>
