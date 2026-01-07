@@ -175,23 +175,20 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const sheetName = findAmazonTemplateSheet(workbook);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
         
+        // 1. 定位地址标签行（Technical Identifier），通常为 Row 5
         const techRowIdx = findHeaderRowIndex(jsonData);
         const techRow = jsonData[techRowIdx];
         
+        // 2. 定位显示名称行（Human Readable），通常为 Row 4
         const humanRowIdx = techRowIdx - 1 >= 0 ? techRowIdx - 1 : techRowIdx;
         const humanRow = jsonData[humanRowIdx] || [];
         
-        const exampleRowIdx = techRowIdx + 1;
-        const exampleRow = jsonData[exampleRowIdx] || [];
-
-        // 数据起始行判定 (Data Start Row)
-        // 非美国站通常是第7行（索引6），美国站通常是第8行（索引7）
+        // 3. 定位用户数据行（User Data Row），用于提取 templateDefault
+        // 美国站通常 Row 8 (idx 7)，其他站通常 Row 7 (idx 6)
         let dataStartRowIdx = techRowIdx + 2; 
         if (uploadMarketplace === 'US') {
           dataStartRowIdx = techRowIdx + 3;
         }
-
-        // 核心：寻找用户可能已经填写的数据行
         const userDataRow = jsonData[dataStartRowIdx] || [];
 
         const foundHeaders = techRow.map((apiField, idx) => {
@@ -208,21 +205,12 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           if (!apiField) return;
 
           const key = `col_${i}`;
-          const exampleVal = String(exampleRow[i] || '').trim();
-          // 优先从用户数据行获取默认填写值
+          // 核心：从用户数据行获取此模板已有的预设值
           const userDataVal = String(userDataRow[i] || '').trim();
           
           let source: any = 'custom', field = '';
-          let defaultValue = '';
-
-          // 如果用户数据行有值，优先作为默认填充值
-          if (userDataVal) {
-             defaultValue = userDataVal;
-          } else if (exampleVal && !HIGH_CONFIDENCE_KEYWORDS.some(kw => exampleVal.toLowerCase().includes(kw))) {
-             // 否则尝试使用示例数据行（如果不包含技术关键词）
-             defaultValue = exampleVal;
-          }
-
+          
+          // 自动匹配逻辑
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name')) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|main_image/)) { 
@@ -238,13 +226,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           else if (apiField.includes('standard_price')) { source = 'listing'; field = 'price'; }
           else if (apiField.includes('description')) { source = 'listing'; field = 'description'; }
           else if (apiField.includes('brand_name')) { source = 'listing'; field = 'brand'; }
+          else {
+            // 如果没匹配到 Listing 字段，但用户数据行有值，则作为 custom 并预填
+            if (userDataVal) {
+              source = 'custom';
+            } else {
+              source = 'template_default';
+            }
+          }
 
           mappings[key] = { 
             header: h, 
             source, 
             listingField: field, 
-            defaultValue: defaultValue,
-            templateDefault: exampleVal,
+            defaultValue: userDataVal, // 手动填写值的初始值
+            templateDefault: userDataVal, // 用户填写数据行的原始值
             randomType: 'alphanumeric'
           };
         });
@@ -380,7 +376,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                       onChange={(e) => setSelectedTemplate({...selectedTemplate, marketplace: e.target.value})}
                       className="bg-slate-900 text-white px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest outline-none cursor-pointer"
                      >
-                       <option value="ALL">ALL SITES</option>
                        {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.code}</option>)}
                      </select>
                      <select 
@@ -410,7 +405,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
                         <div className="space-y-1">
                           <span className="text-[11px] font-black text-slate-600 break-all">{h}</span>
-                          <p className="text-[8px] font-black text-slate-400 uppercase">Tech ID: {selectedTemplate.mappings?.['__binary'] ? (selectedTemplate.mappings?.[`col_${i}`]?.templateDefault || 'N/A') : 'N/A'}</p>
+                          <p className="text-[8px] font-black text-slate-400 uppercase">User Value: {selectedTemplate.mappings?.[`col_${i}`]?.templateDefault || '-'}</p>
                         </div>
                         <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold cursor-pointer">
                           <option value="custom">Manual Value</option>

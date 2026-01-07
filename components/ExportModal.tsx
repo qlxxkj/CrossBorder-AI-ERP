@@ -31,19 +31,16 @@ const generateRandomValue = (type?: 'alphanumeric' | 'ean13'): string => {
     const sequence = Math.floor(Math.random() * 90000 + 10000).toString();
     const base = country + manufacturer + sequence; // 12 digits
     
-    // 计算校验位
-    let sumOdd = 0;
-    let sumEven = 0;
+    // 计算校验位 (EAN-13 algorithm)
+    let sum = 0;
     for (let i = 0; i < 12; i++) {
       const digit = parseInt(base[i]);
-      if ((i + 1) % 2 === 0) sumEven += digit;
-      else sumOdd += digit;
+      sum += (i % 2 === 0) ? digit : digit * 3;
     }
-    const total = sumOdd + (sumEven * 3);
-    const checkDigit = (10 - (total % 10)) % 10;
+    const checkDigit = (10 - (sum % 10)) % 10;
     return base + checkDigit;
   } else {
-    // 默认: 3位大写字母 + 4位数字
+    // 默认: 3位大写字母 + 4位数字 (e.g., XYZ1234)
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const letters = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     const numbers = Math.floor(Math.random() * 9000 + 1000).toString();
