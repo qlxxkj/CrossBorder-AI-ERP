@@ -175,37 +175,32 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const sheetName = findAmazonTemplateSheet(workbook);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
         
-        // 1. 定位地址标签行（Technical Identifier），通常为 Row 5
         const techRowIdx = findHeaderRowIndex(jsonData);
         const techRow = jsonData[techRowIdx];
-        
-        // 2. 定位显示名称行（Human Readable），通常为 Row 4
         const humanRowIdx = techRowIdx - 1 >= 0 ? techRowIdx - 1 : techRowIdx;
         const humanRow = jsonData[humanRowIdx] || [];
         
-        // 3. 定位用户数据行（User Data Row），用于提取 templateDefault
-        // 美国站通常 Row 8 (idx 7)，其他站通常 Row 7 (idx 6)
         let dataStartRowIdx = techRowIdx + 2; 
         if (uploadMarketplace === 'US') {
           dataStartRowIdx = techRowIdx + 3;
         }
         const userDataRow = jsonData[dataStartRowIdx] || [];
 
-        const foundHeaders = techRow.map((apiField, idx) => {
-          const display = String(humanRow[idx] || '').trim();
-          const tech = String(apiField || '').trim();
-          return display || tech || `Column ${idx + 1}`;
-        });
+        // 识别所有存在内容的列（不再基于 apiField 过滤）
+        const maxCols = Math.max(techRow.length, humanRow.length);
+        const foundHeaders: string[] = [];
+        for (let i = 0; i < maxCols; i++) {
+          const display = String(humanRow[i] || '').trim();
+          const tech = String(techRow[i] || '').trim();
+          foundHeaders.push(display || tech || `Column ${i + 1}`);
+        }
 
         const mappings: Record<string, any> = {};
         let imgCount = 0, bulletCount = 0;
 
         foundHeaders.forEach((h, i) => {
           const apiField = String(techRow[i] || '').toLowerCase().trim();
-          if (!apiField) return;
-
           const key = `col_${i}`;
-          // 核心：从用户数据行获取此模板已有的预设值
           const userDataVal = String(userDataRow[i] || '').trim();
           
           let source: any = 'custom', field = '';
@@ -227,20 +222,16 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           else if (apiField.includes('description')) { source = 'listing'; field = 'description'; }
           else if (apiField.includes('brand_name')) { source = 'listing'; field = 'brand'; }
           else {
-            // 如果没匹配到 Listing 字段，但用户数据行有值，则作为 custom 并预填
-            if (userDataVal) {
-              source = 'custom';
-            } else {
-              source = 'template_default';
-            }
+            if (userDataVal) source = 'custom';
+            else source = 'template_default';
           }
 
           mappings[key] = { 
             header: h, 
             source, 
             listingField: field, 
-            defaultValue: userDataVal, // 手动填写值的初始值
-            templateDefault: userDataVal, // 用户填写数据行的原始值
+            defaultValue: userDataVal,
+            templateDefault: userDataVal,
             randomType: 'alphanumeric'
           };
         });

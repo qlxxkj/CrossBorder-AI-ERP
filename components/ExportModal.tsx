@@ -25,22 +25,24 @@ function safeDecode(base64: string): Uint8Array {
 
 const generateRandomValue = (type?: 'alphanumeric' | 'ean13'): string => {
   if (type === 'ean13') {
-    // EAN-13: 3位国家码 (690 for CN) + 4位厂商随机 + 5位流水随机 + 1位校验
-    const country = "690";
+    // EAN-13: 3位国家码 (608) + 4位厂商随机 + 5位流水随机 + 1位校验
+    const country = "608";
     const manufacturer = Math.floor(Math.random() * 9000 + 1000).toString();
     const sequence = Math.floor(Math.random() * 90000 + 10000).toString();
     const base = country + manufacturer + sequence; // 12 digits
     
-    // 计算校验位 (EAN-13 algorithm)
+    // EAN-13 校验位计算算法：
+    // 从左边起，第1、3、5、7、9、11位乘以1；第2、4、6、8、10、12位乘以3
     let sum = 0;
     for (let i = 0; i < 12; i++) {
       const digit = parseInt(base[i]);
+      // 0-indexed: i=0(pos1), i=1(pos2)...
       sum += (i % 2 === 0) ? digit : digit * 3;
     }
     const checkDigit = (10 - (sum % 10)) % 10;
     return base + checkDigit;
   } else {
-    // 默认: 3位大写字母 + 4位数字 (e.g., XYZ1234)
+    // 默认规则：3位大写字母 + 4位数字 (如 ABC1234)
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const letters = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     const numbers = Math.floor(Math.random() * 9000 + 1000).toString();
@@ -141,7 +143,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const sheet = workbook.Sheets[tplSheetName];
       
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 4;
+      // 确定起始行：优先使用识别时存储的索引，否则回退到美国站第8行，其他第7行
       const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] || (targetMarket === 'US' ? techRowIdx + 3 : techRowIdx + 2);
+
+      // 获取所有以 col_ 开头的映射键
+      const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = dataStartRowIdx + rowOffset;
@@ -153,9 +159,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         
         const isOptReady = opt && (opt.optimized_title || opt.optimized_description);
 
-        Object.keys(selectedTemplate.mappings || {}).forEach(mappingKey => {
-          if (!mappingKey.startsWith('col_')) return;
+        mappingKeys.forEach(mappingKey => {
           const colIdx = parseInt(mappingKey.replace('col_', ''));
+          if (isNaN(colIdx)) return;
+
           const mapping = selectedTemplate.mappings?.[mappingKey] as FieldMapping | undefined;
           if (!mapping) return;
 
@@ -177,17 +184,26 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               const features = (isOptReady && opt?.optimized_features?.length) ? opt.optimized_features : (cleaned.features || []);
               val = features[num - 1] || '';
             }
-          } else if (mapping.source === 'custom') val = mapping.defaultValue || '';
-          else if (mapping.source === 'random') {
-             val = generateRandomValue(mapping.randomType);
-          } else if (mapping.source === 'template_default') val = mapping.templateDefault || '';
+          } else if (mapping.source === 'custom') {
+            val = mapping.defaultValue || '';
+          } else if (mapping.source === 'random') {
+            val = generateRandomValue(mapping.randomType);
+          } else if (mapping.source === 'template_default') {
+            val = mapping.templateDefault || '';
+          }
 
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
-          if (!sheet[cellRef]) sheet[cellRef] = { v: val, t: (typeof val === 'number') ? 'n' : 's' };
-          else { sheet[cellRef].v = val; sheet[cellRef].t = (typeof val === 'number') ? 'n' : 's'; }
+          // 确保单元格被创建或更新
+          if (!sheet[cellRef]) {
+            sheet[cellRef] = { v: val, t: (typeof val === 'number') ? 'n' : 's' };
+          } else {
+            sheet[cellRef].v = val;
+            sheet[cellRef].t = (typeof val === 'number') ? 'n' : 's';
+          }
         });
       });
 
+      // 修正工作表范围，确保导出的行都被包含在内
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, dataStartRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
@@ -252,7 +268,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
             <div className="lg:col-span-8 space-y-8">
                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Default Export Option */}
                   <button onClick={handleExportCSV} className="p-8 bg-slate-50 border-2 border-slate-100 rounded-[2.5rem] flex flex-col items-center text-center group hover:border-indigo-500 transition-all hover:bg-white hover:shadow-2xl">
                      <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm mb-6"><FileText size={32} /></div>
                      <h3 className="font-black text-slate-900 uppercase tracking-widest mb-2">Default Export</h3>
@@ -260,7 +275,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                      <div className="mt-6 px-6 py-2 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest">Download CSV</div>
                   </button>
 
-                  {/* Template Selection */}
                   <div className="space-y-4">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileSpreadsheet size={14} className="text-emerald-500" /> Template Export</label>
                     <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
