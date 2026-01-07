@@ -83,7 +83,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         return row;
       });
 
-      const worksheet = XLSX.utils.json_to_slice(csvData, { header: headers });
+      // 修复：将 json_to_slice 改为 json_to_sheet
+      const worksheet = XLSX.utils.json_to_sheet(csvData, { header: headers });
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Listings");
       
@@ -94,6 +95,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       link.href = url;
       link.download = `AMZBot_DefaultExport_${Date.now()}.csv`;
       link.click();
+      URL.revokeObjectURL(url);
     } catch (err: any) {
       alert("CSV Export failed: " + err.message);
     } finally {
@@ -173,6 +175,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       link.href = url;
       link.download = `AMZBot_TemplateExport_${targetMarket}_${Date.now()}.xlsm`;
       link.click();
+      URL.revokeObjectURL(url);
     } catch (err: any) {
       alert("Template export failed: " + err.message);
     } finally {
