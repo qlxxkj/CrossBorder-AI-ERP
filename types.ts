@@ -61,6 +61,7 @@ export interface FieldMapping {
   listingField?: string; 
   defaultValue?: string;
   templateDefault?: string;
+  randomType?: 'alphanumeric' | 'ean13';
   acceptedValues?: string[]; 
 }
 

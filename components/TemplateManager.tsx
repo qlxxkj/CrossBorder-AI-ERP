@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info, Star, Filter, ArrowRightLeft, Database, Copy, Shuffle, ChevronDown, RefreshCcw, Tag, ListFilter, Search, Globe, X, DatabaseZap, Tags } from 'lucide-react';
+import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info, Star, Filter, ArrowRightLeft, Database, Copy, Shuffle, ChevronDown, RefreshCcw, Tag, ListFilter, Search, Globe, X, DatabaseZap, Tags, Sparkles } from 'lucide-react';
 import { ExportTemplate, UILanguage, FieldMapping, Category } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -89,7 +89,6 @@ const findHeaderRowIndex = (rows: any[][]): number => {
   let bestIdx = 0;
   let maxScore = -1;
 
-  // 亚马逊技术标识符行（Address Label）通常在第3-6行之间
   for (let i = 0; i < Math.min(rows.length, 60); i++) {
     const row = rows[i];
     if (!row || row.length < 5) continue; 
@@ -98,12 +97,11 @@ const findHeaderRowIndex = (rows: any[][]): number => {
     const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
     
     HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { 
-      if (rowStr.includes(kw)) score += 100; // 加重关键词权重
+      if (rowStr.includes(kw)) score += 100;
     });
 
     row.forEach(cell => {
       const s = String(cell || '').trim();
-      // 技术标识符通常包含下划线，且绝大部分为小写字母
       if (s.includes('_') && s.toLowerCase() === s && s.length > 3) score += 10;
     });
 
@@ -112,7 +110,7 @@ const findHeaderRowIndex = (rows: any[][]): number => {
       bestIdx = i;
     }
   }
-  return maxScore > 50 ? bestIdx : 2; 
+  return maxScore > 50 ? bestIdx : 4; 
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -177,29 +175,25 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const sheetName = findAmazonTemplateSheet(workbook);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
         
-        // 1. 核心定位：寻找技术标识符行（地址标签行 - Technical Identifier / Address Label）
-        // 该行通常在第5行（索引4）
         const techRowIdx = findHeaderRowIndex(jsonData);
         const techRow = jsonData[techRowIdx];
         
-        // 2. 显示名行（Human Readable Names）：地址标签行的上一行
-        // 通常在第4行（索引3）
         const humanRowIdx = techRowIdx - 1 >= 0 ? techRowIdx - 1 : techRowIdx;
         const humanRow = jsonData[humanRowIdx] || [];
         
-        // 3. 示例数据行（Example Data）：地址标签行的下一行
-        // 通常在第6行（索引5）
         const exampleRowIdx = techRowIdx + 1;
         const exampleRow = jsonData[exampleRowIdx] || [];
 
-        // 4. 数据起始行判定 (Data Start Row)
-        // 非美国站通常是第7行（跳过示例行），美国站通常是第8行（跳过示例行和提示行）
+        // 数据起始行判定 (Data Start Row)
+        // 非美国站通常是第7行（索引6），美国站通常是第8行（索引7）
         let dataStartRowIdx = techRowIdx + 2; 
         if (uploadMarketplace === 'US') {
           dataStartRowIdx = techRowIdx + 3;
         }
 
-        // 处理表头集合：以“显示名称”为准，如果没有则回退到技术标识符
+        // 核心：寻找用户可能已经填写的数据行
+        const userDataRow = jsonData[dataStartRowIdx] || [];
+
         const foundHeaders = techRow.map((apiField, idx) => {
           const display = String(humanRow[idx] || '').trim();
           const tech = String(apiField || '').trim();
@@ -214,18 +208,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           if (!apiField) return;
 
           const key = `col_${i}`;
-          // 捕获模板自带的示例数据作为默认值
           const exampleVal = String(exampleRow[i] || '').trim();
+          // 优先从用户数据行获取默认填写值
+          const userDataVal = String(userDataRow[i] || '').trim();
           
           let source: any = 'custom', field = '';
           let defaultValue = '';
 
-          // 如果示例数据非空且非标识符，作为默认填充值（Manual Value）
-          if (exampleVal && !HIGH_CONFIDENCE_KEYWORDS.some(kw => exampleVal.toLowerCase().includes(kw))) {
-            defaultValue = exampleVal;
+          // 如果用户数据行有值，优先作为默认填充值
+          if (userDataVal) {
+             defaultValue = userDataVal;
+          } else if (exampleVal && !HIGH_CONFIDENCE_KEYWORDS.some(kw => exampleVal.toLowerCase().includes(kw))) {
+             // 否则尝试使用示例数据行（如果不包含技术关键词）
+             defaultValue = exampleVal;
           }
 
-          // 核心字段自动映射逻辑
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name')) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|main_image/)) { 
@@ -246,8 +243,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             header: h, 
             source, 
             listingField: field, 
-            defaultValue: defaultValue, // 自动带入模板默认填写数据
-            templateDefault: exampleVal 
+            defaultValue: defaultValue,
+            templateDefault: exampleVal,
+            randomType: 'alphanumeric'
           };
         });
 
@@ -417,6 +415,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                         <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold cursor-pointer">
                           <option value="custom">Manual Value</option>
                           <option value="listing">Listing Data</option>
+                          <option value="random">Random Generator</option>
                           <option value="template_default">Template Default</option>
                         </select>
                         <div className="flex-1">
@@ -425,6 +424,18 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                               <option value="">-- Select Field --</option>
                               {LISTING_SOURCE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                             </select>
+                          ) : mapping.source === 'random' ? (
+                             <div className="flex items-center gap-2 bg-purple-50 p-1.5 rounded-xl border border-purple-100">
+                                <Sparkles className="text-purple-500 shrink-0" size={14} />
+                                <select 
+                                  value={mapping.randomType || 'alphanumeric'} 
+                                  onChange={(e) => updateMapping(key, { randomType: e.target.value as any })}
+                                  className="w-full bg-transparent text-[11px] font-black text-purple-700 outline-none"
+                                >
+                                  <option value="alphanumeric">3 Letters + 4 Digits</option>
+                                  <option value="ean13">EAN-13 Code</option>
+                                </select>
+                             </div>
                           ) : mapping.source === 'custom' ? (
                             <input type="text" value={mapping.defaultValue || ''} onChange={(e) => updateMapping(key, { defaultValue: e.target.value })} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold" placeholder="Enter value..." />
                           ) : (

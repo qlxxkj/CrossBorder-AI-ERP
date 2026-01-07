@@ -23,6 +23,34 @@ function safeDecode(base64: string): Uint8Array {
   return bytes;
 }
 
+const generateRandomValue = (type?: 'alphanumeric' | 'ean13'): string => {
+  if (type === 'ean13') {
+    // EAN-13: 3位国家码 (690 for CN) + 4位厂商随机 + 5位流水随机 + 1位校验
+    const country = "690";
+    const manufacturer = Math.floor(Math.random() * 9000 + 1000).toString();
+    const sequence = Math.floor(Math.random() * 90000 + 10000).toString();
+    const base = country + manufacturer + sequence; // 12 digits
+    
+    // 计算校验位
+    let sumOdd = 0;
+    let sumEven = 0;
+    for (let i = 0; i < 12; i++) {
+      const digit = parseInt(base[i]);
+      if ((i + 1) % 2 === 0) sumEven += digit;
+      else sumOdd += digit;
+    }
+    const total = sumOdd + (sumEven * 3);
+    const checkDigit = (10 - (total % 10)) % 10;
+    return base + checkDigit;
+  } else {
+    // 默认: 3位大写字母 + 4位数字
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const letters = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const numbers = Math.floor(Math.random() * 9000 + 1000).toString();
+    return letters + numbers;
+  }
+};
+
 export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListings, onClose }) => {
   const t = useTranslation(uiLang);
   const [templates, setTemplates] = useState<ExportTemplate[]>([]);
@@ -115,8 +143,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[0];
       const sheet = workbook.Sheets[tplSheetName];
       
-      // 使用识别时存储的起始行索引
-      // 如果没有存储（旧模板），则默认为技术行+3（US）或+2（其他）
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 4;
       const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] || (targetMarket === 'US' ? techRowIdx + 3 : techRowIdx + 2);
 
@@ -155,7 +181,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               val = features[num - 1] || '';
             }
           } else if (mapping.source === 'custom') val = mapping.defaultValue || '';
-          else if (mapping.source === 'template_default') val = mapping.templateDefault || '';
+          else if (mapping.source === 'random') {
+             val = generateRandomValue(mapping.randomType);
+          } else if (mapping.source === 'template_default') val = mapping.templateDefault || '';
 
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
           if (!sheet[cellRef]) sheet[cellRef] = { v: val, t: (typeof val === 'number') ? 'n' : 's' };
