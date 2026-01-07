@@ -41,7 +41,9 @@ const LISTING_SOURCE_FIELDS = [
 ];
 
 const HIGH_CONFIDENCE_KEYWORDS = [
-  'sku', 'item_sku', 'external_product_id', 'product_id', 'identificador_de_producto', 'feed_product_type'
+  'item_sku', 'external_product_id', 'feed_product_type', 'item_name', 
+  'brand_name', 'standard_price', 'main_image_url', 'product_description',
+  'bullet_point1', 'quantity', 'update_delete', 'product_id_type'
 ];
 
 function safeEncode(bytes: Uint8Array): string {
@@ -61,10 +63,12 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
   for (const name of sheetNames) {
     const lowerName = name.toLowerCase();
     if (lowerName.includes('instruction') || lowerName.includes('notice') || lowerName.includes('definitions') || lowerName.includes('valid values')) continue;
+    
     const sheet = workbook.Sheets[name];
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0, defval: '' });
     let sheetContentMaxScore = 0;
-    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    
+    for (let i = 0; i < Math.min(rows.length, 30); i++) {
       const row = rows[i];
       if (!row || row.length < 3) continue;
       const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
@@ -72,6 +76,7 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
       HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) rowScore += 20; });
       if (rowScore > sheetContentMaxScore) sheetContentMaxScore = rowScore;
     }
+    
     if (sheetContentMaxScore > maxScore) {
       maxScore = sheetContentMaxScore;
       bestSheet = name;
@@ -81,17 +86,33 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
 };
 
 const findHeaderRowIndex = (rows: any[][]): number => {
-  if (rows[4]) {
-    const rowStr = rows[4].map(c => String(c || '').toLowerCase()).join('|');
-    if (HIGH_CONFIDENCE_KEYWORDS.some(kw => rowStr.includes(kw))) return 4;
-  }
-  for (let i = 0; i < Math.min(rows.length, 30); i++) {
+  let bestIdx = 0;
+  let maxScore = -1;
+
+  // 亚马逊技术标识符行（Address Label）通常在第3-6行之间
+  for (let i = 0; i < Math.min(rows.length, 60); i++) {
     const row = rows[i];
     if (!row || row.length < 5) continue; 
+    
+    let score = 0;
     const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
-    if (HIGH_CONFIDENCE_KEYWORDS.some(kw => rowStr.includes(kw))) return i;
+    
+    HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { 
+      if (rowStr.includes(kw)) score += 100; // 加重关键词权重
+    });
+
+    row.forEach(cell => {
+      const s = String(cell || '').trim();
+      // 技术标识符通常包含下划线，且绝大部分为小写字母
+      if (s.includes('_') && s.toLowerCase() === s && s.length > 3) score += 10;
+    });
+
+    if (score > maxScore) {
+      maxScore = score;
+      bestIdx = i;
+    }
   }
-  return 4;
+  return maxScore > 50 ? bestIdx : 2; 
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -156,17 +177,35 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const sheetName = findAmazonTemplateSheet(workbook);
         const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
         
+        // 1. 核心定位：寻找技术标识符行（地址标签行 - Technical Identifier / Address Label）
+        // 该行通常在第5行（索引4）
         const techRowIdx = findHeaderRowIndex(jsonData);
         const techRow = jsonData[techRowIdx];
-        const humanRow = (techRowIdx > 1) ? jsonData[techRowIdx - 2] : (techRowIdx > 0 ? jsonData[techRowIdx - 1] : techRow);
-        const exampleRow = jsonData[techRowIdx + 1] || [];
+        
+        // 2. 显示名行（Human Readable Names）：地址标签行的上一行
+        // 通常在第4行（索引3）
+        const humanRowIdx = techRowIdx - 1 >= 0 ? techRowIdx - 1 : techRowIdx;
+        const humanRow = jsonData[humanRowIdx] || [];
+        
+        // 3. 示例数据行（Example Data）：地址标签行的下一行
+        // 通常在第6行（索引5）
+        const exampleRowIdx = techRowIdx + 1;
+        const exampleRow = jsonData[exampleRowIdx] || [];
 
-        const noticeRowIdx = techRowIdx + 2;
-        const potentialNotice = jsonData[noticeRowIdx] || [];
-        const noticeStr = potentialNotice.map(c => String(c || '')).join(' ');
-        const hasNotice = noticeStr.includes("✅") || noticeStr.includes("❌") || noticeStr.toLowerCase().includes("prefilled");
+        // 4. 数据起始行判定 (Data Start Row)
+        // 非美国站通常是第7行（跳过示例行），美国站通常是第8行（跳过示例行和提示行）
+        let dataStartRowIdx = techRowIdx + 2; 
+        if (uploadMarketplace === 'US') {
+          dataStartRowIdx = techRowIdx + 3;
+        }
 
-        const foundHeaders = humanRow.map((h, idx) => String(h || techRow[idx] || '').trim());
+        // 处理表头集合：以“显示名称”为准，如果没有则回退到技术标识符
+        const foundHeaders = techRow.map((apiField, idx) => {
+          const display = String(humanRow[idx] || '').trim();
+          const tech = String(apiField || '').trim();
+          return display || tech || `Column ${idx + 1}`;
+        });
+
         const mappings: Record<string, any> = {};
         let imgCount = 0, bulletCount = 0;
 
@@ -175,23 +214,48 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           if (!apiField) return;
 
           const key = `col_${i}`;
+          // 捕获模板自带的示例数据作为默认值
           const exampleVal = String(exampleRow[i] || '').trim();
+          
           let source: any = 'custom', field = '';
+          let defaultValue = '';
 
+          // 如果示例数据非空且非标识符，作为默认填充值（Manual Value）
+          if (exampleVal && !HIGH_CONFIDENCE_KEYWORDS.some(kw => exampleVal.toLowerCase().includes(kw))) {
+            defaultValue = exampleVal;
+          }
+
+          // 核心字段自动映射逻辑
           if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
           else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name')) { source = 'listing'; field = 'title'; }
-          else if (apiField.match(/image_url|image_location/)) { imgCount++; source = 'listing'; field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; }
-          else if (apiField.match(/bullet_point/)) { bulletCount++; source = 'listing'; field = `feature${bulletCount}`; }
+          else if (apiField.match(/image_url|image_location|main_image/)) { 
+            imgCount++; 
+            source = 'listing'; 
+            field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; 
+          }
+          else if (apiField.match(/bullet_point/)) { 
+            bulletCount++; 
+            source = 'listing'; 
+            field = `feature${bulletCount}`; 
+          }
           else if (apiField.includes('standard_price')) { source = 'listing'; field = 'price'; }
           else if (apiField.includes('description')) { source = 'listing'; field = 'description'; }
+          else if (apiField.includes('brand_name')) { source = 'listing'; field = 'brand'; }
 
-          mappings[key] = { header: h, source, listingField: field, defaultValue: '', templateDefault: exampleVal };
+          mappings[key] = { 
+            header: h, 
+            source, 
+            listingField: field, 
+            defaultValue: defaultValue, // 自动带入模板默认填写数据
+            templateDefault: exampleVal 
+          };
         });
 
         mappings['__binary'] = base64File;
         mappings['__header_row_idx'] = techRowIdx;
+        mappings['__display_header_row_idx'] = humanRowIdx;
+        mappings['__data_start_row_idx'] = dataStartRowIdx;
         mappings['__sheet_name'] = sheetName;
-        mappings['__has_prefill_notice'] = hasNotice;
 
         const { data: { session } } = await supabase.auth.getSession();
         const { data: inserted, error: insertError } = await supabase.from('templates').insert([{
@@ -243,7 +307,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const getCategoryName = (id?: string) => categories.find(c => c.id === id)?.name || 'Default';
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8 font-inter">
+    <div className="p-8 max-w-7xl mx-auto space-y-8 font-inter pb-20">
       <div className="flex flex-col xl:flex-row items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm gap-6">
         <div className="flex items-center gap-5">
           <div className="w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-xl"><FileSpreadsheet size={28} /></div>
@@ -257,7 +321,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               onChange={(e) => setUploadMarketplace(e.target.value)}
               className="pl-12 pr-10 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase tracking-widest appearance-none outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
             >
-              <option value="ALL">All Sites</option>
               {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.code}</option>)}
             </select>
           </div>
@@ -347,7 +410,10 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   return (
                     <div key={key} className="p-6 rounded-[2rem] border bg-slate-50/30 border-slate-50 transition-all hover:border-indigo-100">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                        <div className="space-y-1"><span className="text-[11px] font-black text-slate-600 break-all">{h}</span><p className="text-[8px] font-black text-slate-400 uppercase">Column Index: {i + 1}</p></div>
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-black text-slate-600 break-all">{h}</span>
+                          <p className="text-[8px] font-black text-slate-400 uppercase">Tech ID: {selectedTemplate.mappings?.['__binary'] ? (selectedTemplate.mappings?.[`col_${i}`]?.templateDefault || 'N/A') : 'N/A'}</p>
+                        </div>
                         <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold cursor-pointer">
                           <option value="custom">Manual Value</option>
                           <option value="listing">Listing Data</option>

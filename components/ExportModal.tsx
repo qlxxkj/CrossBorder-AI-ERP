@@ -66,7 +66,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     setExportStatus('Generating Default CSV...');
     
     try {
-      // 动态提取所有 cleaned 字段
       const allKeys = new Set<string>();
       selectedListings.forEach(l => {
         Object.keys(l.cleaned).forEach(k => allKeys.add(k));
@@ -83,7 +82,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         return row;
       });
 
-      // 修复：将 json_to_slice 改为 json_to_sheet
       const worksheet = XLSX.utils.json_to_sheet(csvData, { header: headers });
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Listings");
@@ -117,12 +115,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[0];
       const sheet = workbook.Sheets[tplSheetName];
       
+      // 使用识别时存储的起始行索引
+      // 如果没有存储（旧模板），则默认为技术行+3（US）或+2（其他）
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 4;
-      const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
-      const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
+      const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] || (targetMarket === 'US' ? techRowIdx + 3 : techRowIdx + 2);
 
       selectedListings.forEach((listing, rowOffset) => {
-        const rowIdx = startDataRowIdx + rowOffset;
+        const rowIdx = dataStartRowIdx + rowOffset;
         const cleaned = listing.cleaned;
         
         let opt: OptimizedData | null = null;
@@ -165,7 +164,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       });
 
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
-      range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
+      range.e.r = Math.max(range.e.r, dataStartRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
 
       const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm', bookVBA: true, cellStyles: true });
