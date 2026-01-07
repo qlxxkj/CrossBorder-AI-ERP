@@ -4,6 +4,7 @@ import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2
 import { ExportTemplate, UILanguage, FieldMapping } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
 import * as XLSX from 'xlsx';
 
 interface TemplateManagerProps {
@@ -80,7 +81,6 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
 };
 
 const findHeaderRowIndex = (rows: any[][]): number => {
-  // Amazon 官方模板技术行通常在第5行 (Index 4)
   if (rows[4]) {
     const rowStr = rows[4].map(c => String(c || '').toLowerCase()).join('|');
     if (HIGH_CONFIDENCE_KEYWORDS.some(kw => rowStr.includes(kw))) return 4;
@@ -102,6 +102,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const [selectedTemplate, setSelectedTemplate] = useState<ExportTemplate | null>(null);
   const [fieldSearchQuery, setFieldSearchQuery] = useState('');
   const [templateSearchQuery, setTemplateSearchQuery] = useState('');
+  const [uploadMarketplace, setUploadMarketplace] = useState('US');
 
   useEffect(() => {
     fetchTemplates();
@@ -141,7 +142,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       try {
         const arrayBuffer = event.target?.result as ArrayBuffer;
         const bytes = new Uint8Array(arrayBuffer);
-        // 读取时强制保留样式
         const workbook = XLSX.read(bytes, { type: 'array', cellNF: true, cellText: true, cellStyles: true, bookVBA: true });
         const base64File = safeEncode(bytes);
 
@@ -150,11 +150,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         
         const techRowIdx = findHeaderRowIndex(jsonData);
         const techRow = jsonData[techRowIdx];
-        // 人类标题行通常在 API 行上方 1-2 行
         const humanRow = (techRowIdx > 1) ? jsonData[techRowIdx - 2] : (techRowIdx > 0 ? jsonData[techRowIdx - 1] : techRow);
         const exampleRow = jsonData[techRowIdx + 1] || [];
 
-        // 提示行扫描：检查 Row 7 (techRow + 2)
         const noticeRowIdx = techRowIdx + 2;
         const potentialNotice = jsonData[noticeRowIdx] || [];
         const noticeStr = potentialNotice.map(c => String(c || '')).join(' ');
@@ -193,7 +191,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           name: file.name,
           headers: foundHeaders,
           mappings: mappings,
-          marketplace: "ALL",
+          marketplace: uploadMarketplace,
           created_at: new Date().toISOString()
         }]).select();
 
@@ -218,7 +216,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
   const saveMappings = async () => {
     if (!selectedTemplate) return;
-    const { error } = await supabase.from('templates').update({ mappings: selectedTemplate.mappings }).eq('id', selectedTemplate.id);
+    const { error } = await supabase.from('templates').update({ mappings: selectedTemplate.mappings, marketplace: selectedTemplate.marketplace }).eq('id', selectedTemplate.id);
     if (!error) alert(uiLang === 'zh' ? "配置已保存！" : "Saved!");
   };
 
@@ -228,16 +226,32 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       .filter(item => item.header && item.header.toLowerCase().includes(fieldSearchQuery.toLowerCase()));
   }, [selectedTemplate, fieldSearchQuery]);
 
+  const getFlag = (code: string) => AMAZON_MARKETPLACES.find(m => m.code === code)?.flag || '🌍';
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 font-inter">
-      <div className="flex items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+      <div className="flex flex-col md:flex-row items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm gap-6">
         <div className="flex items-center gap-5">
           <div className="w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-xl"><FileSpreadsheet size={28} /></div>
-          <div><h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2><p className="text-sm text-slate-400 font-bold uppercase tracking-widest italic">Row 5/7/8 Hybrid Logic Enabled</p></div>
+          <div><h2 className="text-3xl font-black text-slate-900 tracking-tight">{t('templateManager')}</h2><p className="text-sm text-slate-400 font-bold uppercase tracking-widest italic">Site-Specific Template Calibration</p></div>
         </div>
-        <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
-          {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />} {t('uploadTemplate')}
-        </button>
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <select 
+              value={uploadMarketplace} 
+              onChange={(e) => setUploadMarketplace(e.target.value)}
+              className="pl-12 pr-10 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase tracking-widest appearance-none outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
+            >
+              <option value="ALL">All Sites</option>
+              {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.code}</option>)}
+            </select>
+            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
+          </div>
+          <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
+            {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />} {t('uploadTemplate')}
+          </button>
+        </div>
         <input type="file" ref={fileInputRef} className="hidden" accept=".xlsm,.xlsx" onChange={handleFileUpload} />
       </div>
 
@@ -254,7 +268,14 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             {templates.filter(tmp => tmp.name.toLowerCase().includes(templateSearchQuery.toLowerCase())).map(tmp => (
               <div key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`group relative p-5 rounded-3xl border cursor-pointer transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50/30 ring-1 ring-indigo-500/10' : 'border-slate-50 bg-white hover:border-slate-200'}`}>
                 <div className="flex items-center justify-between">
-                  <div className="flex-1 overflow-hidden pr-2"><p className="font-black text-xs truncate">{tmp.name}</p><p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Tech Row: {tmp.mappings?.__header_row_idx + 1}</p></div>
+                  <div className="flex-1 overflow-hidden pr-2">
+                    <p className="font-black text-xs truncate">{tmp.name}</p>
+                    <div className="flex items-center gap-1.5 mt-1 text-[9px] font-bold text-slate-400 uppercase">
+                      <span>{getFlag(tmp.marketplace)} {tmp.marketplace}</span>
+                      <span className="opacity-30">|</span>
+                      <span>Row {tmp.mappings?.__header_row_idx + 1}</span>
+                    </div>
+                  </div>
                   <button onClick={(e) => handleDeleteTemplate(e, tmp.id)} className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={14} /></button>
                 </div>
               </div>
@@ -269,7 +290,16 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                 <div className="flex flex-col">
                   <h3 className="font-black text-slate-900 text-lg">{selectedTemplate.name}</h3>
                   <div className="flex items-center gap-3 mt-1">
-                     <span className="text-[9px] font-black bg-slate-900 text-white px-2 py-0.5 rounded uppercase tracking-widest">Tech: {selectedTemplate.mappings?.__header_row_idx + 1}</span>
+                     <div className="relative">
+                       <select 
+                        value={selectedTemplate.marketplace} 
+                        onChange={(e) => setSelectedTemplate({...selectedTemplate, marketplace: e.target.value})}
+                        className="bg-slate-900 text-white px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest outline-none cursor-pointer"
+                       >
+                         <option value="ALL">ALL</option>
+                         {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.code}</option>)}
+                       </select>
+                     </div>
                      <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-widest ${selectedTemplate.mappings?.__has_prefill_notice ? 'bg-amber-500 text-white' : 'bg-green-500 text-white'}`}>
                         Data Start: Row {selectedTemplate.mappings?.__header_row_idx + (selectedTemplate.mappings?.__has_prefill_notice ? 4 : 3)}
                      </span>
@@ -278,9 +308,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                 <div className="flex items-center gap-4 w-full sm:w-auto">
                   <div className="relative flex-1 sm:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
-                    <input type="text" placeholder={uiLang === 'zh' ? "搜索字段..." : "Search..."} value={fieldSearchQuery} onChange={(e) => setFieldSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none" />
+                    <input type="text" placeholder={uiLang === 'zh' ? "搜索字段..." : "Search..."} value={fieldSearchQuery} onChange={(e) => setFieldSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none shadow-inner" />
                   </div>
-                  <button onClick={saveMappings} className="px-8 py-2.5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all"><Save size={16} /> {t('save')}</button>
+                  <button onClick={saveMappings} className="px-8 py-2.5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 shadow-xl hover:bg-slate-800 transition-all active:scale-95"><Save size={16} /> {t('save')}</button>
                 </div>
               </div>
               <div className="p-8 flex-1 overflow-y-auto custom-scrollbar space-y-4">
@@ -290,7 +320,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   return (
                     <div key={key} className="p-6 rounded-[2rem] border bg-slate-50/30 border-slate-50 transition-all hover:border-indigo-100">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                        <div className="space-y-1"><span className="text-[11px] font-black text-slate-600 break-all">{h}</span><p className="text-[8px] font-black text-slate-400 uppercase">Col: {i + 1}</p></div>
+                        <div className="space-y-1"><span className="text-[11px] font-black text-slate-600 break-all">{h}</span><p className="text-[8px] font-black text-slate-400 uppercase">Column Index: {i + 1}</p></div>
                         <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold cursor-pointer">
                           <option value="custom">Manual Value</option>
                           <option value="listing">Listing Data</option>

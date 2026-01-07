@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Globe } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Globe, AlertCircle } from 'lucide-react';
 import { Listing, ExportTemplate, UILanguage, FieldMapping, CleanedData, OptimizedData } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -40,14 +40,28 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
     if (data) {
       setTemplates(data);
-      if (data.length > 0) setSelectedTemplate(data[0]);
     }
   };
+
+  // Filter templates by selected site
+  const filteredTemplates = useMemo(() => {
+    const list = templates.filter(t => t.marketplace === 'ALL' || t.marketplace === targetMarket);
+    return list;
+  }, [templates, targetMarket]);
+
+  // Reset selected template when site changes
+  useEffect(() => {
+    if (filteredTemplates.length > 0) {
+      setSelectedTemplate(filteredTemplates[0]);
+    } else {
+      setSelectedTemplate(null);
+    }
+  }, [filteredTemplates]);
 
   const handleExport = async () => {
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     if (!selectedTemplate || !fileBinary) {
-      alert("Template Binary data missing. Please re-upload in Template Manager.");
+      alert("Error: Template binary data missing. Please ensure you have uploaded a template for this site.");
       return;
     }
     setExporting(true);
@@ -55,7 +69,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
     try {
       const bytes = safeDecode(fileBinary);
-      // 重要：必须开启 cellStyles 和 bookVBA 以尽量保留宏和部分样式
       const workbook = XLSX.read(bytes, { 
         type: 'array', 
         cellStyles: true, 
@@ -67,10 +80,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       
       const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[0];
       const sheet = workbook.Sheets[tplSheetName];
-      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found.`);
+      if (!sheet) throw new Error(`Target sheet "${tplSheetName}" not found in template.`);
 
-      // 动态行校准：Row 5 (Index 4) 是 API 行
-      // 如果有提示行 (Row 7)，数据从 Row 8 (Index 7) 开始；否则 Row 7 (Index 6)
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 4;
       const hasNotice = selectedTemplate.mappings?.['__has_prefill_notice'] || false;
       const startDataRowIdx = techRowIdx + (hasNotice ? 3 : 2); 
@@ -81,7 +92,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         const rowIdx = startDataRowIdx + rowOffset;
         const cleaned = (listing.cleaned || {}) as CleanedData;
         
-        // 关键修复：多层级数据提取路径
         let opt: OptimizedData | null = null;
         if (targetMarket === 'US' || targetMarket === 'UK' || targetMarket === 'CA') {
           opt = listing.optimized || null;
@@ -89,7 +99,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           opt = listing.translations[targetMarket];
         }
         
-        // 只要有任何有效的 AI 数据或采集数据，就强制导出
         const isOptReady = opt && (opt.optimized_title || opt.optimized_description);
 
         Object.keys(selectedTemplate.mappings || {}).forEach(mappingKey => {
@@ -101,7 +110,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           let val: any = "";
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
-            // 鲁棒的数据兜底方案
+            // ROBUST EXTRACTION WITH DEEP FALLBACK
             if (f === 'asin') val = listing.asin || cleaned.asin || '';
             else if (f === 'title') val = (isOptReady ? opt?.optimized_title : cleaned.title) || cleaned.title || '';
             else if (f === 'price') val = cleaned.price || '';
@@ -132,25 +141,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           const finalVal = (val === undefined || val === null) ? '' : val;
           const type = (typeof finalVal === 'number') ? 'n' : 's';
           
-          // 原位覆盖：核心逻辑保留样式
-          // 我们不直接赋值给 sheet[cellRef]，而是修改其属性，保留原本可能存在的 .s (style)
           if (!sheet[cellRef]) {
             sheet[cellRef] = { v: finalVal, t: type };
           } else {
             sheet[cellRef].v = finalVal;
             sheet[cellRef].t = type;
-            // 如果是空字符串，强制类型为字符串
             if (finalVal === '') sheet[cellRef].t = 's';
           }
         });
       });
 
-      // 更新范围
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
       range.e.r = Math.max(range.e.r, startDataRowIdx + selectedListings.length - 1);
       sheet['!ref'] = XLSX.utils.encode_range(range);
 
-      setExportStatus('Finalizing binary package...');
+      setExportStatus('Finalizing XLSM binary...');
 
       const outData = XLSX.write(workbook, { 
         type: 'array', 
@@ -163,12 +168,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `AMZ_IntegrityExport_${targetMarket}_${Date.now()}.xlsm`;
+      link.download = `AMZ_Export_${targetMarket}_${Date.now()}.xlsm`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (err: any) { 
       console.error("Export System Failure:", err);
-      alert("Critical Error: " + err.message); 
+      alert("Export failed: " + err.message); 
     } finally { 
       setExporting(false); 
       onClose(); 
@@ -184,14 +189,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           </h2>
           <button onClick={onClose} className="p-3 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"><X size={28} /></button>
         </div>
+        
         <div className="p-10 space-y-10 flex-1 overflow-y-auto custom-scrollbar">
           <div className="bg-indigo-600 p-8 rounded-[2rem] shadow-2xl shadow-indigo-200 text-white flex items-center gap-6">
             <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-white backdrop-blur-md"><CheckCircle2 size={32} /></div>
             <div>
               <p className="text-xl font-black">{selectedListings.length} Selected Items</p>
-              <p className="text-xs font-bold text-indigo-100 opacity-80 uppercase tracking-widest mt-1">Integrity Mode: VBA Macros & Cell Styles Preserved</p>
+              <p className="text-xs font-bold text-indigo-100 opacity-80 uppercase tracking-widest mt-1">
+                Integrity Mode: Data Start Row {selectedTemplate?.mappings?.__has_prefill_notice ? '8' : '7'}
+              </p>
             </div>
           </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
             <div className="space-y-4">
                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Globe size={14} className="text-blue-500" /> Marketplace</label>
@@ -204,21 +213,32 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                </div>
             </div>
             <div className="space-y-4">
-               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><FileSpreadsheet size={14} className="text-emerald-500" /> Template</label>
+               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><FileSpreadsheet size={14} className="text-emerald-500" /> Site-Specific Template</label>
                <div className="space-y-3">
-                {templates.map(tmp => (
-                  <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`w-full flex items-center gap-4 p-5 rounded-2xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-lg' : 'border-slate-100 bg-white hover:border-slate-200'}`}>
-                    <div className={`p-2 rounded-lg ${selectedTemplate?.id === tmp.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}><FileSpreadsheet size={20} /></div>
-                    <div className="flex-1 overflow-hidden">
-                      <span className="font-black text-sm block truncate">{tmp.name}</span>
-                      <span className="text-[9px] font-bold text-slate-400 uppercase">Tech Row: {tmp.mappings?.__header_row_idx + 1}</span>
+                {filteredTemplates.length === 0 ? (
+                  <div className="p-12 text-center bg-slate-50 rounded-3xl border-dashed border-2 border-slate-200 flex flex-col items-center gap-4">
+                    <AlertCircle size={32} className="text-amber-500" />
+                    <div>
+                      <p className="text-xs font-black text-slate-900 uppercase">No templates for {targetMarket}</p>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase">Please upload a {targetMarket} master template in Template Manager first.</p>
                     </div>
-                  </button>
-                ))}
+                  </div>
+                ) : (
+                  filteredTemplates.map(tmp => (
+                    <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`w-full flex items-center gap-4 p-5 rounded-2xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-lg' : 'border-slate-100 bg-white hover:border-slate-200'}`}>
+                      <div className={`p-2 rounded-lg ${selectedTemplate?.id === tmp.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}><FileSpreadsheet size={20} /></div>
+                      <div className="flex-1 overflow-hidden">
+                        <span className="font-black text-sm block truncate">{tmp.name}</span>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">Row {tmp.mappings?.__header_row_idx + 1} Technical Header</span>
+                      </div>
+                    </button>
+                  ))
+                )}
                </div>
             </div>
           </div>
         </div>
+
         <div className="p-10 bg-slate-50 border-t border-slate-100 flex justify-end gap-5">
           {exporting && <div className="mr-auto flex items-center gap-3 text-xs font-black text-indigo-600 uppercase animate-pulse"><Loader2 className="animate-spin" size={16} /> {exportStatus}</div>}
           <button onClick={onClose} className="px-10 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">Cancel</button>
