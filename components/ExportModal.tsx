@@ -176,6 +176,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'brand') val = cleaned.brand || '';
             else if (f === 'description') val = (isOptReady ? opt?.optimized_description : cleaned.description) || cleaned.description || '';
             else if (f === 'main_image') val = cleaned.main_image || '';
+            // 补充：重量与尺寸字段处理
+            else if (f === 'item_weight_value') val = cleaned.item_weight_value || '';
+            else if (f === 'item_weight_unit') val = cleaned.item_weight_unit || '';
+            else if (f === 'item_length') val = cleaned.item_length || '';
+            else if (f === 'item_width') val = cleaned.item_width || '';
+            else if (f === 'item_height') val = cleaned.item_height || '';
+            else if (f === 'item_size_unit') val = cleaned.item_size_unit || '';
             else if (f?.startsWith('other_image')) {
               const num = parseInt(f.replace('other_image', '')) || 1;
               val = (cleaned.other_images || [])[num - 1] || '';
