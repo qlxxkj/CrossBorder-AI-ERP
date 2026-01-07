@@ -7,6 +7,7 @@ import { LandingPage } from './components/LandingPage';
 import { ListingDetail } from './components/ListingDetail';
 import { AuthPage } from './components/AuthPage';
 import { TemplateManager } from './components/TemplateManager';
+import { CategoryManager } from './components/CategoryManager';
 import { AppView, Listing, UILanguage } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { AlertTriangle, Loader2, Database, RefreshCcw, ShieldAlert, DatabaseZap, WifiOff, CloudOff } from 'lucide-react';
@@ -90,23 +91,13 @@ const App: React.FC = () => {
         setTimeout(() => reject(new Error('TIMEOUT')), 15000)
       );
 
-      let query;
-      if (mode === 'extreme') {
-        query = supabase
-          .from('listings')
-          .select('id, asin, marketplace, status, created_at, cleaned, user_id')
-          .eq('user_id', uid)
-          .order('created_at', { ascending: false });
-      } else {
-        query = supabase
-          .from('listings')
-          .select('*')
-          .eq('user_id', uid)
-          .order('created_at', { ascending: false });
-      }
+      let query = mode === 'extreme' 
+        ? supabase.from('listings').select('id, asin, marketplace, category_id, status, created_at, cleaned, user_id')
+        : supabase.from('listings').select('*');
 
-      const fetchPromise = query.limit(500);
-      const response: any = await Promise.race([fetchPromise, timeoutPromise]);
+      query = query.eq('user_id', uid).order('created_at', { ascending: false });
+
+      const response: any = await Promise.race([query.limit(500), timeoutPromise]);
       
       if (response.error) {
         setLastError(response.error);
@@ -119,13 +110,8 @@ const App: React.FC = () => {
       setListings(response.data || []);
       setFetchStatus('success');
     } catch (e: any) {
-      if (e.message === 'TIMEOUT') {
-        setFetchStatus('db_limit');
-        setLastError({ message: "Request timed out. The data set might be too large." });
-      } else if (e.name !== 'AbortError') {
-        setFetchStatus('error');
-        setLastError({ message: e.message });
-      }
+      if (e.message === 'TIMEOUT') setFetchStatus('db_limit');
+      else if (e.name !== 'AbortError') setFetchStatus('error');
     } finally {
       setIsInitialFetch(false);
     }
@@ -139,38 +125,12 @@ const App: React.FC = () => {
     setFetchStatus('idle');
   };
 
-  if (initError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-red-50 p-6 text-center">
-        <div className="max-w-md space-y-4">
-          <AlertTriangle className="mx-auto text-red-500" size={48} />
-          <h1 className="text-xl font-black text-red-900 uppercase tracking-tighter">Initialization Error</h1>
-          <p className="text-red-700 font-medium text-sm">{initError}</p>
-          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-red-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl">Retry</button>
-        </div>
-      </div>
-    );
-  }
-
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white space-y-4">
       <Loader2 className="animate-spin text-indigo-600" size={32} />
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Establishing Connection</p>
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Establishing Connection</p>
     </div>
   );
-
-  if (view === AppView.LANDING) {
-    return (
-      <LandingPage 
-        onLogin={() => setView(session ? AppView.DASHBOARD : AppView.AUTH)} 
-        onLogoClick={() => setView(AppView.LANDING)}
-        uiLang={lang} 
-        onLanguageChange={handleLanguageChange} 
-      />
-    );
-  }
-
-  if (view === AppView.AUTH) return <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} />;
 
   const renderContent = () => {
     if (view === AppView.LISTING_DETAIL && selectedListing) {
@@ -187,80 +147,33 @@ const App: React.FC = () => {
             if (idx === -1) return;
             const next = listings[(idx + 1) % listings.length];
             setSelectedListing(next);
-            window.scrollTo(0,0);
           }}
           uiLang={lang}
         />
       );
     }
 
-    if (fetchStatus === 'db_limit' || fetchStatus === 'error' || fetchStatus === 'rls_error') {
-      return (
-        <div className="flex-1 flex flex-col items-center justify-center p-12 text-center space-y-8 animate-in fade-in zoom-in-95 duration-500 max-w-4xl mx-auto">
-          <div className="relative group">
-            <div className={`w-32 h-32 rounded-[3rem] flex items-center justify-center shadow-2xl transition-transform group-hover:scale-110 duration-500 ${
-              fetchStatus === 'rls_error' ? 'bg-red-50 text-red-500 ring-8 ring-red-50/50' : 'bg-amber-50 text-amber-500 ring-8 ring-amber-50/50'
-            }`}>
-               {fetchStatus === 'rls_error' ? <ShieldAlert size={56} /> : <CloudOff size={56} />}
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">
-              {fetchStatus === 'rls_error' ? 'Access Restricted' : 'Sync Interrupted'}
-            </h3>
-            <p className="text-slate-500 text-sm font-medium max-w-sm mx-auto leading-relaxed">
-              {fetchStatus === 'rls_error' 
-                ? "We couldn't retrieve your data due to security restrictions. Please contact support or check your account permissions."
-                : "The data cloud is taking a bit longer than usual to respond. This can happen with very large inventory sets."}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap justify-center gap-4">
-             <button 
-                onClick={() => fetchListings(undefined, 'normal')}
-                className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-800 transition-all flex items-center gap-3"
-              >
-                <RefreshCcw size={16} /> {lang === 'zh' ? '重新连接' : 'Retry Sync'}
-              </button>
-              <button 
-                onClick={() => fetchListings(undefined, 'extreme')}
-                className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-indigo-700 transition-all flex items-center gap-3"
-              >
-                <DatabaseZap size={16} /> {lang === 'zh' ? '极速模式' : 'Extreme Lite Mode'}
-              </button>
-          </div>
-        </div>
-      );
-    }
-
     switch (activeTab) {
-      case 'dashboard': 
-        return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
-      case 'listings': 
-        return (
-          <ListingsManager 
-            onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} 
-            listings={listings} 
-            setListings={setListings} 
-            lang={lang} 
-            refreshListings={() => fetchListings()}
-            isInitialLoading={isInitialFetch}
-          />
-        );
-      case 'templates': 
-        return <TemplateManager uiLang={lang} />;
-      default: 
-        return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
+      case 'dashboard': return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
+      case 'listings': return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => fetchListings()} isInitialLoading={isInitialFetch} />;
+      case 'categories': return <CategoryManager uiLang={lang} />;
+      case 'templates': return <TemplateManager uiLang={lang} />;
+      default: return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
     }
   };
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      <Sidebar onLogout={handleLogout} onLogoClick={() => setView(AppView.LANDING)} activeTab={activeTab} setActiveTab={setActiveTab} lang={lang} />
-      <main className="ml-64 flex-1 flex flex-col h-screen overflow-hidden">
+      {view !== AppView.LANDING && view !== AppView.AUTH && (
+        <Sidebar onLogout={handleLogout} onLogoClick={() => setView(AppView.LANDING)} activeTab={activeTab} setActiveTab={setActiveTab} lang={lang} />
+      )}
+      <main className={`${view !== AppView.LANDING && view !== AppView.AUTH ? 'ml-64' : 'w-full'} flex-1 flex flex-col h-screen overflow-hidden`}>
         <div className="flex-1 overflow-y-auto custom-scrollbar">
-           {renderContent()}
+           {view === AppView.LANDING ? (
+             <LandingPage onLogin={() => setView(session ? AppView.DASHBOARD : AppView.AUTH)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} onLanguageChange={handleLanguageChange} />
+           ) : view === AppView.AUTH ? (
+             <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} />
+           ) : renderContent()}
         </div>
       </main>
     </div>

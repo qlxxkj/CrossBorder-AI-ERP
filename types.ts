@@ -1,4 +1,11 @@
 
+export interface Category {
+  id: string;
+  name: string;
+  user_id: string;
+  created_at: string;
+}
+
 export interface CleanedData {
   asin: string;
   title: string;
@@ -36,12 +43,13 @@ export interface Listing {
   user_id?: string;
   asin: string;
   marketplace: string; 
+  category_id?: string; // 新增：关联分类ID
   url?: string;
   created_at: string;
   updated_at?: string;
   status: 'collected' | 'optimizing' | 'optimized';
   cleaned: CleanedData;
-  raw?: any; // 新增：存储原始采集数据
+  raw?: any;
   optimized?: OptimizedData;
   translations?: Record<string, OptimizedData>;
 }
@@ -62,6 +70,7 @@ export interface ExportTemplate {
   required_headers?: string[];
   mappings?: Record<string, any>; 
   marketplace: string;
+  category_id?: string; // 新增：关联分类ID
   created_at: string;
 }
 
@@ -70,7 +79,8 @@ export enum AppView {
   AUTH = 'AUTH',
   DASHBOARD = 'DASHBOARD',
   LISTING_DETAIL = 'LISTING_DETAIL',
-  TEMPLATES = 'TEMPLATES'
+  TEMPLATES = 'TEMPLATES',
+  CATEGORIES = 'CATEGORIES'
 }
 
 export type UILanguage = 'en' | 'zh' | 'ja' | 'de' | 'fr' | 'es';
