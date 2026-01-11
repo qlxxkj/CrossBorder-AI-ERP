@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
   BrainCircuit, Globe, Languages, Loader2, DollarSign, Truck, Settings2, ZoomIn, Save, ChevronRight,
-  Zap, Check, AlertCircle, Weight, Ruler, Coins, ListFilter, FileText
+  Zap, Check, AlertCircle, Weight, Ruler, Coins, ListFilter, FileText, Wand2, Star, Upload
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage, PriceAdjustment, ExchangeRate } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -37,12 +37,16 @@ interface ListingDetailProps {
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState<string | null>(null);
   const [isTranslatingAll, setIsTranslatingAll] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [selectedImage, setSelectedImage] = useState<string>(listing.cleaned?.main_image || '');
@@ -78,6 +82,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const targetMktConfig = useMemo(() => 
     AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace) || AMAZON_MARKETPLACES[0]
   , [activeMarketplace]);
+
+  const allImages = useMemo(() => {
+    const main = localListing.cleaned.main_image;
+    const others = localListing.cleaned.other_images || [];
+    return [main, ...others].filter(Boolean);
+  }, [localListing]);
 
   const localizedPricing = useMemo(() => {
     const rawPrice = Number(localListing.cleaned.price) || 0;
@@ -202,6 +212,83 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formData });
+      const data = await res.json();
+      const url = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+      
+      const newOthers = [...(localListing.cleaned.other_images || []), url];
+      const updated = { ...localListing, cleaned: { ...localListing.cleaned, other_images: newOthers } };
+      setLocalListing(updated);
+      setSelectedImage(url);
+      await syncToSupabase(updated);
+    } catch (err: any) {
+      alert("Upload failed: " + err.message);
+    } finally {
+      setIsUploading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleDeleteImage = async (url: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (url === localListing.cleaned.main_image) {
+      alert("Cannot delete main image directly. Please set another image as main first.");
+      return;
+    }
+    const nextOthers = (localListing.cleaned.other_images || []).filter(u => u !== url);
+    const updated = { ...localListing, cleaned: { ...localListing.cleaned, other_images: nextOthers } };
+    setLocalListing(updated);
+    if (selectedImage === url) setSelectedImage(localListing.cleaned.main_image);
+    await syncToSupabase(updated);
+  };
+
+  const handleSetMain = async (url: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const oldMain = localListing.cleaned.main_image;
+    const others = (localListing.cleaned.other_images || []).filter(u => u !== url);
+    const nextOthers = [...others, oldMain];
+    const updated = { ...localListing, cleaned: { ...localListing.cleaned, main_image: url, other_images: nextOthers } };
+    setLocalListing(updated);
+    await syncToSupabase(updated);
+  };
+
+  const handleAIImageUpdate = async (newBase64: string) => {
+    setIsEditorOpen(false);
+    setIsUploading(true);
+    try {
+      const res = await fetch(`data:image/jpeg;base64,${newBase64}`);
+      const blob = await res.blob();
+      const formData = new FormData();
+      formData.append('file', new File([blob], 'ai-edited.jpg', { type: 'image/jpeg' }));
+      const uploadRes = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formData });
+      const uploadData = await uploadRes.json();
+      const newUrl = Array.isArray(uploadData) && uploadData[0]?.src ? `${IMAGE_HOST_DOMAIN}${uploadData[0].src}` : uploadData.url;
+
+      // 更新对应的图片
+      let updated;
+      if (selectedImage === localListing.cleaned.main_image) {
+        updated = { ...localListing, cleaned: { ...localListing.cleaned, main_image: newUrl } };
+      } else {
+        const others = (localListing.cleaned.other_images || []).map(u => u === selectedImage ? newUrl : u);
+        updated = { ...localListing, cleaned: { ...localListing.cleaned, other_images: others } };
+      }
+      setLocalListing(updated);
+      setSelectedImage(newUrl);
+      await syncToSupabase(updated);
+    } catch (e: any) {
+      alert("Saving AI image failed: " + e.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const displayVal = (field: keyof OptimizedData | string, cleanedField: string) => {
     if (activeMarketplace !== 'US' && localListing.translations?.[activeMarketplace]) {
       const val = (localListing.translations[activeMarketplace] as any)[field];
@@ -222,6 +309,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter animate-in fade-in duration-500 pb-20">
+      {isEditorOpen && (
+        <ImageEditor 
+          imageUrl={selectedImage} 
+          onClose={() => setIsEditorOpen(false)} 
+          onSave={handleAIImageUpdate} 
+        />
+      )}
+      
       <div className="flex items-center justify-between bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-slate-200 shadow-sm sticky top-4 z-40">
         <div className="flex items-center gap-6">
           <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-900 font-black text-sm uppercase tracking-widest">
@@ -241,10 +336,58 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
-            <h3 className="font-black text-slate-900 mb-6 flex items-center justify-between text-xs uppercase tracking-widest"><span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Media Gallery</span></h3>
-            <div className="relative aspect-square rounded-3xl bg-slate-50 border border-slate-100 overflow-hidden mb-6 shadow-inner"><img src={selectedImage} className="w-full h-full object-contain" alt="Main" /></div>
+          {/* Media Studio Panel */}
+          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col gap-6">
+            <h3 className="font-black text-slate-900 flex items-center justify-between text-xs uppercase tracking-widest">
+              <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Media Studio</span>
+              {isUploading && <Loader2 className="animate-spin text-blue-500" size={14} />}
+            </h3>
+            
+            <div className="relative aspect-square rounded-[2rem] bg-slate-50 border border-slate-100 overflow-hidden shadow-inner group">
+              <img src={selectedImage} className="w-full h-full object-contain" alt="Main" />
+              <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm gap-3">
+                 <button onClick={() => setIsEditorOpen(true)} className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transform hover:scale-105 active:scale-95 transition-all">
+                   <Wand2 size={16} /> AI Lab
+                 </button>
+              </div>
+              {selectedImage === localListing.cleaned.main_image && (
+                <div className="absolute top-4 left-4 px-3 py-1 bg-amber-500 text-white text-[8px] font-black uppercase rounded-full shadow-lg flex items-center gap-1">
+                  <Star size={10} /> Main
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gallery ({allImages.length})</span>
+                <button onClick={() => fileInputRef.current?.click()} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"><Upload size={14} /></button>
+                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {allImages.map((url, i) => (
+                  <div 
+                    key={i} 
+                    onClick={() => setSelectedImage(url)}
+                    className={`relative aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all group ${selectedImage === url ? 'border-indigo-500 shadow-md ring-2 ring-indigo-500/20' : 'border-slate-100 hover:border-slate-300'}`}
+                  >
+                    <img src={url} className="w-full h-full object-cover" alt={`Thumb ${i}`} />
+                    <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-1">
+                      {url !== localListing.cleaned.main_image && (
+                        <button onClick={(e) => handleSetMain(url, e)} className="p-1 bg-amber-500 text-white rounded shadow-md hover:bg-amber-600"><Star size={10} /></button>
+                      )}
+                      <button onClick={(e) => handleDeleteImage(url, e)} className="p-1 bg-red-500 text-white rounded shadow-md hover:bg-red-600"><Trash2 size={10} /></button>
+                    </div>
+                  </div>
+                ))}
+                {allImages.length < 9 && (
+                  <button onClick={() => fileInputRef.current?.click()} className="aspect-square rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-slate-300 hover:border-indigo-300 hover:text-indigo-500 transition-all">
+                    <Plus size={20} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
+
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-black text-slate-900 flex items-center gap-2 text-xs uppercase tracking-widest"><Languages size={16} className="text-purple-500" /> All Global Sites</h3>
