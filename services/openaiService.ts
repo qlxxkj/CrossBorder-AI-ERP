@@ -11,13 +11,13 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   if (!apiKey) throw new Error("OpenAI API Key is missing.");
 
   const prompt = `
-    Analyze and Optimize this Amazon Listing:
+    Analyze and Optimize this Amazon Listing for maximum conversion:
     ${JSON.stringify(cleanedData)}
 
-    [LOGISTICS EXTRACTION]
-    - Extract item_weight and dimensions.
-    - Standardize to English FULL NAMES: "pounds" and "inches".
-    - Numerical precision: 2 decimal places.
+    [TASKS]
+    - Extract Title, Brand, 5 Bullet Points, and Description.
+    - Extract item_weight and dimensions. Standardize to FULL NAMES: "pounds", "inches".
+    - Accuracy: 2 decimal places.
 
     Return JSON:
     {
@@ -62,15 +62,12 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   const prompt = `
     Translate and LOCALIZE this Amazon listing into "${targetLang}".
     
-    [CRITICAL - MEASUREMENTS CONVERSION]
-    1. MATHEMATICAL CONVERSION:
-       - If converting from Imperial (lb/in) to Metric (kg/cm) (Markets like EU, JP, ZH): 
-         Multiply weight by 0.45, multiply inches by 2.54.
-       - If target is North America/UK: Stay with Imperial.
-    2. UNIT NAMES: Use FULL NAMES in ${targetLang} (e.g., 'キログラム', 'センチメートル'). 
-       NEVER use abbreviations like 'kg' or 'cm'.
-    3. NUMERIC VALUES: Must be rounded to 2 decimal places.
-    4. TEXT: Maintain high-converting tone.
+    [CRITICAL - LOCALIZATION]
+    1. CONVERSION: Convert Imperial (lb/in) to Metric (kg/cm) for EU/JP/CN/MX/BR markets. 
+       Formula: lb * 0.45 = kg, in * 2.54 = cm.
+    2. UNITS: Use FULL NAMES in ${targetLang} (e.g., 'キログラム'). No abbreviations.
+    3. CONTENT: Translate Title, 5 Bullet Points, and Description.
+    4. PRECISION: 2 decimal places.
     
     Source: ${JSON.stringify(sourceData)}
   `;

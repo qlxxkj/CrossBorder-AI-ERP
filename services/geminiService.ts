@@ -11,9 +11,10 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 
     [CORE TASKS]
     1. Title: Max 200 chars, SEO high-conversion.
-    2. Bullets: Exactly 5, start with [KEYWORD].
-    3. Logistics: 
-       - Extract weight and dimensions from the input. 
+    2. Bullets: Exactly 5 high-impact points. Start each with [KEYWORD].
+    3. Description: 1000-1500 chars, use HTML (<p>, <br>).
+    4. Logistics: 
+       - Extract weight and dimensions. 
        - Standardize to English FULL NAMES: "pounds" and "inches".
        - Format numbers to 2 decimal places.
     
@@ -59,17 +60,15 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const prompt = `
     Translate and LOCALIZE this Amazon listing into the language of "${targetLang}".
     
-    [CRITICAL - MEASUREMENTS CONVERSION]
-    1. UNIT SYSTEM: 
-       - If ${targetLang} is associated with Metric countries (JP, DE, FR, IT, ES, MX, BR, CN): 
-         YOU MUST MATHEMATICALLY CONVERT: "pounds" to "kilograms" (multiply by 0.45) and "inches" to "centimeters" (multiply by 2.54).
-       - If ${targetLang} is for Imperial countries (US, CA, UK): Keep "pounds" and "inches".
-    2. UNIT NAMES: Use FULL NAMES in ${targetLang}. NEVER use abbreviations like 'kg', 'lb', 'cm', 'in'.
-       - Japanese: "キログラム", "センチメートル"
-       - Chinese: "千克", "厘米"
-       - German: "Kilogramm", "Zentimeter"
-    3. PRECISION: Rounded to exactly 2 decimal places.
-    4. TEXT: Translate all copy naturally for the target marketplace.
+    [CRITICAL - LOCALIZATION RULES]
+    1. CONTENT: Translate Title, 5 Bullet Points, and Description naturally.
+    2. UNIT SYSTEM: 
+       - If ${targetLang} is for Metric markets (JP, DE, FR, IT, ES, MX, BR, CN): 
+         CONVERT: "pounds" to "kilograms" (x0.45) and "inches" to "centimeters" (x2.54).
+       - If ${targetLang} is for Imperial markets (US, CA, UK): Keep "pounds" and "inches".
+    3. UNIT NAMES: Use FULL NAMES in ${targetLang}. NO abbreviations (no kg, lb, cm, in).
+       - Examples: "キログラム", "センチメートル", "千克", "厘米".
+    4. PRECISION: 2 decimal places for all numbers.
 
     Source Content: ${JSON.stringify(sourceData)}
   `;
@@ -94,7 +93,7 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
             optimized_height: { type: Type.STRING },
             optimized_size_unit: { type: Type.STRING }
           },
-          required: ["optimized_title", "optimized_weight_value", "optimized_weight_unit", "optimized_length", "optimized_size_unit"]
+          required: ["optimized_title", "optimized_features", "optimized_description", "optimized_weight_value", "optimized_weight_unit", "optimized_length", "optimized_size_unit"]
         }
       }
     });
