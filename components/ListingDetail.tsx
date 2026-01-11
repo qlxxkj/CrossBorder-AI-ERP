@@ -37,7 +37,6 @@ interface ListingDetailProps {
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -71,9 +70,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setLastSaved(null);
   }, [listing.id]);
 
-  const currentContent = activeMarketplace === 'US' 
-    ? (localListing.optimized || null)
-    : (localListing.translations?.[activeMarketplace] || null);
+  const currentContent = useMemo(() => {
+    if (activeMarketplace === 'US') return localListing.optimized || null;
+    return localListing.translations?.[activeMarketplace] || null;
+  }, [localListing, activeMarketplace]);
 
   const targetMktConfig = useMemo(() => 
     AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace) || AMAZON_MARKETPLACES[0]
@@ -111,7 +111,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       if (error) throw error;
       onUpdate({ ...targetListing, updated_at: new Date().toISOString() });
       setLastSaved(new Date().toLocaleTimeString());
-    } catch (e: any) { alert("Save failed: " + e.message); } finally { setIsSaving(false); }
+    } catch (e: any) { 
+      console.error("Save failed:", e);
+    } finally { 
+      setIsSaving(false); 
+    }
   };
 
   const handleSaveAndNext = async () => { await syncToSupabase(localListing); onNext(); };
@@ -141,11 +145,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const updated = { ...localListing, status: 'optimized' as const, optimized: opt };
       setLocalListing(updated);
       await syncToSupabase(updated);
-    } catch (e: any) { alert(e.message); } finally { setIsOptimizing(false); }
+    } catch (e: any) { 
+      alert("Optimization failed: " + e.message); 
+    } finally { 
+      setIsOptimizing(false); 
+    }
   };
 
   const handleTranslate = async (mktCode: string) => {
-    if (!localListing.optimized) { alert("Optimize base first."); return; }
+    if (!localListing.optimized) { 
+      alert("Please optimize the English base first."); 
+      return; 
+    }
     setIsTranslating(mktCode);
     try {
       const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
@@ -156,26 +167,39 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       setLocalListing(updated);
       await syncToSupabase(updated);
       setActiveMarketplace(mktCode);
-    } catch (e: any) { alert(e.message); } finally { setIsTranslating(null); }
+    } catch (e: any) { 
+      alert(`Translation for ${mktCode} failed: ` + e.message); 
+    } finally { 
+      setIsTranslating(null); 
+    }
   };
 
   const handleTranslateAll = async () => {
-    if (!localListing.optimized) { alert("Optimize base first."); return; }
+    if (!localListing.optimized) { alert("Optimize base content first."); return; }
     setIsTranslatingAll(true);
     try {
       const currentTranslations = { ...(localListing.translations || {}) };
       for (const mkt of AMAZON_MARKETPLACES) {
         if (mkt.code === 'US') continue;
         setIsTranslating(mkt.code);
-        const translated = aiProvider === 'gemini'
-          ? await translateListingWithAI(localListing.optimized!, mkt.name)
-          : await translateListingWithOpenAI(localListing.optimized!, mkt.name);
-        currentTranslations[mkt.code] = translated;
+        try {
+          const translated = aiProvider === 'gemini'
+            ? await translateListingWithAI(localListing.optimized!, mkt.name)
+            : await translateListingWithOpenAI(localListing.optimized!, mkt.name);
+          currentTranslations[mkt.code] = translated;
+        } catch (mktErr) {
+          console.error(`Skipping ${mkt.code} due to error:`, mktErr);
+        }
       }
       const updated = { ...localListing, translations: currentTranslations };
       setLocalListing(updated);
       await syncToSupabase(updated);
-    } catch (e: any) { alert(e.message); } finally { setIsTranslatingAll(false); setIsTranslating(null); }
+      setIsTranslating(null);
+    } catch (e: any) {
+      alert("Batch translation error: " + e.message);
+    } finally {
+      setIsTranslatingAll(false);
+    }
   };
 
   const displayVal = (field: keyof OptimizedData | string, cleanedField: string) => {
@@ -199,7 +223,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter animate-in fade-in duration-500 pb-20">
       <div className="flex items-center justify-between bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-slate-200 shadow-sm sticky top-4 z-40">
-        <div className="flex items-center gap-6"><button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-900 font-black text-sm uppercase tracking-widest"><ArrowLeft size={18} className="mr-2" /> {t('back')}</button> {lastSaved && <div className="flex items-center gap-1.5 text-[10px] font-black text-green-500 uppercase bg-green-50 px-3 py-1 rounded-full border border-green-100"><Check size={12} /> Auto-saved @ {lastSaved}</div>}</div>
+        <div className="flex items-center gap-6">
+          <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-900 font-black text-sm uppercase tracking-widest">
+            <ArrowLeft size={18} className="mr-2" /> {t('back')}
+          </button> 
+          {lastSaved && <div className="flex items-center gap-1.5 text-[10px] font-black text-green-500 uppercase bg-green-50 px-3 py-1 rounded-full border border-green-100"><Check size={12} /> Auto-saved @ {lastSaved}</div>}
+        </div>
         <div className="flex gap-4 items-center">
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button onClick={() => setAiProvider('gemini')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase transition-all ${aiProvider === 'gemini' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Gemini</button>
@@ -237,7 +266,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
              <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Edit2 size={14} /> Global Editor &bull; {targetMktConfig.name}</h4>
-               {activeMarketplace !== 'US' && <div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase bg-amber-50 px-3 py-1 rounded-full border border-amber-100"><Coins size={12} /> Live Rate & Local Unit Applied</div>}
+               {activeMarketplace !== 'US' && <div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase bg-amber-50 px-3 py-1 rounded-full border border-amber-100"><Coins size={12} /> Unit System & Rate Applied</div>}
              </div>
              
              <div className="p-8 border-b border-slate-100 bg-slate-50/20 space-y-8">
@@ -245,13 +274,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                  <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><DollarSign size={10} /> Price ({localizedPricing.currency})</label>
                    <div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300 pointer-events-none">{localizedPricing.currency}</span>
-                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.price} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className={`w-full pl-12 pr-5 py-4 bg-white border ${activeMarketplace !== 'US' ? 'border-amber-100 bg-amber-50/30' : 'border-slate-200'} rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner`} />
+                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.price} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 outline-none" />
                    </div>
                  </div>
                  <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Truck size={10} /> Shipping ({localizedPricing.currency})</label>
                    <div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300 pointer-events-none">{localizedPricing.currency}</span>
-                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.shipping} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className={`w-full pl-12 pr-5 py-4 bg-white border ${activeMarketplace !== 'US' ? 'border-amber-100 bg-amber-50/30' : 'border-slate-200'} rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner`} />
+                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.shipping} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 outline-none" />
                    </div>
                  </div>
                </div>
@@ -261,7 +290,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Weight size={10} /> Localized Weight</label>
                     <div className="flex gap-2">
                       <input type="text" value={formatDecimal(displayVal('optimized_weight_value', 'item_weight_value'))} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_value' : `translations.${activeMarketplace}.optimized_weight_value`, e.target.value)} onBlur={handleBlur} className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none shadow-sm" />
-                      <input type="text" value={displayVal('optimized_weight_unit', 'item_weight_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_unit' : `translations.${activeMarketplace}.optimized_weight_unit`, e.target.value)} onBlur={handleBlur} placeholder="Unit" className="w-32 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-600 outline-none shadow-sm text-center" />
+                      <input type="text" value={displayVal('optimized_weight_unit', 'item_weight_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_unit' : `translations.${activeMarketplace}.optimized_weight_unit`, e.target.value)} onBlur={handleBlur} placeholder="Unit" className="w-32 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-600 outline-none text-center" />
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -282,16 +311,20 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <div className="flex justify-between items-center"><label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Localized Title</label><CharCounter count={currentContent.optimized_title?.length || 0} limit={LIMITS.TITLE} /></div>
                     <textarea value={currentContent.optimized_title || ''} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_title' : `translations.${activeMarketplace}.optimized_title`, e.target.value)} onBlur={handleBlur} className="w-full p-5 bg-white border border-slate-200 rounded-2xl text-base font-bold text-slate-800 outline-none min-h-[80px] leading-relaxed transition-all shadow-sm" />
                  </div>
+                 
                  <div className="space-y-2">
                     <div className="flex justify-between items-center"><label className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Search Keywords</label><CharCounter count={currentContent.search_keywords?.length || 0} limit={LIMITS.KEYWORDS} /></div>
-                    <input value={currentContent.search_keywords || ''} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.search_keywords' : `translations.${activeMarketplace}.search_keywords`, e.target.value)} onBlur={handleBlur} className="w-full px-5 py-4 bg-slate-50/50 border border-slate-200 rounded-2xl text-sm font-mono tracking-tight text-slate-600 outline-none shadow-inner" />
+                    <input value={currentContent.search_keywords || ''} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.search_keywords' : `translations.${activeMarketplace}.search_keywords`, e.target.value)} onBlur={handleBlur} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-mono tracking-tight text-slate-600 outline-none shadow-inner" />
                  </div>
-                 
+
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-4">
                        <div className="flex items-center justify-between bg-slate-50 p-3 rounded-2xl">
                           <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Bullet Points</label>
-                          <button onClick={() => { const next = [...(currentContent.optimized_features || []), ""]; if (activeMarketplace === 'US') handleFieldChange('optimized.optimized_features', next); else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next); }} className="p-1 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-all"><Plus size={14} /></button>
+                          <button onClick={() => { 
+                            const next = [...(currentContent.optimized_features || []), ""]; 
+                            handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_features' : `translations.${activeMarketplace}.optimized_features`, next);
+                          }} className="p-1 text-indigo-600 hover:bg-indigo-100 rounded-lg"><Plus size={14} /></button>
                        </div>
                        <div className="space-y-4">
                           {(currentContent.optimized_features || []).map((f: string, i: number) => (
@@ -299,11 +332,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                 <div className="absolute -left-3 top-4 w-6 h-6 bg-slate-900 text-white rounded-full flex items-center justify-center text-[10px] font-black z-10 shadow-lg">{i + 1}</div>
                                 <textarea 
                                    value={f} 
-                                   onChange={(e) => { const next = [...currentContent.optimized_features]; next[i] = e.target.value; if (activeMarketplace === 'US') handleFieldChange('optimized.optimized_features', next); else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next); }}
+                                   onChange={(e) => { 
+                                     const next = [...currentContent.optimized_features]; 
+                                     next[i] = e.target.value; 
+                                     handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_features' : `translations.${activeMarketplace}.optimized_features`, next); 
+                                   }}
                                    onBlur={handleBlur}
-                                   className="w-full p-5 pl-7 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 min-h-[80px] shadow-sm group-hover:shadow-md transition-all"
+                                   className="w-full p-5 pl-7 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 min-h-[80px] shadow-sm"
                                 />
-                                <button onClick={() => { const next = currentContent.optimized_features.filter((_: any, idx: number) => idx !== i); if (activeMarketplace === 'US') handleFieldChange('optimized.optimized_features', next); else handleFieldChange(`translations.${activeMarketplace}.optimized_features`, next); }} className="absolute -right-2 -top-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"><Trash2 size={12} /></button>
+                                <button onClick={() => { 
+                                  const next = currentContent.optimized_features.filter((_: any, idx: number) => idx !== i); 
+                                  handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_features' : `translations.${activeMarketplace}.optimized_features`, next); 
+                                }} className="absolute -right-2 -top-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={12} /></button>
                              </div>
                           ))}
                        </div>
@@ -318,13 +358,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                           onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_description' : `translations.${activeMarketplace}.optimized_description`, e.target.value)}
                           onBlur={handleBlur}
                           className="w-full p-6 bg-white border border-slate-200 rounded-[2rem] text-xs font-medium text-slate-600 outline-none focus:border-indigo-500 min-h-[500px] leading-loose shadow-sm"
-                          placeholder="HTML Description Content..."
+                          placeholder="HTML Content..."
                        />
                     </div>
                  </div>
                </div>
              ) : (
-               <div className="p-32 text-center flex flex-col items-center justify-center gap-6 flex-1 bg-slate-50/30"><div className="w-24 h-24 bg-white rounded-[2rem] border border-slate-100 shadow-xl flex items-center justify-center text-slate-100 transform rotate-12"><BrainCircuit size={48} /></div><div className="space-y-2 max-w-sm"><p className="text-slate-800 font-black text-xl tracking-tight uppercase">Ready to Optimize</p><p className="text-slate-400 font-medium text-xs italic">Generate cross-border content in seconds using Dual-Engine AI.</p></div><button onClick={handleOptimize} className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl hover:bg-slate-800 transition-all">Start Engine</button></div>
+               <div className="p-32 text-center flex flex-col items-center justify-center gap-6 flex-1 bg-slate-50/30"><div className="w-24 h-24 bg-white rounded-[2rem] border border-slate-100 shadow-xl flex items-center justify-center text-slate-100 transform rotate-12"><BrainCircuit size={48} /></div><p className="text-slate-800 font-black text-xl tracking-tight uppercase">Ready to Optimize</p><button onClick={handleOptimize} className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl hover:bg-slate-800 transition-all">Start Engine</button></div>
              )}
           </div>
         </div>

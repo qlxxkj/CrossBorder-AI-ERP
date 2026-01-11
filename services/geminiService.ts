@@ -41,10 +41,14 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
             optimized_height: { type: Type.STRING },
             optimized_size_unit: { type: Type.STRING }
           },
-          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords", "optimized_weight_value", "optimized_weight_unit"]
+          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
         }
       }
     });
+
+    if (!response.candidates || response.candidates.length === 0) {
+      throw new Error("Gemini returned no response candidates.");
+    }
 
     const text = response.text || "{}";
     return JSON.parse(text.trim()) as OptimizedData;
@@ -64,11 +68,12 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     1. CONTENT: Translate Title, 5 Bullet Points, and Description naturally.
     2. UNIT SYSTEM: 
        - If ${targetLang} is for Metric markets (JP, DE, FR, IT, ES, MX, BR, CN): 
-         CONVERT: "pounds" to "kilograms" (x0.45) and "inches" to "centimeters" (x2.54).
+         YOU MUST MATHEMATICALLY CONVERT: "pounds" to "kilograms" (multiply by 0.45) and "inches" to "centimeters" (multiply by 2.54).
        - If ${targetLang} is for Imperial markets (US, CA, UK): Keep "pounds" and "inches".
-    3. UNIT NAMES: Use FULL NAMES in ${targetLang}. NO abbreviations (no kg, lb, cm, in).
-       - Examples: "キログラム", "センチメートル", "千克", "厘米".
-    4. PRECISION: 2 decimal places for all numbers.
+    3. UNIT NAMES: Use FULL NAMES in ${targetLang}. NEVER use abbreviations like 'kg', 'lb', 'cm', 'in'.
+       - Japanese: "キログラム", "センチメートル"
+       - Chinese: "千克", "厘米"
+    4. PRECISION: Rounded to 2 decimal places.
 
     Source Content: ${JSON.stringify(sourceData)}
   `;
@@ -93,10 +98,14 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
             optimized_height: { type: Type.STRING },
             optimized_size_unit: { type: Type.STRING }
           },
-          required: ["optimized_title", "optimized_features", "optimized_description", "optimized_weight_value", "optimized_weight_unit", "optimized_length", "optimized_size_unit"]
+          required: ["optimized_title", "optimized_features", "optimized_description"]
         }
       }
     });
+
+    if (!response.candidates || response.candidates.length === 0) {
+      throw new Error("Gemini translation returned no content.");
+    }
 
     const text = response.text || "{}";
     return JSON.parse(text.trim()) as OptimizedData;
@@ -106,25 +115,49 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   }
 };
 
-export const editImageWithAI = async (imageBase64: string, instruction: string): Promise<string> => {
+// Fix: Add editImageWithAI to handle image editing using gemini-2.5-flash-image
+/**
+ * Edits an image using Gemini AI (gemini-2.5-flash-image).
+ * @param base64ImageData - Base64 encoded image data (without data URL prefix).
+ * @param prompt - Text instructions for editing.
+ * @returns Base64 encoded string of the edited image.
+ */
+export const editImageWithAI = async (base64ImageData: string, prompt: string): Promise<string> => {
+  // Create a new GoogleGenAI instance right before making an API call to ensure it always uses the most up-to-date API key.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
-          { inlineData: { mimeType: 'image/jpeg', data: imageBase64 } },
-          { text: instruction }
-        ]
-      }
+          {
+            inlineData: {
+              data: base64ImageData,
+              mimeType: 'image/jpeg',
+            },
+          },
+          {
+            text: prompt,
+          },
+        ],
+      },
     });
-    const candidates = response.candidates;
-    if (candidates && candidates.length > 0) {
-      const parts = candidates[0].content.parts;
-      for (const part of parts) {
-        if (part.inlineData && part.inlineData.data) return part.inlineData.data;
+
+    if (!response.candidates || response.candidates.length === 0) {
+      throw new Error("Gemini returned no response candidates for image editing.");
+    }
+
+    // Iterate through candidates and parts to find the image part as per guidelines.
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return part.inlineData.data;
       }
     }
-    throw new Error("No image generated.");
-  } catch (error) { throw error; }
+    
+    throw new Error("No image data returned from Gemini in response parts.");
+  } catch (error) {
+    console.error("AI Image Editing failed:", error);
+    throw error;
+  }
 };

@@ -48,6 +48,10 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
       })
     });
     const data = await response.json();
+    
+    if (data.error) throw new Error(data.error.message || "OpenAI API Error");
+    if (!data.choices || data.choices.length === 0) throw new Error("OpenAI returned empty choices.");
+
     return JSON.parse(data.choices[0].message.content) as OptimizedData;
   } catch (error: any) { throw error; }
 };
@@ -86,6 +90,10 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
       })
     });
     const data = await response.json();
+    
+    if (data.error) throw new Error(data.error.message || "OpenAI Translation Error");
+    if (!data.choices || data.choices.length === 0) throw new Error("OpenAI returned no translation content.");
+
     return JSON.parse(data.choices[0].message.content) as OptimizedData;
   } catch (error: any) { throw error; }
 };
