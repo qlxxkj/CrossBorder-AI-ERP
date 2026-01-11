@@ -23,6 +23,14 @@ function safeDecode(base64: string): Uint8Array {
   return bytes;
 }
 
+// 辅助函数：导出时的数值格式化（保留2位）
+const formatExportVal = (val: any) => {
+  if (val === undefined || val === null || val === '') return '';
+  const num = parseFloat(String(val));
+  if (isNaN(num)) return val;
+  return parseFloat(num.toFixed(2));
+};
+
 const generateRandomValue = (type?: 'alphanumeric' | 'ean13'): string => {
   if (type === 'ean13') {
     const country = "608";
@@ -224,20 +232,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             
             else if (f === 'item_weight_value') {
               val = localOpt?.optimized_weight_value || cleaned.item_weight_value || '';
-              if (targetMarket === 'JP' && !isNaN(Number(val))) val = Math.round(Number(val));
+              val = formatExportVal(val);
             }
             else if (f === 'item_weight_unit') val = localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '';
             else if (f === 'item_length') {
               val = localOpt?.optimized_length || cleaned.item_length || '';
-              if (targetMarket === 'JP' && !isNaN(Number(val))) val = Math.round(Number(val));
+              val = formatExportVal(val);
             }
             else if (f === 'item_width') {
               val = localOpt?.optimized_width || cleaned.item_width || '';
-              if (targetMarket === 'JP' && !isNaN(Number(val))) val = Math.round(Number(val));
+              val = formatExportVal(val);
             }
             else if (f === 'item_height') {
               val = localOpt?.optimized_height || cleaned.item_height || '';
-              if (targetMarket === 'JP' && !isNaN(Number(val))) val = Math.round(Number(val));
+              val = formatExportVal(val);
             }
             else if (f === 'item_size_unit') val = localOpt?.optimized_size_unit || cleaned.item_size_unit || '';
             

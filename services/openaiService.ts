@@ -25,6 +25,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     3. Description: 1000-1500 chars, use HTML (<p>, <br>).
     4. Measurements: 
        - Units MUST be full names in English (e.g., "pounds" instead of "lb", "inches" instead of "in").
+       - Numeric values (Weight/Size) MUST NOT exceed 2 decimal places.
     5. Prohibited: No brands, no extreme adjectives.
 
     Return JSON structure:
@@ -42,7 +43,6 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     }
   `;
 
-  // 处理 CORS：如果是官方域名且在浏览器端运行，则使用代理
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("api.openai.com") 
     ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` 
@@ -100,9 +100,7 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     [CRITICAL - MEASUREMENTS LOCALIZATION]
     1. CONVERT values if units change (e.g., Imperial to Metric).
     2. UNITS MUST BE FULL NAMES in ${targetLang}. NEVER USE ABBREVIATIONS.
-       - Example (ZH): 'pounds' -> '磅', 'kilograms' -> '千克', 'inches' -> '英寸', 'centimeters' -> '厘米'.
-       - Example (JA): 'kilograms' -> 'キログラム', 'centimeters' -> 'センチメートル'.
-       - Example (DE): 'kilograms' -> 'Kilogramm', 'centimeters' -> 'Zentimeter'.
+    3. NUMERIC VALUES (Weight/Length/Width/Height) MUST NOT EXCEED 2 DECIMAL PLACES.
     
     Maintain JSON keys.
     Source:

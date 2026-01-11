@@ -20,6 +20,14 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
+// 辅助函数：安全地保留2位小数
+const formatDecimal = (val: any) => {
+  if (val === undefined || val === null || val === '') return '';
+  const num = parseFloat(String(val));
+  if (isNaN(num)) return val;
+  return Number(num.toFixed(2)).toString();
+};
+
 interface ListingDetailProps {
   listing: Listing;
   onBack: () => void;
@@ -390,7 +398,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <div className="flex gap-2">
                       <input 
                         type="text" 
-                        value={currentContent?.optimized_weight_value || (activeMarketplace === 'US' ? (localListing.cleaned?.item_weight_value || '') : '')} 
+                        value={formatDecimal(currentContent?.optimized_weight_value || (activeMarketplace === 'US' ? (localListing.cleaned?.item_weight_value || '') : ''))} 
                         onChange={(e) => {
                           const path = activeMarketplace === 'US' ? 'optimized.optimized_weight_value' : `translations.${activeMarketplace}.optimized_weight_value`;
                           handleFieldChange(path, e.target.value);
@@ -420,21 +428,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <div className="flex gap-2">
                       <input 
                         placeholder="L"
-                        value={currentContent?.optimized_length || (activeMarketplace === 'US' ? (localListing.cleaned?.item_length || '') : '')}
+                        value={formatDecimal(currentContent?.optimized_length || (activeMarketplace === 'US' ? (localListing.cleaned?.item_length || '') : ''))}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_length' : `translations.${activeMarketplace}.optimized_length`, e.target.value)}
                         onBlur={handleBlur}
                         className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
                       />
                       <input 
                         placeholder="W"
-                        value={currentContent?.optimized_width || (activeMarketplace === 'US' ? (localListing.cleaned?.item_width || '') : '')}
+                        value={formatDecimal(currentContent?.optimized_width || (activeMarketplace === 'US' ? (localListing.cleaned?.item_width || '') : ''))}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_width' : `translations.${activeMarketplace}.optimized_width`, e.target.value)}
                         onBlur={handleBlur}
                         className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
                       />
                       <input 
                         placeholder="H"
-                        value={currentContent?.optimized_height || (activeMarketplace === 'US' ? (localListing.cleaned?.item_height || '') : '')}
+                        value={formatDecimal(currentContent?.optimized_height || (activeMarketplace === 'US' ? (localListing.cleaned?.item_height || '') : ''))}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_height' : `translations.${activeMarketplace}.optimized_height`, e.target.value)}
                         onBlur={handleBlur}
                         className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 

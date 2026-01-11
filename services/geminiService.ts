@@ -14,6 +14,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     3. Description: 1000-1500 characters. Use HTML tags like <p> and <br>.
     4. Measurements: Standardize weight and dimensions. 
        - Units MUST be full names in English (e.g., "pounds" instead of "lb", "inches" instead of "in").
+       - Numeric values MUST NOT exceed 2 decimal places.
     5. PROHIBITED: No Brand Names, No Extreme Words.
 
     Analyze and optimize:
@@ -62,9 +63,7 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     [CRITICAL - MEASUREMENTS LOCALIZATION]
     1. If the target country uses Metric (kg/cm) and source is Imperial (lb/in), YOU MUST CONVERT values.
     2. UNITS MUST BE FULL NAMES in ${targetLang}. DO NOT USE ABBREVIATIONS.
-       - Examples for Chinese: 'pounds' -> '磅', 'kilograms' -> '千克', 'inches' -> '厘米'.
-       - Examples for Japanese: 'kilograms' -> 'キログラム', 'centimeters' -> 'センチメートル'.
-       - Examples for German: 'kilograms' -> 'Kilogramm', 'centimeters' -> 'Zentimeter'.
+    3. NUMERIC VALUES (Weight/Length/Width/Height) MUST NOT EXCEED 2 DECIMAL PLACES.
     
     Maintain SEO performance and Amazon compliance. Output JSON only.
 
