@@ -98,7 +98,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     const price = Number(listing.cleaned.price) || 0;
     const shipping = Number(listing.cleaned.shipping) || 0;
     
-    // 如果目标是美国，直接返回
     if (targetMkt === 'US') return price;
 
     let basePrice = price;
@@ -190,10 +189,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         const rowIdx = dataStartRowIdx + rowOffset;
         const cleaned = listing.cleaned;
         
-        // 关键：获取目标市场的本地化数据
-        // 1. translations[targetMarket]
-        // 2. 如果是 US 或 未翻译，使用 optimized
-        // 3. 回退 cleaned
         const localOpt: OptimizedData | null = (targetMarket !== 'US' && listing.translations?.[targetMarket]) 
           ? listing.translations[targetMarket] 
           : (listing.optimized || null);
@@ -210,11 +205,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             const f = mapping.listingField;
             if (f === 'asin') val = listing.asin || cleaned.asin || '';
             else if (f === 'title') val = localOpt?.optimized_title || cleaned.title || '';
-            else if (f === 'price') {
-              val = calculateFinalPrice(listing, targetMarket);
-            }
+            else if (f === 'price') val = calculateFinalPrice(listing, targetMarket);
             else if (f === 'shipping') {
-              // 运费也通过汇率换算显示到对应市场
               const rate = exchangeRates.find(r => r.marketplace === targetMarket)?.rate || 1;
               val = parseFloat(((cleaned.shipping || 0) * rate).toFixed(2));
             }
@@ -222,7 +214,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'description') val = localOpt?.optimized_description || cleaned.description || '';
             else if (f === 'main_image') val = cleaned.main_image || '';
             
-            // 物流参数：优先使用本地化（换算后）的值，没有则回退原始
+            // 物流导出：优先提取对应站点的翻译/换算结果
             else if (f === 'item_weight_value') val = localOpt?.optimized_weight_value || cleaned.item_weight_value || '';
             else if (f === 'item_weight_unit') val = localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '';
             else if (f === 'item_length') val = localOpt?.optimized_length || cleaned.item_length || '';
@@ -247,12 +239,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           }
 
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
-          if (!sheet[cellRef]) {
-            sheet[cellRef] = { v: val, t: (typeof val === 'number') ? 'n' : 's' };
-          } else {
-            sheet[cellRef].v = val;
-            sheet[cellRef].t = (typeof val === 'number') ? 'n' : 's';
-          }
+          sheet[cellRef] = { v: val, t: (typeof val === 'number') ? 'n' : 's' };
         });
       });
 
@@ -292,7 +279,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             <div>
               <p className="text-xl font-black">{selectedListings.length} Selected Items Ready</p>
               <p className="text-xs font-bold text-indigo-100 opacity-80 uppercase tracking-widest mt-1">
-                Applying Localized Mappings for {targetMarket}
+                Applying Localized Mappings & Full Unit Names for {targetMarket}
               </p>
             </div>
           </div>

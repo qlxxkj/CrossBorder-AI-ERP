@@ -44,7 +44,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [hoveredImage, setHoveredImage] = useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isSourcingOpen, setIsSourcingOpen] = useState(false);
-  const [activeMarketplace, setActiveMarketplace] = useState<string>('US'); // 默认显示美国站（原始优化站）
+  const [activeMarketplace, setActiveMarketplace] = useState<string>('US'); 
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
   const [adjustments, setAdjustments] = useState<PriceAdjustment[]>([]);
@@ -74,7 +74,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setLastSaved(null);
   }, [listing.id]);
 
-  // 当前显示的内容：如果是美国站显示 optimized 基础数据；否则查找对应的 translations
   const currentContent = activeMarketplace === 'US' 
     ? (localListing.optimized || null)
     : (localListing.translations?.[activeMarketplace] || null);
@@ -87,7 +86,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const rawPrice = Number(localListing.cleaned.price) || 0;
     const rawShipping = Number(localListing.cleaned.shipping) || 0;
     
-    // 如果是美国站，直接显示采集的原始价格（美元）
     if (activeMarketplace === 'US') {
       return { price: rawPrice, shipping: rawShipping, currency: '$' };
     }
@@ -134,7 +132,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } catch (e: any) { alert("Save failed: " + e.message); } finally { setIsSaving(false); }
   };
 
-  const handleManualSave = () => syncToSupabase(localListing);
   const handleSaveAndNext = async () => { await syncToSupabase(localListing); onNext(); };
 
   const uploadToHost = async (source: File | string): Promise<string> => {
@@ -267,16 +264,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     <span className={`text-[10px] font-black ${count > limit ? 'text-red-500' : 'text-slate-400'}`}> {count} / {limit} </span>
   );
 
-  if (!listing || !listing.cleaned) {
-    return (
-      <div className="flex flex-col items-center justify-center p-20 text-center space-y-4">
-        <AlertCircle size={48} className="text-red-500" />
-        <h3 className="text-xl font-black text-slate-800">Data Error</h3>
-        <p className="text-slate-400 max-w-sm">Unable to load listing details.</p>
-        <button onClick={onBack} className="px-6 py-2 bg-slate-900 text-white rounded-xl font-bold">Return</button>
-      </div>
-    );
-  }
+  if (!listing || !listing.cleaned) return null;
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter relative animate-in fade-in duration-500">
@@ -346,7 +334,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                        className={`w-full pl-12 pr-5 py-4 bg-white border ${activeMarketplace !== 'US' ? 'border-amber-100 bg-amber-50/30' : 'border-slate-200'} rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner`} 
                      />
                    </div>
-                   {activeMarketplace !== 'US' && <p className="text-[9px] font-bold text-slate-400 italic">Calculated: 1 USD = {exchangeRates.find(r => r.marketplace === activeMarketplace)?.rate || 1} {targetMktConfig.currency}</p>}
+                   {activeMarketplace !== 'US' && <p className="text-[9px] font-bold text-slate-400 italic">Rate: 1 USD = {exchangeRates.find(r => r.marketplace === activeMarketplace)?.rate || 1} {targetMktConfig.currency}</p>}
                  </div>
                  <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
@@ -370,7 +358,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-slate-100/50">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                      <Weight size={10} /> Localized Weight
+                      <Weight size={10} /> {activeMarketplace === 'US' ? 'Weight' : 'Localized Weight'}
                     </label>
                     <div className="flex gap-2">
                       <input 
@@ -386,21 +374,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       />
                       <input 
                         type="text" 
-                        value={currentContent?.optimized_weight_unit || (activeMarketplace === 'US' ? (localListing.cleaned?.item_weight_unit || 'lb') : 'kg')} 
+                        value={currentContent?.optimized_weight_unit || (activeMarketplace === 'US' ? (localListing.cleaned?.item_weight_unit || 'pounds') : '')} 
                         onChange={(e) => {
                           const path = activeMarketplace === 'US' ? 'optimized.optimized_weight_unit' : `translations.${activeMarketplace}.optimized_weight_unit`;
                           handleFieldChange(path, e.target.value);
                         }}
                         onBlur={handleBlur}
-                        placeholder="Unit"
-                        className="w-20 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-sm font-black text-indigo-600 outline-none shadow-sm text-center" 
+                        placeholder="Unit Full Name"
+                        className="w-32 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-600 outline-none shadow-sm text-center" 
                       />
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                      <Ruler size={10} /> Localized Dimensions
+                      <Ruler size={10} /> {activeMarketplace === 'US' ? 'Dimensions' : 'Localized Dimensions'}
                     </label>
                     <div className="flex gap-2">
                       <input 
@@ -425,11 +413,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
                       />
                       <input 
-                        placeholder="Unit"
-                        value={currentContent?.optimized_size_unit || (activeMarketplace === 'US' ? (localListing.cleaned?.item_size_unit || 'in') : 'cm')}
+                        placeholder="Unit Full Name"
+                        value={currentContent?.optimized_size_unit || (activeMarketplace === 'US' ? (localListing.cleaned?.item_size_unit || 'inches') : '')}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_size_unit' : `translations.${activeMarketplace}.optimized_size_unit`, e.target.value)}
                         onBlur={handleBlur}
-                        className="w-20 px-2 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-center text-[10px] font-black text-indigo-600 shadow-sm" 
+                        className="w-32 px-2 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-center text-[10px] font-black text-indigo-600 shadow-sm" 
                       />
                     </div>
                   </div>

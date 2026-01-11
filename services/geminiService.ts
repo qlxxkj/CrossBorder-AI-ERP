@@ -12,9 +12,9 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     1. Title: Max 200 characters.
     2. Bullet Points: Exactly 5 points. Each point MUST start with a "[KEYWORD]: " prefix.
     3. Description: 1000-1500 characters. Use HTML tags like <p> and <br>.
-    4. Search Keywords: Max 500 characters.
-    5. Measurements: Standardize weight and dimensions into the source fields.
-    6. PROHIBITED: No Brand Names, No Extreme Words, No Car Brands.
+    4. Measurements: Standardize weight and dimensions. 
+       - Units MUST be full names in English (e.g., "pounds" instead of "lb", "inches" instead of "in").
+    5. PROHIBITED: No Brand Names, No Extreme Words.
 
     Analyze and optimize:
     ${JSON.stringify(cleanedData)}
@@ -60,13 +60,13 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     Translate the following Amazon listing into ${targetLang}. 
     
     [CRITICAL - MEASUREMENTS LOCALIZATION]
-    If the target country uses Metric (kg/cm) and source is Imperial (lb/in), CONVERT values and translate units.
-    - Translation examples: 'inches' -> 'cm' (with conversion), 'lbs' -> 'kg' (with conversion).
-    - If target language is Japanese/German/French/Spanish, use Metric.
-    - If target is English (UK), use Metric.
+    1. If the target country uses Metric (kg/cm) and source is Imperial (lb/in), YOU MUST CONVERT values.
+    2. UNITS MUST BE FULL NAMES in ${targetLang}. DO NOT USE ABBREVIATIONS.
+       - Examples for Chinese: 'pounds' -> '磅', 'kilograms' -> '千克', 'inches' -> '厘米'.
+       - Examples for Japanese: 'kilograms' -> 'キログラム', 'centimeters' -> 'センチメートル'.
+       - Examples for German: 'kilograms' -> 'Kilogramm', 'centimeters' -> 'Zentimeter'.
     
-    Maintain all SEO keywords and compliance rules (no brands, no extreme words).
-    Output only JSON.
+    Maintain SEO performance and Amazon compliance. Output JSON only.
 
     Source Content:
     ${JSON.stringify(sourceData)}
