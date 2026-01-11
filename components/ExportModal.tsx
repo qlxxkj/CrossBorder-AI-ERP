@@ -87,31 +87,38 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   }, [filteredTemplates]);
 
   const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
-    let basePrice = listing.cleaned.price || 0;
-    const shipping = listing.cleaned.shipping || 0;
+    // 强制转换为数值，防止字符串拼接
+    const price = Number(listing.cleaned.price) || 0;
+    const shipping = Number(listing.cleaned.shipping) || 0;
+    
+    let basePrice = price;
 
-    // 匹配该站点和分类的所有有效调价规则
-    const applicableAdj = adjustments.filter(adj => 
-      (adj.marketplace === 'ALL' || adj.marketplace === targetMkt) &&
-      (adj.category_id === 'ALL' || adj.category_id === listing.category_id)
-    );
-
-    // 只要有任何一条规则勾选了包含运费，基准价就加上运费
-    if (applicableAdj.some(a => a.include_shipping)) {
-      basePrice += shipping;
-    }
-
-    // 累乘调价比例
-    let currentPrice = basePrice;
-    applicableAdj.forEach(adj => {
-      currentPrice *= (1 + adj.percentage / 100);
+    // 筛选符合该站点及对应分类的所有调价规则
+    const applicableAdj = adjustments.filter(adj => {
+      const mktMatch = adj.marketplace === 'ALL' || adj.marketplace === targetMkt;
+      const catMatch = adj.category_id === 'ALL' || adj.category_id === listing.category_id;
+      return mktMatch && catMatch;
     });
 
-    // 乘汇率
+    // 核心修复：只要命中任何一条勾选了“包含运费”的规则，基准价就加上运费
+    const needsShipping = applicableAdj.some(a => a.include_shipping === true);
+    if (needsShipping) {
+      basePrice = price + shipping;
+    }
+
+    // 累乘调价百分比
+    let currentPrice = basePrice;
+    applicableAdj.forEach(adj => {
+      const multiplier = 1 + (Number(adj.percentage) / 100);
+      currentPrice *= multiplier;
+    });
+
+    // 获取并计算汇率
     const rateEntry = exchangeRates.find(r => r.marketplace === targetMkt);
-    const rate = rateEntry ? rateEntry.rate : 1;
+    const rate = rateEntry ? Number(rateEntry.rate) : 1;
     currentPrice *= rate;
 
+    // 保留两位小数
     return parseFloat(currentPrice.toFixed(2));
   };
 
@@ -201,7 +208,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             if (f === 'asin') val = listing.asin || cleaned.asin || '';
             else if (f === 'title') val = (isOptReady ? opt?.optimized_title : cleaned.title) || cleaned.title || '';
             else if (f === 'price') {
-              // 关键逻辑：引入计算引擎
               val = calculateFinalPrice(listing, targetMarket);
             }
             else if (f === 'shipping') val = cleaned.shipping || 0;

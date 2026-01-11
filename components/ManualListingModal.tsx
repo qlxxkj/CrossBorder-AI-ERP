@@ -1,7 +1,7 @@
 
-import React, { useState, useRef } from 'react';
-import { X, Upload, Plus, Trash2, Loader2, Save, Image as ImageIcon, Ruler, Weight, ListFilter, Search, Info, Globe, FileText } from 'lucide-react';
-import { UILanguage, CleanedData } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { X, Upload, Plus, Trash2, Loader2, Save, Image as ImageIcon, Ruler, Weight, ListFilter, Search, Info, Globe, FileText, Tags } from 'lucide-react';
+import { UILanguage, CleanedData, Category } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
@@ -31,10 +31,12 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
 
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
   
   const [formData, setFormData] = useState({
     asin: '',
     marketplace: 'US',
+    category_id: 'ALL',
     title: '',
     brand: '',
     price: 0,
@@ -51,6 +53,16 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
     main_image: '',
     other_images: [] as string[]
   });
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  const fetchCategories = async () => {
+    if (!isSupabaseConfigured()) return;
+    const { data } = await supabase.from('categories').select('*');
+    if (data) setCategories(data);
+  };
 
   const uploadToHost = async (file: File): Promise<string> => {
     const formDataBody = new FormData();
@@ -120,8 +132,8 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
         asin: formData.asin || `MANUAL-${Date.now()}`,
         title: formData.title,
         brand: formData.brand,
-        price: formData.price,
-        shipping: formData.shipping,
+        price: Number(formData.price) || 0,
+        shipping: Number(formData.shipping) || 0,
         description: formData.description,
         features: formData.features.filter(f => f.trim() !== ''),
         search_keywords: formData.search_keywords,
@@ -143,6 +155,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
         user_id: session.user.id, 
         asin: cleanedData.asin,
         marketplace: formData.marketplace,
+        category_id: formData.category_id === 'ALL' ? null : formData.category_id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'collected',
@@ -193,6 +206,20 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                     </div>
                   </div>
                   <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Category</label>
+                    <div className="relative">
+                      <select 
+                        value={formData.category_id}
+                        onChange={(e) => setFormData(p => ({ ...p, category_id: e.target.value }))}
+                        className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold appearance-none cursor-pointer focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                      >
+                        <option value="ALL">None / General</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                      <Tags className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={16} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">{t('asinLabel')}</label>
                     <input type="text" value={formData.asin} onChange={(e) => setFormData(p => ({ ...p, asin: e.target.value }))} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-bold" placeholder="B0XXXXXX" />
                   </div>
@@ -203,11 +230,11 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">{t('priceLabel')}</label>
-                      <input type="number" value={formData.price || ''} onChange={(e) => setFormData(p => ({ ...p, price: parseFloat(e.target.value) || 0 }))} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold" />
+                      <input type="number" step="0.01" value={formData.price || ''} onChange={(e) => setFormData(p => ({ ...p, price: parseFloat(e.target.value) || 0 }))} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold" />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">{t('shippingLabel')}</label>
-                      <input type="number" value={formData.shipping || ''} onChange={(e) => setFormData(p => ({ ...p, shipping: parseFloat(e.target.value) || 0 }))} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold" />
+                      <input type="number" step="0.01" value={formData.shipping || ''} onChange={(e) => setFormData(p => ({ ...p, shipping: parseFloat(e.target.value) || 0 }))} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold" />
                     </div>
                   </div>
                 </div>
