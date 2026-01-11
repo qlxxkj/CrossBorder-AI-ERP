@@ -19,6 +19,12 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     - Extract item_weight and dimensions. Standardize to FULL NAMES: "pounds", "inches".
     - Accuracy: 2 decimal places.
 
+    [CRITICAL - ANONYMIZATION RULE]
+    - YOU MUST REMOVE ALL SPECIFIC BRAND NAMES.
+    - REMOVE ALL AUTOMOTIVE BRAND NAMES AND MODELS (e.g., Lexus, Toyota, Camry, Ford, BMW, etc.).
+    - Replace them with generic terms: "Compatible with select vehicles", "Custom fit for specified models".
+    - Ensure the listing is brand-neutral.
+
     Return JSON:
     {
       "optimized_title": "...",
@@ -78,7 +84,9 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     2. UNIT NAMES: Use FULL native language names for units. NEVER use "kg", "lb", "cm", "in". 
        For example, use "Kilogramm" in German, "キログラム" in Japanese.
     
-    3. Return JSON with all logistics fields included:
+    3. BRAND SAFETY: Remove any leftover specific brands or automotive names (like Toyota, Lexus) and replace with generic localized phrases.
+
+    4. Return JSON with all logistics fields included:
     {
       "optimized_title": "...",
       "optimized_features": [...],

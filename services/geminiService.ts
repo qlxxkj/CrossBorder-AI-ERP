@@ -17,6 +17,12 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
        - Extract weight and dimensions. 
        - Standardize to English FULL NAMES: "pounds" and "inches".
        - Format numbers to 2 decimal places.
+
+    [CRITICAL - BRAND REMOVAL RULE]
+    - STRICT: Remove ALL specific brand names from the output.
+    - This includes the product's own brand AND any automotive brands/models (e.g., Toyota, Lexus, Camry, ES350, Honda, Ford, etc.).
+    - REPLACE brands with generic terms like "select vehicles", "specified models", or "compatible vehicle series".
+    - DO NOT include any trademarked names.
     
     Return valid JSON.
   `;
@@ -77,7 +83,9 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
 
     2. PRECISION: All calculated numbers MUST be rounded to exactly 2 decimal places.
 
-    3. CONTENT: Translate Title, 5 Bullets, and Description naturally.
+    3. BRAND CLEANING: Ensure NO specific brand or automotive names (Toyota, Lexus, etc.) are present in the translation. Use generic localized terms for "compatible vehicles".
+
+    4. CONTENT: Translate Title, 5 Bullets, and Description naturally.
 
     Source Content (BASE): ${JSON.stringify(sourceData)}
   `;
