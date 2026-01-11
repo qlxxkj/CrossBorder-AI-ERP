@@ -36,6 +36,7 @@ interface ListingDetailProps {
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -49,13 +50,23 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [selectedImage, setSelectedImage] = useState<string>(listing.cleaned?.main_image || '');
   const [hoveredImage, setHoveredImage] = useState<string | null>(null);
+  const [editorLeft, setEditorLeft] = useState<number>(0);
   const [activeMarketplace, setActiveMarketplace] = useState<string>('US'); 
 
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
 
   useEffect(() => {
     fetchPricingData();
+    updateEditorPosition();
+    window.addEventListener('resize', updateEditorPosition);
+    return () => window.removeEventListener('resize', updateEditorPosition);
   }, []);
+
+  const updateEditorPosition = () => {
+    if (editorRef.current) {
+      setEditorLeft(editorRef.current.getBoundingClientRect().left);
+    }
+  };
 
   const fetchPricingData = async () => {
     if (!isSupabaseConfigured()) return;
@@ -82,23 +93,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace) || AMAZON_MARKETPLACES[0]
   , [activeMarketplace]);
 
-  // 严格去重：确保主图排在第一位，且后续附图中不包含主图
+  // 严格去重：确保主图排在第一位，且后续附图中不包含任何重复的主图链接
   const allImages = useMemo(() => {
     const main = localListing.cleaned.main_image;
     const others = localListing.cleaned.other_images || [];
-    const result = [];
-    if (main) result.push(main);
-    
-    const seen = new Set();
-    if (main) seen.add(main);
+    const uniqueList: string[] = [];
+    if (main) uniqueList.push(main);
     
     others.forEach(u => {
-      if (u && !seen.has(u)) {
-        result.push(u);
-        seen.add(u);
+      if (u && u !== main && !uniqueList.includes(u)) {
+        uniqueList.push(u);
       }
     });
-    return result;
+    return uniqueList;
   }, [localListing.cleaned.main_image, localListing.cleaned.other_images]);
 
   const localizedPricing = useMemo(() => {
@@ -232,7 +239,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const formData = new FormData();
       formData.append('file', file);
       const res = await fetch(TARGET_API, { method: 'POST', body: formData });
-      if (!res.ok) throw new Error("Upload failed");
+      if (!res.ok) throw new Error("Upload fail");
       const data = await res.json();
       const url = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
       
@@ -276,7 +283,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsEditorOpen(false);
     setIsUploading(true);
     try {
-      // 深度修复：手动转换 Base64 为 Blob，绕过 fetch 对 data: 协议的潜在限制
       const byteString = atob(dataUrl.split(',')[1]);
       const mimeString = dataUrl.split(',')[0].split(':')[1].split(';')[0];
       const ab = new ArrayBuffer(byteString.length);
@@ -285,13 +291,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         ia[i] = byteString.charCodeAt(i);
       }
       const blob = new Blob([ab], { type: mimeString });
-      const file = new File([blob], 'ai-image.jpg', { type: 'image/jpeg' });
+      const file = new File([blob], 'ai-optimized.jpg', { type: 'image/jpeg' });
 
       const formData = new FormData();
       formData.append('file', file);
       
       const uploadRes = await fetch(TARGET_API, { method: 'POST', body: formData });
-      if (!uploadRes.ok) throw new Error("Upload server error");
+      if (!uploadRes.ok) throw new Error("Upload rejection");
       const uploadData = await uploadRes.json();
       const newUrl = Array.isArray(uploadData) && uploadData[0]?.src ? `${IMAGE_HOST_DOMAIN}${uploadData[0].src}` : uploadData.url;
 
@@ -306,7 +312,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       setSelectedImage(newUrl);
       await syncToSupabase(updated);
     } catch (e: any) {
-      alert("Saving AI image failed: " + e.message);
+      alert("AI Image Save Failed: " + e.message);
     } finally {
       setIsUploading(false);
     }
@@ -357,9 +363,29 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start relative">
+      {/* 悬浮预览层 (Ultra-Lens View) */}
+      {hoveredImage && (
+        <div 
+          className="fixed top-0 bottom-0 right-0 z-[100] bg-white/95 backdrop-blur-3xl shadow-[0_0_100px_rgba(0,0,0,0.2)] flex items-center justify-center p-12 animate-in fade-in slide-in-from-right-4 duration-300 pointer-events-none"
+          style={{ left: `${editorLeft}px` }}
+        >
+          <div className="absolute top-10 left-10 flex items-center gap-4 bg-slate-900/5 px-6 py-3 rounded-full border border-white/20">
+             <Search size={20} className="text-indigo-600" />
+             <span className="text-xs font-black text-slate-800 uppercase tracking-[0.3em]">Ultra-HD Lens Preview</span>
+          </div>
+          <img 
+            src={hoveredImage} 
+            className="max-w-full max-h-full object-contain drop-shadow-[0_40px_100px_rgba(0,0,0,0.25)]" 
+            alt="HD Lens View" 
+          />
+          <div className="absolute bottom-10 right-10 text-[10px] font-black text-slate-300 uppercase tracking-widest italic">
+            Optimized for High-Fidelity Inspection
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         <div className="space-y-6 lg:sticky lg:top-24">
-          {/* Media Studio Panel */}
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col gap-6">
             <h3 className="font-black text-slate-900 flex items-center justify-between text-xs uppercase tracking-widest">
               <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Media Studio</span>
@@ -430,21 +456,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
         </div>
 
-        <div className="lg:col-span-2 space-y-6 relative h-full">
-          {/* 超大悬浮预览 (The Lens View) */}
-          {/* 定位逻辑：left 为 0 (编辑器左边界), width 为 100% 且 overflow 延伸至屏幕右侧, z-index 置顶 */}
-          {hoveredImage && (
-            <div className="absolute top-0 left-0 bottom-0 w-[100vw] z-[100] bg-white rounded-l-[2.5rem] border-4 border-slate-50 shadow-[0_50px_150px_rgba(0,0,0,0.3)] pointer-events-none animate-in fade-in duration-300 flex items-center justify-center p-20 overflow-hidden">
-               <div className="absolute top-10 left-10 z-[101] bg-slate-900/10 backdrop-blur-3xl px-6 py-3 rounded-full text-[12px] font-black text-slate-800 uppercase tracking-[0.3em] flex items-center gap-3 border border-white/20">
-                 <Search size={18} className="text-indigo-600" /> Ultra-HD Lens Mode
-               </div>
-               {/* 居中显示图片，确保占据绝大部分预览区域 */}
-               <img src={hoveredImage} className="max-w-[85%] max-h-[85%] object-contain drop-shadow-[0_30px_100px_rgba(0,0,0,0.2)]" alt="HD Lens Preview" />
-               <div className="absolute inset-0 bg-slate-50/20 -z-10"></div>
-            </div>
-          )}
-
-          <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full min-h-[1200px]">
+        <div ref={editorRef} className="lg:col-span-2 space-y-6 min-h-[1200px]">
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
              <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Edit2 size={14} /> Global Editor &bull; {targetMktConfig.name}</h4>
                {activeMarketplace !== 'US' && <div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase bg-amber-50 px-3 py-1 rounded-full border border-amber-100"><Coins size={12} /> Unit System & Rate Applied</div>}
@@ -455,13 +468,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                  <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><DollarSign size={10} /> Price ({localizedPricing.currency})</label>
                    <div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300 pointer-events-none">{localizedPricing.currency}</span>
-                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.price} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 outline-none shadow-sm" />
+                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.price} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 outline-none" />
                    </div>
                  </div>
                  <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Truck size={10} /> Shipping ({localizedPricing.currency})</label>
                    <div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300 pointer-events-none">{localizedPricing.currency}</span>
-                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.shipping} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 outline-none shadow-sm" />
+                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.shipping} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 outline-none" />
                    </div>
                  </div>
                </div>
