@@ -62,12 +62,15 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   const prompt = `
     Translate and LOCALIZE this Amazon listing into "${targetLang}".
     
-    [CRITICAL - MEASUREMENTS LOCALIZATION]
-    1. UNIT CONVERSION:
-       - Target Metric Markets (EU, JP, ZH, MX, BR): Convert "pounds" to "kilograms" (x0.45) and "inches" to "centimeters" (x2.54).
-       - Target Imperial Markets (US, CA, UK): Keep "pounds" and "inches".
-    2. UNIT NAMES: Use FULL NAMES in ${targetLang} (e.g., 'キログラム', 'センチメートル'). NEVER use abbreviations.
-    3. NUMERIC VALUES: Exactly 2 decimal places.
+    [CRITICAL - MEASUREMENTS CONVERSION]
+    1. MATHEMATICAL CONVERSION:
+       - If converting from Imperial (lb/in) to Metric (kg/cm) (Markets like EU, JP, ZH): 
+         Multiply weight by 0.45, multiply inches by 2.54.
+       - If target is North America/UK: Stay with Imperial.
+    2. UNIT NAMES: Use FULL NAMES in ${targetLang} (e.g., 'キログラム', 'センチメートル'). 
+       NEVER use abbreviations like 'kg' or 'cm'.
+    3. NUMERIC VALUES: Must be rounded to 2 decimal places.
+    4. TEXT: Maintain high-converting tone.
     
     Source: ${JSON.stringify(sourceData)}
   `;

@@ -57,17 +57,19 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Translate and LOCALIZE this Amazon listing into "${targetLang}".
+    Translate and LOCALIZE this Amazon listing into the language of "${targetLang}".
     
     [CRITICAL - MEASUREMENTS CONVERSION]
-    1. TARGET MARKET UNIT SYSTEM: 
-       - If ${targetLang} is for JP, DE, FR, IT, ES, MX, BR (Metric): CONVERT lb to kg (x0.45) and in to cm (x2.54).
-       - If ${targetLang} is for UK, US, CA (Imperial): Use pounds and inches.
-    2. UNIT NAMES: Translate units to FULL NAMES in ${targetLang}. NO abbreviations (no kg, lb, cm, in).
-       - JA example: "キログラム", "センチメートル"
-       - ZH example: "千克", "厘米"
-    3. PRECISION: Numerical values MUST be 2 decimal places.
-    4. TEXT: Translate marketing copy naturally for ${targetLang}.
+    1. UNIT SYSTEM: 
+       - If ${targetLang} is associated with Metric countries (JP, DE, FR, IT, ES, MX, BR, CN): 
+         YOU MUST MATHEMATICALLY CONVERT: "pounds" to "kilograms" (multiply by 0.45) and "inches" to "centimeters" (multiply by 2.54).
+       - If ${targetLang} is for Imperial countries (US, CA, UK): Keep "pounds" and "inches".
+    2. UNIT NAMES: Use FULL NAMES in ${targetLang}. NEVER use abbreviations like 'kg', 'lb', 'cm', 'in'.
+       - Japanese: "キログラム", "センチメートル"
+       - Chinese: "千克", "厘米"
+       - German: "Kilogramm", "Zentimeter"
+    3. PRECISION: Rounded to exactly 2 decimal places.
+    4. TEXT: Translate all copy naturally for the target marketplace.
 
     Source Content: ${JSON.stringify(sourceData)}
   `;
