@@ -18,7 +18,6 @@ const LIMITS = { TITLE: 200, BULLET: 500, DESCRIPTION: 2000, KEYWORDS: 250 };
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 const CORS_PROXY = 'https://corsproxy.io/?';
-// 核心修复：上传接口必须带代理，否则浏览器会因为 CORS 报错 "Failed to fetch"
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 const formatDecimal = (val: any) => {
@@ -96,7 +95,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace) || AMAZON_MARKETPLACES[0]
   , [activeMarketplace]);
 
-  // 严格去重：确保主图排在第一位，且后续附图中不包含任何重复的主图链接
   const allImages = useMemo(() => {
     const main = localListing.cleaned.main_image;
     const others = localListing.cleaned.other_images || [];
@@ -210,11 +208,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!localListing.optimized) { alert("Optimize base content first."); return; }
     setIsTranslatingAll(true);
     try {
+      // 核心修复：强制覆盖。每次批量翻译都重新基于最新的 optimized 计算。
       const currentTranslations = { ...(localListing.translations || {}) };
       for (const mkt of AMAZON_MARKETPLACES) {
         if (mkt.code === 'US') continue;
         setIsTranslating(mkt.code);
         try {
+          // 这里强制传入最新的 localListing.optimized，确保换算逻辑实时应用
           const translated = aiProvider === 'gemini'
             ? await translateListingWithAI(localListing.optimized!, mkt.name)
             : await translateListingWithOpenAI(localListing.optimized!, mkt.name);
@@ -241,7 +241,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     try {
       const formData = new FormData();
       formData.append('file', file);
-      // 使用代理 URL 解决 CORS
       const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formData });
       if (!res.ok) throw new Error("Upload fail");
       const data = await res.json();
@@ -287,7 +286,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsEditorOpen(false);
     setIsUploading(true);
     try {
-      // 将 Base64 转换为 Blob
       const byteString = atob(dataUrl.split(',')[1]);
       const mimeString = dataUrl.split(',')[0].split(':')[1].split(';')[0];
       const ab = new ArrayBuffer(byteString.length);
@@ -301,7 +299,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const formData = new FormData();
       formData.append('file', file);
       
-      // 核心修复：同样通过代理进行 POST 请求，防止 "Failed to fetch" (CORS) 错误
       const uploadRes = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formData });
       if (!uploadRes.ok) throw new Error("Upload rejection");
       const uploadData = await uploadRes.json();
@@ -327,11 +324,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const displayVal = (field: keyof OptimizedData | string, cleanedField: string) => {
     if (activeMarketplace !== 'US' && localListing.translations?.[activeMarketplace]) {
       const val = (localListing.translations[activeMarketplace] as any)[field];
-      if (val) return val;
+      if (val !== undefined && val !== null && val !== '') return val;
     }
     if (localListing.optimized) {
       const val = (localListing.optimized as any)[field];
-      if (val) return val;
+      if (val !== undefined && val !== null && val !== '') return val;
     }
     return (localListing.cleaned as any)[cleanedField] || '';
   };
@@ -369,7 +366,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
       </div>
 
-      {/* 优化后的超大悬浮预览 (Ultra-Lens View) */}
       {hoveredImage && (
         <div 
           className="fixed top-0 bottom-0 right-0 z-[100] bg-white/95 backdrop-blur-3xl shadow-[-20px_0_100px_rgba(0,0,0,0.2)] flex items-center justify-center p-20 animate-in fade-in slide-in-from-right-10 duration-300 pointer-events-none"
@@ -379,7 +375,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
              <Search size={22} className="text-indigo-600" />
              <span className="text-sm font-black text-slate-800 uppercase tracking-[0.4em]">Ultra-HD Lens Preview</span>
           </div>
-          {/* 核心改动：max-h-[90vh] 确保图片在视口内居中且不产生滚动 */}
           <img 
             src={hoveredImage} 
             className="max-w-full max-h-[85vh] object-contain drop-shadow-[0_40px_100px_rgba(0,0,0,0.25)] scale-110" 
@@ -492,7 +487,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Weight size={10} /> Localized Weight</label>
                     <div className="flex gap-2">
                       <input type="text" value={formatDecimal(displayVal('optimized_weight_value', 'item_weight_value'))} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_value' : `translations.${activeMarketplace}.optimized_weight_value`, e.target.value)} onBlur={handleBlur} className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none shadow-sm" />
-                      <input type="text" value={displayVal('optimized_weight_unit', 'item_weight_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_unit' : `translations.${activeMarketplace}.optimized_weight_unit`, e.target.value)} onBlur={handleBlur} placeholder="Unit" className="w-32 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-600 outline-none text-center" />
+                      <input type="text" value={displayVal('optimized_weight_unit', 'item_weight_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_unit' : `translations.${activeMarketplace}.optimized_weight_unit`, e.target.value)} onBlur={handleBlur} placeholder="Unit" className="w-40 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-600 outline-none text-center" />
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -501,7 +496,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       <input placeholder="L" value={formatDecimal(displayVal('optimized_length', 'item_length'))} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_length' : `translations.${activeMarketplace}.optimized_length`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
                       <input placeholder="W" value={formatDecimal(displayVal('optimized_width', 'item_width'))} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_width' : `translations.${activeMarketplace}.optimized_width`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
                       <input placeholder="H" value={formatDecimal(displayVal('optimized_height', 'item_height'))} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_height' : `translations.${activeMarketplace}.optimized_height`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
-                      <input placeholder="Unit" value={displayVal('optimized_size_unit', 'item_size_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_size_unit' : `translations.${activeMarketplace}.optimized_size_unit`, e.target.value)} onBlur={handleBlur} className="w-32 px-2 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-center text-[10px] font-black text-indigo-600 shadow-sm" />
+                      <input placeholder="Unit" value={displayVal('optimized_size_unit', 'item_size_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_size_unit' : `translations.${activeMarketplace}.optimized_size_unit`, e.target.value)} onBlur={handleBlur} className="w-40 px-2 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-center text-[10px] font-black text-indigo-600 shadow-sm" />
                     </div>
                   </div>
                </div>

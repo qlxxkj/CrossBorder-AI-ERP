@@ -66,13 +66,32 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   const prompt = `
     Translate and LOCALIZE this Amazon listing into "${targetLang}".
     
-    [CRITICAL - LOCALIZATION]
-    1. CONVERSION: Convert Imperial (lb/in) to Metric (kg/cm) for EU/JP/CN/MX/BR markets. 
-       Formula: lb * 0.45 = kg, in * 2.54 = cm.
-    2. UNITS: Use FULL NAMES in ${targetLang} (e.g., 'キログラム'). No abbreviations.
-    3. CONTENT: Translate Title, 5 Bullet Points, and Description.
-    4. PRECISION: 2 decimal places.
+    [CRITICAL - UNIT LOCALIZATION]
+    The input data is in Imperial units (pounds, inches). 
     
+    1. MATH CONVERSION: 
+       If the target market uses METRIC (most markets except US/CA/UK):
+       - Convert pounds to kilograms (pounds * 0.4536).
+       - Convert inches to centimeters (inches * 2.54).
+       - Always round to 2 decimal places.
+    
+    2. UNIT NAMES: Use FULL native language names for units. NEVER use "kg", "lb", "cm", "in". 
+       For example, use "Kilogramm" in German, "キログラム" in Japanese.
+    
+    3. Return JSON with all logistics fields included:
+    {
+      "optimized_title": "...",
+      "optimized_features": [...],
+      "optimized_description": "...",
+      "search_keywords": "...",
+      "optimized_weight_value": "converted_number",
+      "optimized_weight_unit": "localized_full_name",
+      "optimized_length": "converted_number",
+      "optimized_width": "converted_number",
+      "optimized_height": "converted_number",
+      "optimized_size_unit": "localized_full_name"
+    }
+
     Source: ${JSON.stringify(sourceData)}
   `;
 

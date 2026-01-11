@@ -64,18 +64,22 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const prompt = `
     Translate and LOCALIZE this Amazon listing into the language of "${targetLang}".
     
-    [CRITICAL - LOCALIZATION RULES]
-    1. CONTENT: Translate Title, 5 Bullet Points, and Description naturally.
-    2. UNIT SYSTEM: 
-       - If ${targetLang} is for Metric markets (JP, DE, FR, IT, ES, MX, BR, CN): 
-         YOU MUST MATHEMATICALLY CONVERT: "pounds" to "kilograms" (multiply by 0.45) and "inches" to "centimeters" (multiply by 2.54).
-       - If ${targetLang} is for Imperial markets (US, CA, UK): Keep "pounds" and "inches".
-    3. UNIT NAMES: Use FULL NAMES in ${targetLang}. NEVER use abbreviations like 'kg', 'lb', 'cm', 'in'.
-       - Japanese: "キログラム", "センチメートル"
-       - Chinese: "千克", "厘米"
-    4. PRECISION: Rounded to 2 decimal places.
+    [CRITICAL - MATHEMATICAL UNIT CONVERSION]
+    The source data is in IMPERIAL units (pounds, inches).
+    
+    1. CONVERSION RULES:
+       - If ${targetLang} is for METRIC markets (JP, DE, FR, IT, ES, MX, BR, CN): 
+         * CALCULATE: weight_value = source_pounds * 0.453592
+         * CALCULATE: dimensions = source_inches * 2.54
+         * UNIT NAMES: Use the FULL native word for "kilograms" and "centimeters" in ${targetLang}. 
+           (e.g., Japanese: "キログラム", "センチメートル"; Chinese: "千克", "厘米"; German: "Kilogramm", "Zentimeter")
+       - If ${targetLang} is for IMPERIAL markets (CA, UK): Keep original numbers but use the full unit names in ${targetLang}.
 
-    Source Content: ${JSON.stringify(sourceData)}
+    2. PRECISION: All calculated numbers MUST be rounded to exactly 2 decimal places.
+
+    3. CONTENT: Translate Title, 5 Bullets, and Description naturally.
+
+    Source Content (BASE): ${JSON.stringify(sourceData)}
   `;
 
   try {
@@ -98,7 +102,11 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
             optimized_height: { type: Type.STRING },
             optimized_size_unit: { type: Type.STRING }
           },
-          required: ["optimized_title", "optimized_features", "optimized_description"]
+          required: [
+            "optimized_title", "optimized_features", "optimized_description", 
+            "optimized_weight_value", "optimized_weight_unit", 
+            "optimized_length", "optimized_width", "optimized_height", "optimized_size_unit"
+          ]
         }
       }
     });
@@ -115,15 +123,7 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   }
 };
 
-// Fix: Add editImageWithAI to handle image editing using gemini-2.5-flash-image
-/**
- * Edits an image using Gemini AI (gemini-2.5-flash-image).
- * @param base64ImageData - Base64 encoded image data (without data URL prefix).
- * @param prompt - Text instructions for editing.
- * @returns Base64 encoded string of the edited image.
- */
 export const editImageWithAI = async (base64ImageData: string, prompt: string): Promise<string> => {
-  // Create a new GoogleGenAI instance right before making an API call to ensure it always uses the most up-to-date API key.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
@@ -148,7 +148,6 @@ export const editImageWithAI = async (base64ImageData: string, prompt: string): 
       throw new Error("Gemini returned no response candidates for image editing.");
     }
 
-    // Iterate through candidates and parts to find the image part as per guidelines.
     for (const part of response.candidates[0].content.parts) {
       if (part.inlineData) {
         return part.inlineData.data;
