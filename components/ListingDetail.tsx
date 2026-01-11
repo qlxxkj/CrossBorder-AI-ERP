@@ -90,29 +90,28 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return { price: rawPrice, shipping: rawShipping, currency: '$' };
     }
 
-    const applicableAdj = adjustments.filter(adj => {
-      const mktMatch = adj.marketplace === 'ALL' || adj.marketplace === activeMarketplace;
-      const catMatch = adj.category_id === 'ALL' || adj.category_id === localListing.category_id;
-      return mktMatch && catMatch;
-    });
-
-    const needsShipping = applicableAdj.some(a => a.include_shipping === true);
-    const basePrice = needsShipping ? (rawPrice + rawShipping) : rawPrice;
-
-    let finalPrice = basePrice;
-    applicableAdj.forEach(adj => {
-      finalPrice *= (1 + (Number(adj.percentage) / 100));
-    });
-
+    // 详情页逻辑：仅做汇率转换，不应用调价比例和运费累加
     const rateEntry = exchangeRates.find(r => r.marketplace === activeMarketplace);
     const rate = rateEntry ? Number(rateEntry.rate) : 1;
     
+    let finalPrice = rawPrice * rate;
+    let finalShipping = rawShipping * rate;
+
+    // 日本站取整逻辑
+    if (activeMarketplace === 'JP') {
+      finalPrice = Math.round(finalPrice);
+      finalShipping = Math.round(finalShipping);
+    } else {
+      finalPrice = parseFloat(finalPrice.toFixed(2));
+      finalShipping = parseFloat(finalShipping.toFixed(2));
+    }
+    
     return {
-      price: parseFloat((finalPrice * rate).toFixed(2)),
-      shipping: parseFloat((rawShipping * rate).toFixed(2)),
+      price: finalPrice,
+      shipping: finalShipping,
       currency: targetMktConfig.currency
     };
-  }, [localListing, activeMarketplace, adjustments, exchangeRates, targetMktConfig]);
+  }, [localListing, activeMarketplace, exchangeRates, targetMktConfig]);
 
   const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
@@ -260,9 +259,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         
         setIsTranslating(mkt.code);
         try {
-          // 加入小延迟防止触发 API 提供商限流
           await new Promise(resolve => setTimeout(resolve, 500));
-          
           const translated = aiProvider === 'gemini'
             ? await translateListingWithAI(localListing.optimized!, mkt.lang)
             : await translateListingWithOpenAI(localListing.optimized!, mkt.lang);
@@ -337,11 +334,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
              <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                 <Edit2 size={14} /> Global Editor & bull; {targetMktConfig.name} ({activeMarketplace.toUpperCase()})
+                 <Edit2 size={14} /> Global Editor &bull; {targetMktConfig.name} ({activeMarketplace.toUpperCase()})
                </h4>
                {activeMarketplace !== 'US' && (
                  <div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
-                    <Coins size={12} /> Local Pricing Applied
+                    <Coins size={12} /> Live Rate Applied
                  </div>
                )}
              </div>
@@ -356,7 +353,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300 pointer-events-none">{localizedPricing.currency}</span>
                      <input 
                        type="number" 
-                       step="0.01" 
+                       step={activeMarketplace === 'JP' ? '1' : '0.01'} 
                        value={localizedPricing.price} 
                        readOnly={activeMarketplace !== 'US'}
                        onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} 
@@ -364,7 +361,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                        className={`w-full pl-12 pr-5 py-4 bg-white border ${activeMarketplace !== 'US' ? 'border-amber-100 bg-amber-50/30' : 'border-slate-200'} rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner`} 
                      />
                    </div>
-                   {activeMarketplace !== 'US' && <p className="text-[9px] font-bold text-slate-400 italic">Rate: 1 USD = {exchangeRates.find(r => r.marketplace === activeMarketplace)?.rate || 1} {targetMktConfig.currency}</p>}
+                   {activeMarketplace !== 'US' && <p className="text-[9px] font-bold text-slate-400 italic">Preview logic: Base Price × Exchange Rate only.</p>}
                  </div>
                  <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
@@ -374,7 +371,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300 pointer-events-none">{localizedPricing.currency}</span>
                      <input 
                        type="number" 
-                       step="0.01" 
+                       step={activeMarketplace === 'JP' ? '1' : '0.01'} 
                        value={localizedPricing.shipping} 
                        readOnly={activeMarketplace !== 'US'}
                        onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} 

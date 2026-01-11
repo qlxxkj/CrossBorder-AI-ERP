@@ -102,12 +102,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
     let basePrice = price;
 
+    // 导出逻辑：查询调价比例
     const applicableAdj = adjustments.filter(adj => {
       const mktMatch = adj.marketplace === 'ALL' || adj.marketplace === targetMkt;
       const catMatch = adj.category_id === 'ALL' || adj.category_id === listing.category_id;
       return mktMatch && catMatch;
     });
 
+    // 如果调价规则包含运费，则将运费计入基准价
     const needsShipping = applicableAdj.some(a => a.include_shipping === true);
     if (needsShipping) {
       basePrice = price + shipping;
@@ -122,6 +124,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     const rateEntry = exchangeRates.find(r => r.marketplace === targetMkt);
     const rate = rateEntry ? Number(rateEntry.rate) : 1;
     currentPrice *= rate;
+
+    // 针对日本站(JP)导出时取整
+    if (targetMkt === 'JP') {
+      return Math.round(currentPrice);
+    }
 
     return parseFloat(currentPrice.toFixed(2));
   };
@@ -208,18 +215,30 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'price') val = calculateFinalPrice(listing, targetMarket);
             else if (f === 'shipping') {
               const rate = exchangeRates.find(r => r.marketplace === targetMarket)?.rate || 1;
-              val = parseFloat(((cleaned.shipping || 0) * rate).toFixed(2));
+              const calcShip = (cleaned.shipping || 0) * rate;
+              val = targetMarket === 'JP' ? Math.round(calcShip) : parseFloat(calcShip.toFixed(2));
             }
             else if (f === 'brand') val = cleaned.brand || '';
             else if (f === 'description') val = localOpt?.optimized_description || cleaned.description || '';
             else if (f === 'main_image') val = cleaned.main_image || '';
             
-            // 物流导出：优先提取对应站点的翻译/换算结果
-            else if (f === 'item_weight_value') val = localOpt?.optimized_weight_value || cleaned.item_weight_value || '';
+            else if (f === 'item_weight_value') {
+              val = localOpt?.optimized_weight_value || cleaned.item_weight_value || '';
+              if (targetMarket === 'JP' && !isNaN(Number(val))) val = Math.round(Number(val));
+            }
             else if (f === 'item_weight_unit') val = localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '';
-            else if (f === 'item_length') val = localOpt?.optimized_length || cleaned.item_length || '';
-            else if (f === 'item_width') val = localOpt?.optimized_width || cleaned.item_width || '';
-            else if (f === 'item_height') val = localOpt?.optimized_height || cleaned.item_height || '';
+            else if (f === 'item_length') {
+              val = localOpt?.optimized_length || cleaned.item_length || '';
+              if (targetMarket === 'JP' && !isNaN(Number(val))) val = Math.round(Number(val));
+            }
+            else if (f === 'item_width') {
+              val = localOpt?.optimized_width || cleaned.item_width || '';
+              if (targetMarket === 'JP' && !isNaN(Number(val))) val = Math.round(Number(val));
+            }
+            else if (f === 'item_height') {
+              val = localOpt?.optimized_height || cleaned.item_height || '';
+              if (targetMarket === 'JP' && !isNaN(Number(val))) val = Math.round(Number(val));
+            }
             else if (f === 'item_size_unit') val = localOpt?.optimized_size_unit || cleaned.item_size_unit || '';
             
             else if (f?.startsWith('other_image')) {
@@ -279,7 +298,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             <div>
               <p className="text-xl font-black">{selectedListings.length} Selected Items Ready</p>
               <p className="text-xs font-bold text-indigo-100 opacity-80 uppercase tracking-widest mt-1">
-                Applying Localized Mappings & Full Unit Names for {targetMarket}
+                Applying Localized Pricing & Marketplace Unit Formatting
               </p>
             </div>
           </div>
