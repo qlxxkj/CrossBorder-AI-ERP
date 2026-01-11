@@ -84,7 +84,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace) || AMAZON_MARKETPLACES[0]
   , [activeMarketplace]);
 
-  // 修正后的图片去重逻辑：主图第一，附图紧随其后且不重复
   const allImages = useMemo(() => {
     const main = localListing.cleaned.main_image;
     const others = localListing.cleaned.other_images || [];
@@ -264,32 +263,29 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     await syncToSupabase(updated);
   };
 
-  // 修复后的 AI 图片应用逻辑：正确处理 Data URL 并上传
   const handleAIImageUpdate = async (dataUrl: string) => {
     setIsEditorOpen(false);
     setIsUploading(true);
     try {
-      // Data URL -> Blob
-      const arr = dataUrl.split(',');
-      const mime = arr[0].match(/:(.*?);/)![1];
-      const bstr = atob(arr[1]);
-      let n = bstr.length;
-      const u8arr = new Uint8Array(n);
-      while(n--){
-          u8arr[n] = bstr.charCodeAt(n);
+      // 深度修复：确保使用更安全的方式将 Data URL 转换为 Blob，避免环境 fetch 兼容性问题
+      const base64Part = dataUrl.split(',')[1];
+      const binaryString = atob(base64Part);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
       }
-      const blob = new Blob([u8arr], { type: mime });
-      const file = new File([blob], 'ai-optimized.jpg', { type: mime });
+      const blob = new Blob([bytes], { type: 'image/jpeg' });
+      const file = new File([blob], 'ai-optimized.jpg', { type: 'image/jpeg' });
 
       const formData = new FormData();
       formData.append('file', file);
       
       const uploadRes = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formData });
-      if (!uploadRes.ok) throw new Error("Upload server rejected the file.");
+      if (!uploadRes.ok) throw new Error("Server rejected upload");
+      
       const uploadData = await uploadRes.json();
       const newUrl = Array.isArray(uploadData) && uploadData[0]?.src ? `${IMAGE_HOST_DOMAIN}${uploadData[0].src}` : uploadData.url;
 
-      // 更新对应的图片
       let updated;
       if (selectedImage === localListing.cleaned.main_image) {
         updated = { ...localListing, cleaned: { ...localListing.cleaned, main_image: newUrl } };
@@ -301,6 +297,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       setSelectedImage(newUrl);
       await syncToSupabase(updated);
     } catch (e: any) {
+      console.error("AI Save Error:", e);
       alert("Saving AI image failed: " + e.message);
     } finally {
       setIsUploading(false);
@@ -327,17 +324,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter animate-in fade-in duration-500 pb-20 relative">
-      {/* 升级版悬浮大图预览模态面板 (Ultra-HD Lens Preview) */}
-      {hoveredImage && (
-        <div className="fixed top-32 right-12 w-[calc(66%-4rem)] h-[calc(100vh-14rem)] z-[100] bg-white rounded-[3rem] border-4 border-slate-50 shadow-[0_50px_100px_rgba(0,0,0,0.25)] overflow-hidden pointer-events-none animate-in zoom-in-95 fade-in duration-300 flex items-center justify-center p-16">
-           <div className="absolute top-8 left-10 z-10 bg-slate-900/10 backdrop-blur-2xl px-5 py-2 rounded-full text-[11px] font-black text-slate-800 uppercase tracking-[0.2em] flex items-center gap-2 border border-white/20">
-             <Search size={14} className="text-indigo-600" /> Ultra-HD Preview Mode
-           </div>
-           <div className="absolute inset-0 bg-slate-50/50 -z-10"></div>
-           <img src={hoveredImage} className="max-w-full max-h-full object-contain drop-shadow-2xl" alt="Lens View" />
-        </div>
-      )}
-
       {isEditorOpen && (
         <ImageEditor 
           imageUrl={selectedImage} 
@@ -365,7 +351,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="space-y-6">
-          {/* Media Studio Panel */}
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col gap-6">
             <h3 className="font-black text-slate-900 flex items-center justify-between text-xs uppercase tracking-widest">
               <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Media Studio</span>
@@ -436,7 +421,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
         </div>
 
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-6 relative">
+          {/* 超大悬浮预览：以编辑区左边界为基准，占据整个编辑区位置 */}
+          {hoveredImage && (
+            <div className="absolute inset-0 z-[100] bg-white rounded-[2.5rem] border-4 border-slate-50 shadow-[0_40px_100px_rgba(0,0,0,0.25)] overflow-hidden pointer-events-none animate-in fade-in duration-300 flex items-center justify-center p-12">
+               <div className="absolute top-8 left-10 z-10 bg-slate-900/10 backdrop-blur-2xl px-5 py-2 rounded-full text-[11px] font-black text-slate-800 uppercase tracking-[0.2em] flex items-center gap-2 border border-white/20">
+                 <Search size={14} className="text-indigo-600" /> Lens Preview Mode
+               </div>
+               <img src={hoveredImage} className="max-w-full max-h-full object-contain drop-shadow-2xl" alt="Lens View" />
+            </div>
+          )}
+
           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
              <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Edit2 size={14} /> Global Editor &bull; {targetMktConfig.name}</h4>
