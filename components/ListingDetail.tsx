@@ -17,8 +17,6 @@ import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
 const LIMITS = { TITLE: 200, BULLET: 500, DESCRIPTION: 2000, KEYWORDS: 250 };
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
-// 注意：POST 请求上传图片通常不需要 CORS 代理，或者代理可能不支持 multipart/form-data。尝试直接上传。
-const IMAGE_HOSTING_API = TARGET_API; 
 
 const formatDecimal = (val: any) => {
   if (val === undefined || val === null || val === '') return '';
@@ -84,21 +82,23 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace) || AMAZON_MARKETPLACES[0]
   , [activeMarketplace]);
 
-  // 严格去重逻辑：主图永远占第一位，附图排除掉主图后依次排列
+  // 严格去重：确保主图排在第一位，且后续附图中不包含主图
   const allImages = useMemo(() => {
     const main = localListing.cleaned.main_image;
     const others = localListing.cleaned.other_images || [];
-    const imageSet = new Set<string>();
+    const result = [];
+    if (main) result.push(main);
     
-    if (main) imageSet.add(main);
+    const seen = new Set();
+    if (main) seen.add(main);
     
     others.forEach(u => {
-      if (u && u !== main) {
-        imageSet.add(u);
+      if (u && !seen.has(u)) {
+        result.push(u);
+        seen.add(u);
       }
     });
-    
-    return Array.from(imageSet);
+    return result;
   }, [localListing.cleaned.main_image, localListing.cleaned.other_images]);
 
   const localizedPricing = useMemo(() => {
@@ -231,7 +231,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formData });
+      const res = await fetch(TARGET_API, { method: 'POST', body: formData });
+      if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
       const url = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
       
@@ -275,21 +276,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsEditorOpen(false);
     setIsUploading(true);
     try {
-      const base64Part = dataUrl.split(',')[1];
-      const binaryString = atob(base64Part);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      // 深度修复：手动转换 Base64 为 Blob，绕过 fetch 对 data: 协议的潜在限制
+      const byteString = atob(dataUrl.split(',')[1]);
+      const mimeString = dataUrl.split(',')[0].split(':')[1].split(';')[0];
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
       }
-      const blob = new Blob([bytes], { type: 'image/jpeg' });
-      const file = new File([blob], 'ai-optimized.jpg', { type: 'image/jpeg' });
+      const blob = new Blob([ab], { type: mimeString });
+      const file = new File([blob], 'ai-image.jpg', { type: 'image/jpeg' });
 
       const formData = new FormData();
       formData.append('file', file);
       
-      const uploadRes = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formData });
-      if (!uploadRes.ok) throw new Error("Server upload rejected.");
-      
+      const uploadRes = await fetch(TARGET_API, { method: 'POST', body: formData });
+      if (!uploadRes.ok) throw new Error("Upload server error");
       const uploadData = await uploadRes.json();
       const newUrl = Array.isArray(uploadData) && uploadData[0]?.src ? `${IMAGE_HOST_DOMAIN}${uploadData[0].src}` : uploadData.url;
 
@@ -304,8 +306,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       setSelectedImage(newUrl);
       await syncToSupabase(updated);
     } catch (e: any) {
-      console.error("AI Save Error:", e);
-      alert("Saving AI image failed. This host might require direct POST. Error: " + e.message);
+      alert("Saving AI image failed: " + e.message);
     } finally {
       setIsUploading(false);
     }
@@ -356,7 +357,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start relative">
         <div className="space-y-6 lg:sticky lg:top-24">
           {/* Media Studio Panel */}
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col gap-6">
@@ -388,7 +389,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               <div className="grid grid-cols-4 gap-2">
                 {allImages.map((url, i) => (
                   <div 
-                    key={i} 
+                    key={url} 
                     onClick={() => setSelectedImage(url)}
                     onMouseEnter={() => setHoveredImage(url)}
                     onMouseLeave={() => setHoveredImage(null)}
@@ -430,13 +431,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
 
         <div className="lg:col-span-2 space-y-6 relative h-full">
-          {/* 超大悬浮预览 (Lens Mode)：完全覆盖编辑区，保持高清全屏视觉 */}
+          {/* 超大悬浮预览 (The Lens View) */}
+          {/* 定位逻辑：left 为 0 (编辑器左边界), width 为 100% 且 overflow 延伸至屏幕右侧, z-index 置顶 */}
           {hoveredImage && (
-            <div className="absolute inset-0 z-[100] bg-white rounded-[2.5rem] border-4 border-slate-100 shadow-[0_40px_100px_rgba(0,0,0,0.25)] overflow-hidden pointer-events-none animate-in fade-in duration-300 flex items-center justify-center p-12 min-h-[800px]">
-               <div className="absolute top-8 left-10 z-[101] bg-slate-900/10 backdrop-blur-2xl px-5 py-2 rounded-full text-[11px] font-black text-slate-800 uppercase tracking-[0.2em] flex items-center gap-2 border border-white/20 shadow-sm">
-                 <Search size={14} className="text-indigo-600" /> Ultra-HD Lens Mode
+            <div className="absolute top-0 left-0 bottom-0 w-[100vw] z-[100] bg-white rounded-l-[2.5rem] border-4 border-slate-50 shadow-[0_50px_150px_rgba(0,0,0,0.3)] pointer-events-none animate-in fade-in duration-300 flex items-center justify-center p-20 overflow-hidden">
+               <div className="absolute top-10 left-10 z-[101] bg-slate-900/10 backdrop-blur-3xl px-6 py-3 rounded-full text-[12px] font-black text-slate-800 uppercase tracking-[0.3em] flex items-center gap-3 border border-white/20">
+                 <Search size={18} className="text-indigo-600" /> Ultra-HD Lens Mode
                </div>
-               <img src={hoveredImage} className="max-w-full max-h-full object-contain drop-shadow-[0_20px_60px_rgba(0,0,0,0.2)]" alt="Lens View" />
+               {/* 居中显示图片，确保占据绝大部分预览区域 */}
+               <img src={hoveredImage} className="max-w-[85%] max-h-[85%] object-contain drop-shadow-[0_30px_100px_rgba(0,0,0,0.2)]" alt="HD Lens Preview" />
+               <div className="absolute inset-0 bg-slate-50/20 -z-10"></div>
             </div>
           )}
 
