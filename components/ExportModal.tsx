@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Globe, AlertCircle, Tags, FileText } from 'lucide-react';
+import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Globe, AlertCircle, Tags, FileText, Search } from 'lucide-react';
 import { Listing, ExportTemplate, UILanguage, FieldMapping, CleanedData, OptimizedData, Category, PriceAdjustment, ExchangeRate } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -55,6 +55,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const [targetCategory, setTargetCategory] = useState('ALL');
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
+  const [mktSearch, setMktSearch] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -74,6 +75,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     if (rateRes.data) setExchangeRates(rateRes.data);
   };
 
+  const filteredMarketplaces = useMemo(() => {
+    return AMAZON_MARKETPLACES.filter(m => 
+      m.code.toLowerCase().includes(mktSearch.toLowerCase()) || 
+      m.name.toLowerCase().includes(mktSearch.toLowerCase())
+    );
+  }, [mktSearch]);
+
   const filteredTemplates = useMemo(() => {
     return templates.filter(t => 
       (t.marketplace === 'ALL' || t.marketplace === targetMarket) &&
@@ -87,38 +95,32 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   }, [filteredTemplates]);
 
   const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
-    // 强制转换为数值，防止字符串拼接
     const price = Number(listing.cleaned.price) || 0;
     const shipping = Number(listing.cleaned.shipping) || 0;
     
     let basePrice = price;
 
-    // 筛选符合该站点及对应分类的所有调价规则
     const applicableAdj = adjustments.filter(adj => {
       const mktMatch = adj.marketplace === 'ALL' || adj.marketplace === targetMkt;
       const catMatch = adj.category_id === 'ALL' || adj.category_id === listing.category_id;
       return mktMatch && catMatch;
     });
 
-    // 核心修复：只要命中任何一条勾选了“包含运费”的规则，基准价就加上运费
     const needsShipping = applicableAdj.some(a => a.include_shipping === true);
     if (needsShipping) {
       basePrice = price + shipping;
     }
 
-    // 累乘调价百分比
     let currentPrice = basePrice;
     applicableAdj.forEach(adj => {
       const multiplier = 1 + (Number(adj.percentage) / 100);
       currentPrice *= multiplier;
     });
 
-    // 获取并计算汇率
     const rateEntry = exchangeRates.find(r => r.marketplace === targetMkt);
     const rate = rateEntry ? Number(rateEntry.rate) : 1;
     currentPrice *= rate;
 
-    // 保留两位小数
     return parseFloat(currentPrice.toFixed(2));
   };
 
@@ -289,24 +291,41 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
             <div className="lg:col-span-5 space-y-8">
-               <div className="space-y-4">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Globe size={14} className="text-blue-500" /> Select Target Marketplace</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                    {AMAZON_MARKETPLACES.map(m => (
+               <div className="space-y-4 flex flex-col h-full">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                      <Globe size={14} className="text-blue-500" /> Select Target Marketplace
+                    </label>
+                    <div className="relative group">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-300" size={12} />
+                      <input 
+                        type="text" 
+                        placeholder="Search Site..."
+                        value={mktSearch}
+                        onChange={(e) => setMktSearch(e.target.value)}
+                        className="pl-7 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black outline-none focus:ring-2 focus:ring-indigo-500/10"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar p-1 bg-slate-50/50 rounded-3xl border border-slate-100">
+                    {filteredMarketplaces.map(m => (
                       <button 
                         key={m.code} 
                         onClick={() => setTargetMarket(m.code)} 
-                        className={`px-3 py-4 rounded-2xl border text-left transition-all ${targetMarket === m.code ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl scale-105' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'}`}
+                        className={`px-3 py-4 rounded-2xl border text-left transition-all ${targetMarket === m.code ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl scale-105 z-10' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'}`}
                       >
                         <div className="text-xl mb-1">{m.flag}</div>
                         <div className="text-[10px] font-black uppercase tracking-tighter truncate">{m.code} - {m.name}</div>
                       </button>
                     ))}
+                    {filteredMarketplaces.length === 0 && (
+                      <div className="col-span-3 py-12 text-center text-[10px] font-black text-slate-300 uppercase">No sites found</div>
+                    )}
                   </div>
                </div>
                <div className="space-y-4 pt-4 border-t border-slate-50">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Tags size={14} className="text-indigo-500" /> Filter Template Category</label>
-                  <select value={targetCategory} onChange={(e) => setTargetCategory(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xs uppercase outline-none">
+                  <select value={targetCategory} onChange={(e) => setTargetCategory(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xs uppercase outline-none focus:ring-4 focus:ring-indigo-500/10">
                     <option value="ALL">All Categories</option>
                     {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
@@ -324,12 +343,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
                   <div className="space-y-4 flex flex-col h-full">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileSpreadsheet size={14} className="text-emerald-500" /> Template Export</label>
-                    <div className="space-y-3 flex-1 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="space-y-3 flex-1 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar bg-slate-50/30 p-4 rounded-3xl border border-slate-100">
                       {filteredTemplates.length === 0 ? (
-                        <div className="p-12 text-center bg-slate-50 rounded-3xl border-dashed border-2 border-slate-100"><p className="text-[10px] font-black text-slate-300 uppercase">No Templates Found for {targetMarket}</p></div>
+                        <div className="p-12 text-center bg-white rounded-3xl border-dashed border-2 border-slate-100 flex flex-col items-center gap-4">
+                          <AlertCircle size={32} className="text-slate-200" />
+                          <p className="text-[10px] font-black text-slate-300 uppercase leading-relaxed text-center">No Templates Found for {targetMarket}<br/>Check Template Manager</p>
+                        </div>
                       ) : (
                         filteredTemplates.map(tmp => (
-                          <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`w-full flex items-center gap-4 p-5 rounded-2xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-indigo-50 shadow-lg' : 'border-slate-100 bg-white hover:border-slate-200'}`}>
+                          <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`w-full flex items-center gap-4 p-5 rounded-2xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-white shadow-lg ring-1 ring-indigo-500/10' : 'border-slate-50 bg-white/70 hover:border-slate-200'}`}>
                             <div className={`p-2 rounded-lg ${selectedTemplate?.id === tmp.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}><FileSpreadsheet size={18} /></div>
                             <div className="flex-1 overflow-hidden">
                               <span className="font-black text-xs block truncate">{tmp.name}</span>

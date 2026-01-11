@@ -4,6 +4,7 @@ import { X, Upload, Plus, Trash2, Loader2, Save, Image as ImageIcon, Ruler, Weig
 import { UILanguage, CleanedData, Category } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
 
 interface ManualListingModalProps {
   uiLang: UILanguage;
@@ -15,14 +16,6 @@ const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
-
-const MARKETPLACES = [
-  { code: 'US', name: 'USA', flag: '🇺🇸' },
-  { code: 'UK', name: 'UK', flag: '🇬🇧' },
-  { code: 'DE', name: 'Germany', flag: '🇩🇪' },
-  { code: 'FR', name: 'France', flag: '🇫🇷' },
-  { code: 'JP', name: 'Japan', flag: '🇯🇵' },
-];
 
 export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, onClose, onSave }) => {
   const t = useTranslation(uiLang);
@@ -200,7 +193,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                         onChange={(e) => setFormData(p => ({ ...p, marketplace: e.target.value }))}
                         className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold appearance-none cursor-pointer focus:ring-4 focus:ring-indigo-500/10 transition-all"
                       >
-                        {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.name}</option>)}
+                        {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.name}</option>)}
                       </select>
                       <Globe className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={16} />
                     </div>
