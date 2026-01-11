@@ -17,8 +17,8 @@ import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
 const LIMITS = { TITLE: 200, BULLET: 500, DESCRIPTION: 2000, KEYWORDS: 250 };
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
-const CORS_PROXY = 'https://corsproxy.io/?';
-const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
+// 注意：POST 请求上传图片通常不需要 CORS 代理，或者代理可能不支持 multipart/form-data。尝试直接上传。
+const IMAGE_HOSTING_API = TARGET_API; 
 
 const formatDecimal = (val: any) => {
   if (val === undefined || val === null || val === '') return '';
@@ -84,14 +84,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace) || AMAZON_MARKETPLACES[0]
   , [activeMarketplace]);
 
+  // 严格去重逻辑：主图永远占第一位，附图排除掉主图后依次排列
   const allImages = useMemo(() => {
     const main = localListing.cleaned.main_image;
     const others = localListing.cleaned.other_images || [];
     const imageSet = new Set<string>();
+    
     if (main) imageSet.add(main);
-    others.forEach(u => { if (u) imageSet.add(u); });
+    
+    others.forEach(u => {
+      if (u && u !== main) {
+        imageSet.add(u);
+      }
+    });
+    
     return Array.from(imageSet);
-  }, [localListing]);
+  }, [localListing.cleaned.main_image, localListing.cleaned.other_images]);
 
   const localizedPricing = useMemo(() => {
     const rawPrice = Number(localListing.cleaned.price) || 0;
@@ -267,7 +275,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsEditorOpen(false);
     setIsUploading(true);
     try {
-      // 深度修复：确保使用更安全的方式将 Data URL 转换为 Blob，避免环境 fetch 兼容性问题
       const base64Part = dataUrl.split(',')[1];
       const binaryString = atob(base64Part);
       const bytes = new Uint8Array(binaryString.length);
@@ -281,7 +288,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       formData.append('file', file);
       
       const uploadRes = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formData });
-      if (!uploadRes.ok) throw new Error("Server rejected upload");
+      if (!uploadRes.ok) throw new Error("Server upload rejected.");
       
       const uploadData = await uploadRes.json();
       const newUrl = Array.isArray(uploadData) && uploadData[0]?.src ? `${IMAGE_HOST_DOMAIN}${uploadData[0].src}` : uploadData.url;
@@ -298,7 +305,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       await syncToSupabase(updated);
     } catch (e: any) {
       console.error("AI Save Error:", e);
-      alert("Saving AI image failed: " + e.message);
+      alert("Saving AI image failed. This host might require direct POST. Error: " + e.message);
     } finally {
       setIsUploading(false);
     }
@@ -349,8 +356,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        <div className="space-y-6 lg:sticky lg:top-24">
+          {/* Media Studio Panel */}
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col gap-6">
             <h3 className="font-black text-slate-900 flex items-center justify-between text-xs uppercase tracking-widest">
               <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Media Studio</span>
@@ -421,18 +429,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
         </div>
 
-        <div className="lg:col-span-2 space-y-6 relative">
-          {/* 超大悬浮预览：以编辑区左边界为基准，占据整个编辑区位置 */}
+        <div className="lg:col-span-2 space-y-6 relative h-full">
+          {/* 超大悬浮预览 (Lens Mode)：完全覆盖编辑区，保持高清全屏视觉 */}
           {hoveredImage && (
-            <div className="absolute inset-0 z-[100] bg-white rounded-[2.5rem] border-4 border-slate-50 shadow-[0_40px_100px_rgba(0,0,0,0.25)] overflow-hidden pointer-events-none animate-in fade-in duration-300 flex items-center justify-center p-12">
-               <div className="absolute top-8 left-10 z-10 bg-slate-900/10 backdrop-blur-2xl px-5 py-2 rounded-full text-[11px] font-black text-slate-800 uppercase tracking-[0.2em] flex items-center gap-2 border border-white/20">
-                 <Search size={14} className="text-indigo-600" /> Lens Preview Mode
+            <div className="absolute inset-0 z-[100] bg-white rounded-[2.5rem] border-4 border-slate-100 shadow-[0_40px_100px_rgba(0,0,0,0.25)] overflow-hidden pointer-events-none animate-in fade-in duration-300 flex items-center justify-center p-12 min-h-[800px]">
+               <div className="absolute top-8 left-10 z-[101] bg-slate-900/10 backdrop-blur-2xl px-5 py-2 rounded-full text-[11px] font-black text-slate-800 uppercase tracking-[0.2em] flex items-center gap-2 border border-white/20 shadow-sm">
+                 <Search size={14} className="text-indigo-600" /> Ultra-HD Lens Mode
                </div>
-               <img src={hoveredImage} className="max-w-full max-h-full object-contain drop-shadow-2xl" alt="Lens View" />
+               <img src={hoveredImage} className="max-w-full max-h-full object-contain drop-shadow-[0_20px_60px_rgba(0,0,0,0.2)]" alt="Lens View" />
             </div>
           )}
 
-          <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full min-h-[1200px]">
              <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Edit2 size={14} /> Global Editor &bull; {targetMktConfig.name}</h4>
                {activeMarketplace !== 'US' && <div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase bg-amber-50 px-3 py-1 rounded-full border border-amber-100"><Coins size={12} /> Unit System & Rate Applied</div>}
@@ -443,13 +451,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                  <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><DollarSign size={10} /> Price ({localizedPricing.currency})</label>
                    <div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300 pointer-events-none">{localizedPricing.currency}</span>
-                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.price} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 outline-none" />
+                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.price} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 outline-none shadow-sm" />
                    </div>
                  </div>
                  <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Truck size={10} /> Shipping ({localizedPricing.currency})</label>
                    <div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300 pointer-events-none">{localizedPricing.currency}</span>
-                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.shipping} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 outline-none" />
+                     <input type="number" step={activeMarketplace === 'JP' ? '1' : '0.01'} value={localizedPricing.shipping} readOnly={activeMarketplace !== 'US'} onChange={(e) => activeMarketplace === 'US' && handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 outline-none shadow-sm" />
                    </div>
                  </div>
                </div>
