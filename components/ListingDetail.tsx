@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage, PriceAdjustment, ExchangeRate } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
-import { optimizeListingWithOpenAI } from '../services/openaiService';
+import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
 import { ImageEditor } from './ImageEditor';
 import { SourcingModal } from './SourcingModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -232,7 +232,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsTranslating(mktCode);
     try {
       const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
-      const translated = await translateListingWithAI(localListing.optimized, mkt?.lang || 'en');
+      const translated = aiProvider === 'gemini'
+        ? await translateListingWithAI(localListing.optimized, mkt?.lang || 'en')
+        : await translateListingWithOpenAI(localListing.optimized, mkt?.lang || 'en');
+        
       const updated = { 
         ...localListing, 
         translations: { ...(localListing.translations || {}), [mktCode]: translated } 
@@ -251,7 +254,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       for (const mkt of AMAZON_MARKETPLACES) {
         if (mkt.code === 'US') continue; 
         setIsTranslating(mkt.code);
-        const translated = await translateListingWithAI(localListing.optimized!, mkt.lang);
+        const translated = aiProvider === 'gemini'
+          ? await translateListingWithAI(localListing.optimized!, mkt.lang)
+          : await translateListingWithOpenAI(localListing.optimized!, mkt.lang);
         newTranslations[mkt.code] = translated;
       }
       const updated = { ...localListing, translations: newTranslations };
