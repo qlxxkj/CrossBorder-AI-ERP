@@ -6,19 +6,18 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion.
-
-    [STRICT CONSTRAINTS]
-    1. Title: Max 200 characters.
-    2. Bullet Points: Exactly 5 points. Each point MUST start with a "[KEYWORD]: " prefix.
-    3. Description: 1000-1500 characters. Use HTML tags like <p> and <br>.
-    4. Measurements: Standardize weight and dimensions. 
-       - Units MUST be full names in English (e.g., "pounds" instead of "lb", "inches" instead of "in").
-       - Numeric values MUST NOT exceed 2 decimal places.
-    5. PROHIBITED: No Brand Names, No Extreme Words.
-
-    Analyze and optimize:
+    You are an expert Amazon Listing Optimizer. Extract and optimize product data from:
     ${JSON.stringify(cleanedData)}
+
+    [CORE TASKS]
+    1. Title: Max 200 chars, SEO high-conversion.
+    2. Bullets: Exactly 5, start with [KEYWORD].
+    3. Logistics: 
+       - Extract weight and dimensions from the input. 
+       - Standardize to English FULL NAMES: "pounds" and "inches".
+       - Format numbers to 2 decimal places.
+    
+    Return valid JSON.
   `;
 
   try {
@@ -41,7 +40,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
             optimized_height: { type: Type.STRING },
             optimized_size_unit: { type: Type.STRING }
           },
-          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
+          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords", "optimized_weight_value", "optimized_weight_unit"]
         }
       }
     });
@@ -58,22 +57,19 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Translate the following Amazon listing content into the language associated with "${targetLang}". 
+    Translate and LOCALIZE this Amazon listing into "${targetLang}".
     
-    [CRITICAL - LOCALIZATION RULES]
-    1. TEXT: Translate all marketing text (Title, Features, Description, Keywords) naturally for ${targetLang} speakers.
-    2. MEASUREMENTS CONVERSION: 
-       - If the target locale uses METRIC (most of Europe, Japan, China, etc.), convert Imperial (lb/in) to Metric (kg/cm).
-       - Conversion math: 1 pound ≈ 0.45 kg, 1 inch ≈ 2.54 cm.
-    3. UNIT NAMES: Use FULL NAMES in the target language ${targetLang}. NEVER use abbreviations like 'kg', 'lb', 'cm', 'in'.
-       - Example (Chinese): Use '千克' instead of 'kg', '厘米' instead of 'cm'.
-       - Example (Japanese): Use 'キログラム' instead of 'kg', 'センチメートル' instead of 'cm'.
-    4. PRECISION: Numerical values for weight/dimensions MUST be rounded to exactly 2 decimal places.
-    
-    Maintain Amazon compliance. Output valid JSON only.
+    [CRITICAL - MEASUREMENTS CONVERSION]
+    1. TARGET MARKET UNIT SYSTEM: 
+       - If ${targetLang} is for JP, DE, FR, IT, ES, MX, BR (Metric): CONVERT lb to kg (x0.45) and in to cm (x2.54).
+       - If ${targetLang} is for UK, US, CA (Imperial): Use pounds and inches.
+    2. UNIT NAMES: Translate units to FULL NAMES in ${targetLang}. NO abbreviations (no kg, lb, cm, in).
+       - JA example: "キログラム", "センチメートル"
+       - ZH example: "千克", "厘米"
+    3. PRECISION: Numerical values MUST be 2 decimal places.
+    4. TEXT: Translate marketing copy naturally for ${targetLang}.
 
-    Source Content:
-    ${JSON.stringify(sourceData)}
+    Source Content: ${JSON.stringify(sourceData)}
   `;
 
   try {
@@ -96,7 +92,7 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
             optimized_height: { type: Type.STRING },
             optimized_size_unit: { type: Type.STRING }
           },
-          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords", "optimized_weight_value", "optimized_weight_unit", "optimized_length", "optimized_width", "optimized_height", "optimized_size_unit"]
+          required: ["optimized_title", "optimized_weight_value", "optimized_weight_unit", "optimized_length", "optimized_size_unit"]
         }
       }
     });
@@ -104,7 +100,7 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     const text = response.text || "{}";
     return JSON.parse(text.trim()) as OptimizedData;
   } catch (error) {
-    console.error(`Translation to ${targetLang} failed:`, error);
+    console.error(`Translation failed:`, error);
     throw error;
   }
 };
@@ -121,19 +117,13 @@ export const editImageWithAI = async (imageBase64: string, instruction: string):
         ]
       }
     });
-    
     const candidates = response.candidates;
     if (candidates && candidates.length > 0) {
       const parts = candidates[0].content.parts;
       for (const part of parts) {
-        if (part.inlineData && part.inlineData.data) {
-          return part.inlineData.data;
-        }
+        if (part.inlineData && part.inlineData.data) return part.inlineData.data;
       }
     }
     throw new Error("No image generated.");
-  } catch (error) {
-    console.error("AI Image Edit failed:", error);
-    throw error;
-  }
+  } catch (error) { throw error; }
 };
