@@ -224,7 +224,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const updated = { ...localListing, status: 'optimized' as const, optimized: optimizedData };
       setLocalListing(updated);
       await syncToSupabase(updated);
-    } catch (error: any) { alert(`Failed: ${error.message}`); } finally { setIsOptimizing(false); }
+    } catch (error: any) { alert(`Optimization failed: ${error.message}`); } finally { setIsOptimizing(false); }
   };
 
   const handleTranslate = async (mktCode: string) => {
@@ -243,26 +243,51 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       setLocalListing(updated);
       await syncToSupabase(updated);
       setActiveMarketplace(mktCode);
-    } catch (error: any) { alert(`Failed: ${error.message}`); } finally { setIsTranslating(null); }
+    } catch (error: any) { alert(`Translation failed: ${error.message}`); } finally { setIsTranslating(null); }
   };
 
   const handleTranslateAll = async () => {
     if (!localListing.optimized) { alert("Optimize base content first."); return; }
     setIsTranslatingAll(true);
+    let successCount = 0;
+    let failCount = 0;
+
     try {
-      const newTranslations = { ...(localListing.translations || {}) };
+      const currentTranslations = { ...(localListing.translations || {}) };
+      
       for (const mkt of AMAZON_MARKETPLACES) {
         if (mkt.code === 'US') continue; 
+        
         setIsTranslating(mkt.code);
-        const translated = aiProvider === 'gemini'
-          ? await translateListingWithAI(localListing.optimized!, mkt.lang)
-          : await translateListingWithOpenAI(localListing.optimized!, mkt.lang);
-        newTranslations[mkt.code] = translated;
+        try {
+          // 加入小延迟防止触发 API 提供商限流
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          const translated = aiProvider === 'gemini'
+            ? await translateListingWithAI(localListing.optimized!, mkt.lang)
+            : await translateListingWithOpenAI(localListing.optimized!, mkt.lang);
+            
+          currentTranslations[mkt.code] = translated;
+          successCount++;
+        } catch (itemErr) {
+          console.error(`Failed to translate for ${mkt.code}:`, itemErr);
+          failCount++;
+        }
       }
-      const updated = { ...localListing, translations: newTranslations };
+      
+      const updated = { ...localListing, translations: currentTranslations };
       setLocalListing(updated);
       await syncToSupabase(updated);
-    } catch (error: any) { alert(`Batch translation failed: ${error.message}`); } finally { setIsTranslatingAll(false); setIsTranslating(null); }
+      
+      if (failCount > 0) {
+        alert(`Batch translation finished with partial results. Success: ${successCount}, Failed: ${failCount}. Check console for details.`);
+      }
+    } catch (error: any) { 
+      alert(`Critical Batch translation failure: ${error.message}`); 
+    } finally { 
+      setIsTranslatingAll(false); 
+      setIsTranslating(null); 
+    }
   };
 
   const CharCounter = ({ count, limit }: { count: number, limit: number }) => (
@@ -312,7 +337,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
              <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                 <Edit2 size={14} /> Global Editor &bull; {targetMktConfig.name} ({activeMarketplace.toUpperCase()})
+                 <Edit2 size={14} /> Global Editor & bull; {targetMktConfig.name} ({activeMarketplace.toUpperCase()})
                </h4>
                {activeMarketplace !== 'US' && (
                  <div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase bg-amber-50 px-3 py-1 rounded-full border border-amber-100">

@@ -1,6 +1,8 @@
 
 import { CleanedData, OptimizedData } from "../types";
 
+const CORS_PROXY = 'https://corsproxy.io/?';
+
 /**
  * OpenAI Service for Listing Optimization
  */
@@ -10,7 +12,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   const model = process.env.OPENAI_MODEL || "gpt-4o";
   
   if (!apiKey) {
-    throw new Error("OpenAI API Key is missing.");
+    throw new Error("OpenAI API Key is missing in environment variables.");
   }
 
   const prompt = `
@@ -40,10 +42,19 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     }
   `;
 
+  // 处理 CORS：如果是官方域名且在浏览器端运行，则使用代理
+  const endpoint = `${baseUrl}/chat/completions`;
+  const finalUrl = baseUrl.includes("api.openai.com") 
+    ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` 
+    : endpoint;
+
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(finalUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      headers: { 
+        "Content-Type": "application/json", 
+        "Authorization": `Bearer ${apiKey}` 
+      },
       body: JSON.stringify({
         model: model,
         messages: [
@@ -54,11 +65,21 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
       })
     });
 
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`OpenAI API Error (${response.status}): ${errBody || response.statusText}`);
+    }
+    
     const data = await response.json();
-    return JSON.parse(data.choices[0].message.content) as OptimizedData;
+    const content = data.choices[0]?.message?.content;
+    if (!content) throw new Error("OpenAI returned an empty response.");
+    
+    return JSON.parse(content) as OptimizedData;
   } catch (error: any) {
     console.error("OpenAI Optimization failed:", error);
+    if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+      throw new Error("Network Error: Failed to reach OpenAI. This is likely a CORS issue or connection block. Please use a custom OPENAI_BASE_URL (proxy).");
+    }
     throw error;
   }
 };
@@ -88,10 +109,18 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     ${JSON.stringify(sourceData)}
   `;
 
+  const endpoint = `${baseUrl}/chat/completions`;
+  const finalUrl = baseUrl.includes("api.openai.com") 
+    ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` 
+    : endpoint;
+
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(finalUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      headers: { 
+        "Content-Type": "application/json", 
+        "Authorization": `Bearer ${apiKey}` 
+      },
       body: JSON.stringify({
         model: model,
         messages: [
@@ -102,11 +131,21 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
       })
     });
 
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`OpenAI Translation Error (${response.status}): ${errBody}`);
+    }
+
     const data = await response.json();
-    return JSON.parse(data.choices[0].message.content) as OptimizedData;
+    const content = data.choices[0]?.message?.content;
+    if (!content) throw new Error("OpenAI returned an empty translation response.");
+
+    return JSON.parse(content) as OptimizedData;
   } catch (error: any) {
     console.error(`OpenAI Translation to ${targetLang} failed:`, error);
+    if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+      throw new Error(`Network Error during ${targetLang} translation. Ensure your API Base URL supports browser CORS.`);
+    }
     throw error;
   }
 };
