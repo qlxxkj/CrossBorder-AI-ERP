@@ -98,6 +98,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     const price = Number(listing.cleaned.price) || 0;
     const shipping = Number(listing.cleaned.shipping) || 0;
     
+    // 如果目标是美国，直接返回
+    if (targetMkt === 'US') return price;
+
     let basePrice = price;
 
     const applicableAdj = adjustments.filter(adj => {
@@ -170,7 +173,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     if (!selectedTemplate || !fileBinary) return;
     
     setExporting(true);
-    setExportStatus('Injecting into Master...');
+    setExportStatus('Injecting Localized Data...');
 
     try {
       const bytes = safeDecode(fileBinary);
@@ -182,20 +185,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] || (targetMarket === 'US' ? techRowIdx + 3 : techRowIdx + 2);
 
       const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
-      const targetMktConfig = AMAZON_MARKETPLACES.find(m => m.code === targetMarket);
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = dataStartRowIdx + rowOffset;
         const cleaned = listing.cleaned;
         
-        let opt: OptimizedData | null = null;
-        if (targetMktConfig?.lang === 'en') {
-          opt = listing.optimized || null;
-        } else if (listing.translations?.[targetMarket]) {
-          opt = listing.translations[targetMarket];
-        }
-        
-        const isOptReady = opt && (opt.optimized_title || opt.optimized_description);
+        // 关键：获取目标市场的本地化数据
+        // 1. translations[targetMarket]
+        // 2. 如果是 US 或 未翻译，使用 optimized
+        // 3. 回退 cleaned
+        const localOpt: OptimizedData | null = (targetMarket !== 'US' && listing.translations?.[targetMarket]) 
+          ? listing.translations[targetMarket] 
+          : (listing.optimized || null);
 
         mappingKeys.forEach(mappingKey => {
           const colIdx = parseInt(mappingKey.replace('col_', ''));
@@ -208,26 +209,33 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
             if (f === 'asin') val = listing.asin || cleaned.asin || '';
-            else if (f === 'title') val = (isOptReady ? opt?.optimized_title : cleaned.title) || cleaned.title || '';
+            else if (f === 'title') val = localOpt?.optimized_title || cleaned.title || '';
             else if (f === 'price') {
               val = calculateFinalPrice(listing, targetMarket);
             }
-            else if (f === 'shipping') val = cleaned.shipping || 0;
+            else if (f === 'shipping') {
+              // 运费也通过汇率换算显示到对应市场
+              const rate = exchangeRates.find(r => r.marketplace === targetMarket)?.rate || 1;
+              val = parseFloat(((cleaned.shipping || 0) * rate).toFixed(2));
+            }
             else if (f === 'brand') val = cleaned.brand || '';
-            else if (f === 'description') val = (isOptReady ? opt?.optimized_description : cleaned.description) || cleaned.description || '';
+            else if (f === 'description') val = localOpt?.optimized_description || cleaned.description || '';
             else if (f === 'main_image') val = cleaned.main_image || '';
-            else if (f === 'item_weight_value') val = cleaned.item_weight_value || '';
-            else if (f === 'item_weight_unit') val = cleaned.item_weight_unit || '';
-            else if (f === 'item_length') val = cleaned.item_length || '';
-            else if (f === 'item_width') val = cleaned.item_width || '';
-            else if (f === 'item_height') val = cleaned.item_height || '';
-            else if (f === 'item_size_unit') val = cleaned.item_size_unit || '';
+            
+            // 物流参数：优先使用本地化（换算后）的值，没有则回退原始
+            else if (f === 'item_weight_value') val = localOpt?.optimized_weight_value || cleaned.item_weight_value || '';
+            else if (f === 'item_weight_unit') val = localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '';
+            else if (f === 'item_length') val = localOpt?.optimized_length || cleaned.item_length || '';
+            else if (f === 'item_width') val = localOpt?.optimized_width || cleaned.item_width || '';
+            else if (f === 'item_height') val = localOpt?.optimized_height || cleaned.item_height || '';
+            else if (f === 'item_size_unit') val = localOpt?.optimized_size_unit || cleaned.item_size_unit || '';
+            
             else if (f?.startsWith('other_image')) {
               const num = parseInt(f.replace('other_image', '')) || 1;
               val = (cleaned.other_images || [])[num - 1] || '';
             } else if (f?.startsWith('feature')) {
               const num = parseInt(f.replace('feature', '')) || 1;
-              const features = (isOptReady && opt?.optimized_features?.length) ? opt.optimized_features : (cleaned.features || []);
+              const features = localOpt?.optimized_features || cleaned.features || [];
               val = features[num - 1] || '';
             }
           } else if (mapping.source === 'custom') {
@@ -257,7 +265,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `AMZBot_TemplateExport_${targetMarket}_${Date.now()}.xlsm`;
+      link.download = `Localized_Export_${targetMarket}_${Date.now()}.xlsm`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {
@@ -284,7 +292,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             <div>
               <p className="text-xl font-black">{selectedListings.length} Selected Items Ready</p>
               <p className="text-xs font-bold text-indigo-100 opacity-80 uppercase tracking-widest mt-1">
-                Applying Adjustments & Exchange Rates in Real-time
+                Applying Localized Mappings for {targetMarket}
               </p>
             </div>
           </div>
@@ -318,9 +326,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                         <div className="text-[10px] font-black uppercase tracking-tighter truncate">{m.code} - {m.name}</div>
                       </button>
                     ))}
-                    {filteredMarketplaces.length === 0 && (
-                      <div className="col-span-3 py-12 text-center text-[10px] font-black text-slate-300 uppercase">No sites found</div>
-                    )}
                   </div>
                </div>
                <div className="space-y-4 pt-4 border-t border-slate-50">
