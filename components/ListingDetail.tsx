@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
   BrainCircuit, Globe, Languages, Loader2, DollarSign, Truck, Settings2, ZoomIn, Save, ChevronRight,
-  Zap, Check, AlertCircle
+  Zap, Check, AlertCircle, Weight, Ruler
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -256,7 +256,86 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
              <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Edit2 size={14} /> Global Editor &bull; {AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace)?.name || 'Default (EN)'}</h4></div>
-             <div className="p-8 border-b border-slate-100 bg-slate-50/20"><div className="grid grid-cols-2 gap-8"><div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><DollarSign size={10} /> Price (USD)</label><input type="number" step="0.01" value={localListing.cleaned?.price || 0} onChange={(e) => handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner" /></div><div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Truck size={10} /> Shipping (USD)</label><input type="number" step="0.01" value={localListing.cleaned?.shipping || 0} onChange={(e) => handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner" /></div></div></div>
+             
+             {/* Key Metrics Section */}
+             <div className="p-8 border-b border-slate-100 bg-slate-50/20 space-y-8">
+               <div className="grid grid-cols-2 gap-8">
+                 <div className="space-y-2">
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><DollarSign size={10} /> Price (USD)</label>
+                   <input type="number" step="0.01" value={localListing.cleaned?.price || 0} onChange={(e) => handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner" />
+                 </div>
+                 <div className="space-y-2">
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Truck size={10} /> Shipping (USD)</label>
+                   <input type="number" step="0.01" value={localListing.cleaned?.shipping || 0} onChange={(e) => handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner" />
+                 </div>
+               </div>
+
+               {/* Logistics Localization section */}
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-slate-100/50">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Weight size={10} /> Weight ({activeMarketplace === 'en' ? (localListing.optimized?.optimized_weight_unit || localListing.cleaned?.item_weight_unit || 'lb') : (currentContent?.optimized_weight_unit || 'kg')})</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_weight_value || localListing.cleaned?.item_weight_value || '') : (currentContent?.optimized_weight_value || '')} 
+                        onChange={(e) => {
+                          const path = activeMarketplace === 'en' ? 'optimized.optimized_weight_value' : `translations.${activeMarketplace}.optimized_weight_value`;
+                          handleFieldChange(path, e.target.value);
+                        }}
+                        onBlur={handleBlur}
+                        placeholder="Weight Value"
+                        className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none shadow-sm" 
+                      />
+                      <input 
+                        type="text" 
+                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_weight_unit || localListing.cleaned?.item_weight_unit || '') : (currentContent?.optimized_weight_unit || '')} 
+                        onChange={(e) => {
+                          const path = activeMarketplace === 'en' ? 'optimized.optimized_weight_unit' : `translations.${activeMarketplace}.optimized_weight_unit`;
+                          handleFieldChange(path, e.target.value);
+                        }}
+                        onBlur={handleBlur}
+                        placeholder="Unit"
+                        className="w-20 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-indigo-600 outline-none shadow-sm text-center" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Ruler size={10} /> Dimensions ({activeMarketplace === 'en' ? (localListing.optimized?.optimized_size_unit || localListing.cleaned?.item_size_unit || 'in') : (currentContent?.optimized_size_unit || 'cm')})</label>
+                    <div className="flex gap-2">
+                      <input 
+                        placeholder="L"
+                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_length || localListing.cleaned?.item_length || '') : (currentContent?.optimized_length || '')}
+                        onChange={(e) => handleFieldChange(activeMarketplace === 'en' ? 'optimized.optimized_length' : `translations.${activeMarketplace}.optimized_length`, e.target.value)}
+                        onBlur={handleBlur}
+                        className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
+                      />
+                      <input 
+                        placeholder="W"
+                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_width || localListing.cleaned?.item_width || '') : (currentContent?.optimized_width || '')}
+                        onChange={(e) => handleFieldChange(activeMarketplace === 'en' ? 'optimized.optimized_width' : `translations.${activeMarketplace}.optimized_width`, e.target.value)}
+                        onBlur={handleBlur}
+                        className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
+                      />
+                      <input 
+                        placeholder="H"
+                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_height || localListing.cleaned?.item_height || '') : (currentContent?.optimized_height || '')}
+                        onChange={(e) => handleFieldChange(activeMarketplace === 'en' ? 'optimized.optimized_height' : `translations.${activeMarketplace}.optimized_height`, e.target.value)}
+                        onBlur={handleBlur}
+                        className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
+                      />
+                      <input 
+                        placeholder="Unit"
+                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_size_unit || localListing.cleaned?.item_size_unit || '') : (currentContent?.optimized_size_unit || '')}
+                        onChange={(e) => handleFieldChange(activeMarketplace === 'en' ? 'optimized.optimized_size_unit' : `translations.${activeMarketplace}.optimized_size_unit`, e.target.value)}
+                        onBlur={handleBlur}
+                        className="w-20 px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-[10px] font-black text-indigo-600 shadow-sm" 
+                      />
+                    </div>
+                  </div>
+               </div>
+             </div>
+
              {currentContent ? (
                <div className="p-8 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
                  <div className="space-y-2"><div className="flex justify-between items-center"><label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Optimized Title</label><CharCounter count={currentContent.optimized_title?.length || 0} limit={LIMITS.TITLE} /></div><textarea value={currentContent.optimized_title || ''} onChange={(e) => { if (activeMarketplace === 'en') handleFieldChange('optimized.optimized_title', e.target.value); else handleFieldChange(`translations.${activeMarketplace}.optimized_title`, e.target.value); }} onBlur={handleBlur} className={`w-full p-5 bg-white border ${(currentContent.optimized_title?.length || 0) > LIMITS.TITLE ? 'border-red-500 ring-4 ring-red-100' : 'border-slate-200'} rounded-2xl text-base font-bold text-slate-800 focus:ring-4 focus:ring-indigo-500/10 outline-none min-h-[100px] leading-relaxed transition-all shadow-sm`} /></div>

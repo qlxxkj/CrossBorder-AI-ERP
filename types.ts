@@ -37,6 +37,13 @@ export interface OptimizedData {
   optimized_features: string[];
   optimized_description: string;
   search_keywords: string;
+  // 本地化物流参数
+  optimized_weight_value?: string;
+  optimized_weight_unit?: string;
+  optimized_length?: string;
+  optimized_width?: string;
+  optimized_height?: string;
+  optimized_size_unit?: string;
 }
 
 export interface Listing {

@@ -6,20 +6,17 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion while strictly adhering to compliance rules.
+    You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion.
 
     [STRICT CONSTRAINTS]
     1. Title: Max 200 characters.
-    2. Bullet Points: Exactly 5 points. Each point MUST start with a "[KEYWORD]: " prefix. Each point max 500 characters.
-    3. Description: Must be between 1000 and 1500 characters. Use HTML tags like <p> and <br> for formatting.
-    4. Search Keywords: Max 500 characters total, separated by commas.
-    5. PROHIBITED CONTENT (CRITICAL):
-       - NO Brand Names (do not mention the product brand).
-       - NO Extreme Words (e.g., "Best", "Top", "Absolute", "Perfect", "No.1", "Guaranteed").
-       - NO Car Brand Names (e.g., "Toyota", "Lexus", "Tesla", "BMW", etc.).
-       - Use generic compatibility terms like "Fits compatible vehicles" instead of specific car brands.
+    2. Bullet Points: Exactly 5 points. Each point MUST start with a "[KEYWORD]: " prefix.
+    3. Description: 1000-1500 characters. Use HTML tags like <p> and <br>.
+    4. Search Keywords: Max 500 characters.
+    5. Measurements: Standardize weight and dimensions into the source fields.
+    6. PROHIBITED: No Brand Names, No Extreme Words, No Car Brands.
 
-    Analyze the following product data and generate the optimized listing:
+    Analyze and optimize:
     ${JSON.stringify(cleanedData)}
   `;
 
@@ -35,7 +32,13 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
             optimized_title: { type: Type.STRING },
             optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
             optimized_description: { type: Type.STRING },
-            search_keywords: { type: Type.STRING }
+            search_keywords: { type: Type.STRING },
+            optimized_weight_value: { type: Type.STRING },
+            optimized_weight_unit: { type: Type.STRING },
+            optimized_length: { type: Type.STRING },
+            optimized_width: { type: Type.STRING },
+            optimized_height: { type: Type.STRING },
+            optimized_size_unit: { type: Type.STRING }
           },
           required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
         }
@@ -54,9 +57,15 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Translate the following Amazon listing content into ${targetLang}. 
-    Maintain the SEO keywords, formatting, and professional tone.
-    Ensure all character limits and prohibited content rules (no brands, no extreme words, no car brands) are still respected in the translation.
+    Translate the following Amazon listing into ${targetLang}. 
+    
+    [CRITICAL - MEASUREMENTS LOCALIZATION]
+    If the target country uses Metric (kg/cm) and source is Imperial (lb/in), CONVERT values and translate units.
+    - Translation examples: 'inches' -> 'cm' (with conversion), 'lbs' -> 'kg' (with conversion).
+    - If target language is Japanese/German/French/Spanish, use Metric.
+    - If target is English (UK), use Metric.
+    
+    Maintain all SEO keywords and compliance rules (no brands, no extreme words).
     Output only JSON.
 
     Source Content:
@@ -75,7 +84,13 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
             optimized_title: { type: Type.STRING },
             optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
             optimized_description: { type: Type.STRING },
-            search_keywords: { type: Type.STRING }
+            search_keywords: { type: Type.STRING },
+            optimized_weight_value: { type: Type.STRING },
+            optimized_weight_unit: { type: Type.STRING },
+            optimized_length: { type: Type.STRING },
+            optimized_width: { type: Type.STRING },
+            optimized_height: { type: Type.STRING },
+            optimized_size_unit: { type: Type.STRING }
           },
           required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
         }
