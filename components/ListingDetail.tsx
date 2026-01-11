@@ -264,15 +264,28 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     await syncToSupabase(updated);
   };
 
-  const handleAIImageUpdate = async (newBase64: string) => {
+  // 修复后的 AI 图片应用逻辑：正确处理 Data URL 并上传
+  const handleAIImageUpdate = async (dataUrl: string) => {
     setIsEditorOpen(false);
     setIsUploading(true);
     try {
-      const res = await fetch(`data:image/jpeg;base64,${newBase64}`);
-      const blob = await res.blob();
+      // Data URL -> Blob
+      const arr = dataUrl.split(',');
+      const mime = arr[0].match(/:(.*?);/)![1];
+      const bstr = atob(arr[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while(n--){
+          u8arr[n] = bstr.charCodeAt(n);
+      }
+      const blob = new Blob([u8arr], { type: mime });
+      const file = new File([blob], 'ai-optimized.jpg', { type: mime });
+
       const formData = new FormData();
-      formData.append('file', new File([blob], 'ai-edited.jpg', { type: 'image/jpeg' }));
+      formData.append('file', file);
+      
       const uploadRes = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formData });
+      if (!uploadRes.ok) throw new Error("Upload server rejected the file.");
       const uploadData = await uploadRes.json();
       const newUrl = Array.isArray(uploadData) && uploadData[0]?.src ? `${IMAGE_HOST_DOMAIN}${uploadData[0].src}` : uploadData.url;
 
@@ -314,13 +327,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter animate-in fade-in duration-500 pb-20 relative">
-      {/*悬浮大图预览模态面板 (Lens Preview)*/}
+      {/* 升级版悬浮大图预览模态面板 (Ultra-HD Lens Preview) */}
       {hoveredImage && (
-        <div className="fixed top-24 right-8 w-1/3 max-w-md aspect-square z-[100] bg-white rounded-[2.5rem] border border-slate-200 shadow-[0_40px_100px_rgba(0,0,0,0.15)] overflow-hidden pointer-events-none animate-in zoom-in-95 fade-in duration-300">
-           <div className="absolute top-4 left-4 z-10 bg-slate-900/10 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-black text-slate-700 uppercase tracking-widest flex items-center gap-1">
-             <Search size={12} /> High-Res Preview
+        <div className="fixed top-32 right-12 w-[calc(66%-4rem)] h-[calc(100vh-14rem)] z-[100] bg-white rounded-[3rem] border-4 border-slate-50 shadow-[0_50px_100px_rgba(0,0,0,0.25)] overflow-hidden pointer-events-none animate-in zoom-in-95 fade-in duration-300 flex items-center justify-center p-16">
+           <div className="absolute top-8 left-10 z-10 bg-slate-900/10 backdrop-blur-2xl px-5 py-2 rounded-full text-[11px] font-black text-slate-800 uppercase tracking-[0.2em] flex items-center gap-2 border border-white/20">
+             <Search size={14} className="text-indigo-600" /> Ultra-HD Preview Mode
            </div>
-           <img src={hoveredImage} className="w-full h-full object-contain p-6" alt="Lens View" />
+           <div className="absolute inset-0 bg-slate-50/50 -z-10"></div>
+           <img src={hoveredImage} className="max-w-full max-h-full object-contain drop-shadow-2xl" alt="Lens View" />
         </div>
       )}
 
