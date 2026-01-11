@@ -4,7 +4,7 @@ export interface Category {
   name: string;
   user_id: string;
   created_at: string;
-  updated_at: string; // 新增：修改日期
+  updated_at: string;
 }
 
 export interface CleanedData {
@@ -44,7 +44,7 @@ export interface Listing {
   user_id?: string;
   asin: string;
   marketplace: string; 
-  category_id?: string; // 新增：关联分类ID
+  category_id?: string;
   url?: string;
   created_at: string;
   updated_at?: string;
@@ -53,6 +53,24 @@ export interface Listing {
   raw?: any;
   optimized?: OptimizedData;
   translations?: Record<string, OptimizedData>;
+}
+
+export interface PriceAdjustment {
+  id: string;
+  user_id: string;
+  marketplace: string; // 'ALL' or code
+  category_id: string; // 'ALL' or uuid
+  percentage: number;
+  include_shipping: boolean;
+  created_at: string;
+}
+
+export interface ExchangeRate {
+  id: string;
+  user_id: string;
+  marketplace: string;
+  rate: number;
+  created_at: string;
 }
 
 export interface FieldMapping {
@@ -72,7 +90,7 @@ export interface ExportTemplate {
   required_headers?: string[];
   mappings?: Record<string, any>; 
   marketplace: string;
-  category_id?: string; // 新增：关联分类ID
+  category_id?: string;
   created_at: string;
 }
 
@@ -82,7 +100,8 @@ export enum AppView {
   DASHBOARD = 'DASHBOARD',
   LISTING_DETAIL = 'LISTING_DETAIL',
   TEMPLATES = 'TEMPLATES',
-  CATEGORIES = 'CATEGORIES'
+  CATEGORIES = 'CATEGORIES',
+  PRICING = 'PRICING'
 }
 
 export type UILanguage = 'en' | 'zh' | 'ja' | 'de' | 'fr' | 'es';

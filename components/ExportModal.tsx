@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Globe, AlertCircle, Tags, FileText } from 'lucide-react';
-import { Listing, ExportTemplate, UILanguage, FieldMapping, CleanedData, OptimizedData, Category } from '../types';
+import { Listing, ExportTemplate, UILanguage, FieldMapping, CleanedData, OptimizedData, Category, PriceAdjustment, ExchangeRate } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
@@ -25,13 +25,10 @@ function safeDecode(base64: string): Uint8Array {
 
 const generateRandomValue = (type?: 'alphanumeric' | 'ean13'): string => {
   if (type === 'ean13') {
-    // EAN-13: 3位国家码 (608) + 4位厂商随机 + 5位流水随机 + 1位校验
     const country = "608";
     const manufacturer = Math.floor(Math.random() * 9000 + 1000).toString();
     const sequence = Math.floor(Math.random() * 90000 + 10000).toString();
-    const base = country + manufacturer + sequence; // 12 digits
-    
-    // EAN-13 校验位计算算法
+    const base = country + manufacturer + sequence; 
     let sum = 0;
     for (let i = 0; i < 12; i++) {
       const digit = parseInt(base[i]);
@@ -40,7 +37,6 @@ const generateRandomValue = (type?: 'alphanumeric' | 'ean13'): string => {
     const checkDigit = (10 - (sum % 10)) % 10;
     return base + checkDigit;
   } else {
-    // 默认规则：3位大写字母 + 4位数字 (如 ABC1234)
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const letters = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     const numbers = Math.floor(Math.random() * 9000 + 1000).toString();
@@ -52,6 +48,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const t = useTranslation(uiLang);
   const [templates, setTemplates] = useState<ExportTemplate[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [adjustments, setAdjustments] = useState<PriceAdjustment[]>([]);
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<ExportTemplate | null>(null);
   const [targetMarket, setTargetMarket] = useState('US');
   const [targetCategory, setTargetCategory] = useState('ALL');
@@ -59,19 +57,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const [exportStatus, setExportStatus] = useState('');
 
   useEffect(() => {
-    fetchTemplates();
-    fetchCategories();
+    fetchData();
   }, []);
 
-  const fetchCategories = async () => {
-    const { data } = await supabase.from('categories').select('*');
-    if (data) setCategories(data);
-  };
-
-  const fetchTemplates = async () => {
+  const fetchData = async () => {
     if (!isSupabaseConfigured()) return;
-    const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
-    if (data) setTemplates(data);
+    const [tplRes, catRes, adjRes, rateRes] = await Promise.all([
+      supabase.from('templates').select('*').order('created_at', { ascending: false }),
+      supabase.from('categories').select('*'),
+      supabase.from('price_adjustments').select('*'),
+      supabase.from('exchange_rates').select('*')
+    ]);
+    if (tplRes.data) setTemplates(tplRes.data);
+    if (catRes.data) setCategories(catRes.data);
+    if (adjRes.data) setAdjustments(adjRes.data);
+    if (rateRes.data) setExchangeRates(rateRes.data);
   };
 
   const filteredTemplates = useMemo(() => {
@@ -85,6 +85,35 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     if (filteredTemplates.length > 0) setSelectedTemplate(filteredTemplates[0]);
     else setSelectedTemplate(null);
   }, [filteredTemplates]);
+
+  const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
+    let basePrice = listing.cleaned.price || 0;
+    const shipping = listing.cleaned.shipping || 0;
+
+    // 匹配该站点和分类的所有有效调价规则
+    const applicableAdj = adjustments.filter(adj => 
+      (adj.marketplace === 'ALL' || adj.marketplace === targetMkt) &&
+      (adj.category_id === 'ALL' || adj.category_id === listing.category_id)
+    );
+
+    // 只要有任何一条规则勾选了包含运费，基准价就加上运费
+    if (applicableAdj.some(a => a.include_shipping)) {
+      basePrice += shipping;
+    }
+
+    // 累乘调价比例
+    let currentPrice = basePrice;
+    applicableAdj.forEach(adj => {
+      currentPrice *= (1 + adj.percentage / 100);
+    });
+
+    // 乘汇率
+    const rateEntry = exchangeRates.find(r => r.marketplace === targetMkt);
+    const rate = rateEntry ? rateEntry.rate : 1;
+    currentPrice *= rate;
+
+    return parseFloat(currentPrice.toFixed(2));
+  };
 
   const handleExportCSV = () => {
     setExporting(true);
@@ -151,7 +180,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         const cleaned = listing.cleaned;
         
         let opt: OptimizedData | null = null;
-        // 改进逻辑：如果站点是英语国家，直接使用默认 optimized 数据，否则查找翻译数据
         if (targetMktConfig?.lang === 'en') {
           opt = listing.optimized || null;
         } else if (listing.translations?.[targetMarket]) {
@@ -172,7 +200,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             const f = mapping.listingField;
             if (f === 'asin') val = listing.asin || cleaned.asin || '';
             else if (f === 'title') val = (isOptReady ? opt?.optimized_title : cleaned.title) || cleaned.title || '';
-            else if (f === 'price') val = cleaned.price || '';
+            else if (f === 'price') {
+              // 关键逻辑：引入计算引擎
+              val = calculateFinalPrice(listing, targetMarket);
+            }
             else if (f === 'shipping') val = cleaned.shipping || 0;
             else if (f === 'brand') val = cleaned.brand || '';
             else if (f === 'description') val = (isOptReady ? opt?.optimized_description : cleaned.description) || cleaned.description || '';
@@ -245,7 +276,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             <div>
               <p className="text-xl font-black">{selectedListings.length} Selected Items Ready</p>
               <p className="text-xs font-bold text-indigo-100 opacity-80 uppercase tracking-widest mt-1">
-                Preserving VBA Macros & Custom Field Mappings
+                Applying Adjustments & Exchange Rates in Real-time
               </p>
             </div>
           </div>

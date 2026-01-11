@@ -8,6 +8,7 @@ import { ListingDetail } from './components/ListingDetail';
 import { AuthPage } from './components/AuthPage';
 import { TemplateManager } from './components/TemplateManager';
 import { CategoryManager } from './components/CategoryManager';
+import { PricingManager } from './components/PricingManager';
 import { AppView, Listing, UILanguage } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { AlertTriangle, Loader2, Database, RefreshCcw, ShieldAlert, DatabaseZap, WifiOff, CloudOff } from 'lucide-react';
@@ -157,6 +158,7 @@ const App: React.FC = () => {
       case 'dashboard': return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
       case 'listings': return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => fetchListings()} isInitialLoading={isInitialFetch} />;
       case 'categories': return <CategoryManager uiLang={lang} />;
+      case 'pricing': return <PricingManager uiLang={lang} />;
       case 'templates': return <TemplateManager uiLang={lang} />;
       default: return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
     }
