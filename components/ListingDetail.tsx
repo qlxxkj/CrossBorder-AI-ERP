@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
   BrainCircuit, Globe, Languages, Loader2, DollarSign, Truck, Settings2, ZoomIn, Save, ChevronRight,
-  Zap, Check, AlertCircle, Weight, Ruler, Coins, ListFilter, FileText, Wand2, Star, Upload
+  Zap, Check, AlertCircle, Weight, Ruler, Coins, ListFilter, FileText, Wand2, Star, Upload, Search
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage, PriceAdjustment, ExchangeRate } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -50,6 +50,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [selectedImage, setSelectedImage] = useState<string>(listing.cleaned?.main_image || '');
+  const [hoveredImage, setHoveredImage] = useState<string | null>(null);
   const [activeMarketplace, setActiveMarketplace] = useState<string>('US'); 
 
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
@@ -83,10 +84,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace) || AMAZON_MARKETPLACES[0]
   , [activeMarketplace]);
 
+  // 修正后的图片去重逻辑：主图第一，附图紧随其后且不重复
   const allImages = useMemo(() => {
     const main = localListing.cleaned.main_image;
     const others = localListing.cleaned.other_images || [];
-    return [main, ...others].filter(Boolean);
+    const imageSet = new Set<string>();
+    if (main) imageSet.add(main);
+    others.forEach(u => { if (u) imageSet.add(u); });
+    return Array.from(imageSet);
   }, [localListing]);
 
   const localizedPricing = useMemo(() => {
@@ -308,7 +313,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   if (!listing || !listing.cleaned) return null;
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter animate-in fade-in duration-500 pb-20">
+    <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter animate-in fade-in duration-500 pb-20 relative">
+      {/*悬浮大图预览模态面板 (Lens Preview)*/}
+      {hoveredImage && (
+        <div className="fixed top-24 right-8 w-1/3 max-w-md aspect-square z-[100] bg-white rounded-[2.5rem] border border-slate-200 shadow-[0_40px_100px_rgba(0,0,0,0.15)] overflow-hidden pointer-events-none animate-in zoom-in-95 fade-in duration-300">
+           <div className="absolute top-4 left-4 z-10 bg-slate-900/10 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-black text-slate-700 uppercase tracking-widest flex items-center gap-1">
+             <Search size={12} /> High-Res Preview
+           </div>
+           <img src={hoveredImage} className="w-full h-full object-contain p-6" alt="Lens View" />
+        </div>
+      )}
+
       {isEditorOpen && (
         <ImageEditor 
           imageUrl={selectedImage} 
@@ -368,6 +383,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                   <div 
                     key={i} 
                     onClick={() => setSelectedImage(url)}
+                    onMouseEnter={() => setHoveredImage(url)}
+                    onMouseLeave={() => setHoveredImage(null)}
                     className={`relative aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all group ${selectedImage === url ? 'border-indigo-500 shadow-md ring-2 ring-indigo-500/20' : 'border-slate-100 hover:border-slate-300'}`}
                   >
                     <img src={url} className="w-full h-full object-cover" alt={`Thumb ${i}`} />
