@@ -1,11 +1,11 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
   BrainCircuit, Globe, Languages, Loader2, DollarSign, Truck, Settings2, ZoomIn, Save, ChevronRight,
-  Zap, Check, AlertCircle, Weight, Ruler
+  Zap, Check, AlertCircle, Weight, Ruler, Coins
 } from 'lucide-react';
-import { Listing, OptimizedData, CleanedData, UILanguage } from '../types';
+import { Listing, OptimizedData, CleanedData, UILanguage, PriceAdjustment, ExchangeRate } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
 import { optimizeListingWithOpenAI } from '../services/openaiService';
 import { ImageEditor } from './ImageEditor';
@@ -32,17 +32,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  if (!listing || !listing.cleaned) {
-    return (
-      <div className="flex flex-col items-center justify-center p-20 text-center space-y-4">
-        <AlertCircle size={48} className="text-red-500" />
-        <h3 className="text-xl font-black text-slate-800">Data Error</h3>
-        <p className="text-slate-400 max-w-sm">Unable to load listing details.</p>
-        <button onClick={onBack} className="px-6 py-2 bg-slate-900 text-white rounded-xl font-bold">Return</button>
-      </div>
-    );
-  }
-
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -58,6 +47,24 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [activeMarketplace, setActiveMarketplace] = useState<string>('en');
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
+  // Pricing engine data
+  const [adjustments, setAdjustments] = useState<PriceAdjustment[]>([]);
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
+
+  useEffect(() => {
+    fetchPricingData();
+  }, []);
+
+  const fetchPricingData = async () => {
+    if (!isSupabaseConfigured()) return;
+    const [adjRes, rateRes] = await Promise.all([
+      supabase.from('price_adjustments').select('*'),
+      supabase.from('exchange_rates').select('*')
+    ]);
+    if (adjRes.data) setAdjustments(adjRes.data);
+    if (rateRes.data) setExchangeRates(rateRes.data);
+  };
+
   const listingRef = useRef<Listing>(localListing);
   useEffect(() => { listingRef.current = localListing; }, [localListing]);
 
@@ -71,6 +78,44 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const currentContent = activeMarketplace === 'en' 
     ? (localListing.optimized || null)
     : (localListing.translations?.[activeMarketplace] || null);
+
+  const targetMktConfig = useMemo(() => 
+    AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace) || AMAZON_MARKETPLACES[0]
+  , [activeMarketplace]);
+
+  // 计算当前站点实时显示的价格和运费
+  const localizedPricing = useMemo(() => {
+    const rawPrice = Number(localListing.cleaned.price) || 0;
+    const rawShipping = Number(localListing.cleaned.shipping) || 0;
+    
+    if (activeMarketplace === 'en') {
+      return { price: rawPrice, shipping: rawShipping, currency: '$' };
+    }
+
+    // 匹配调价规则
+    const applicableAdj = adjustments.filter(adj => {
+      const mktMatch = adj.marketplace === 'ALL' || adj.marketplace === activeMarketplace;
+      const catMatch = adj.category_id === 'ALL' || adj.category_id === localListing.category_id;
+      return mktMatch && catMatch;
+    });
+
+    const needsShipping = applicableAdj.some(a => a.include_shipping === true);
+    const basePrice = needsShipping ? (rawPrice + rawShipping) : rawPrice;
+
+    let finalPrice = basePrice;
+    applicableAdj.forEach(adj => {
+      finalPrice *= (1 + (Number(adj.percentage) / 100));
+    });
+
+    const rateEntry = exchangeRates.find(r => r.marketplace === activeMarketplace);
+    const rate = rateEntry ? Number(rateEntry.rate) : 1;
+    
+    return {
+      price: parseFloat((finalPrice * rate).toFixed(2)),
+      shipping: parseFloat((rawShipping * rate).toFixed(2)),
+      currency: targetMktConfig.currency
+    };
+  }, [localListing, activeMarketplace, adjustments, exchangeRates, targetMktConfig]);
 
   const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
@@ -223,6 +268,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     <span className={`text-[10px] font-black ${count > limit ? 'text-red-500' : 'text-slate-400'}`}> {count} / {limit} </span>
   );
 
+  if (!listing || !listing.cleaned) {
+    return (
+      <div className="flex flex-col items-center justify-center p-20 text-center space-y-4">
+        <AlertCircle size={48} className="text-red-500" />
+        <h3 className="text-xl font-black text-slate-800">Data Error</h3>
+        <p className="text-slate-400 max-w-sm">Unable to load listing details.</p>
+        <button onClick={onBack} className="px-6 py-2 bg-slate-900 text-white rounded-xl font-bold">Return</button>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter relative animate-in fade-in duration-500">
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleLocalFileSelect} />
@@ -255,81 +311,121 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
-             <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Edit2 size={14} /> Global Editor &bull; {AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace)?.name || 'Default (EN)'}</h4></div>
+             <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
+               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                 <Edit2 size={14} /> Global Editor &bull; {targetMktConfig.name} ({activeMarketplace.toUpperCase()})
+               </h4>
+               {activeMarketplace !== 'en' && (
+                 <div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
+                    <Coins size={12} /> Local Pricing Applied
+                 </div>
+               )}
+             </div>
              
              {/* Key Metrics Section */}
              <div className="p-8 border-b border-slate-100 bg-slate-50/20 space-y-8">
                <div className="grid grid-cols-2 gap-8">
                  <div className="space-y-2">
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><DollarSign size={10} /> Price (USD)</label>
-                   <input type="number" step="0.01" value={localListing.cleaned?.price || 0} onChange={(e) => handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner" />
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                     <DollarSign size={10} /> Price ({localizedPricing.currency})
+                   </label>
+                   <div className="relative">
+                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300 pointer-events-none">{localizedPricing.currency}</span>
+                     <input 
+                       type="number" 
+                       step="0.01" 
+                       value={localizedPricing.price} 
+                       readOnly={activeMarketplace !== 'en'}
+                       onChange={(e) => activeMarketplace === 'en' && handleFieldChange('cleaned.price', parseFloat(e.target.value) || 0)} 
+                       onBlur={handleBlur} 
+                       className={`w-full pl-12 pr-5 py-4 bg-white border ${activeMarketplace !== 'en' ? 'border-amber-100 bg-amber-50/30' : 'border-slate-200'} rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner`} 
+                     />
+                   </div>
+                   {activeMarketplace !== 'en' && <p className="text-[9px] font-bold text-slate-400 italic">Auto-calculated using adjustments & exchange rates.</p>}
                  </div>
                  <div className="space-y-2">
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Truck size={10} /> Shipping (USD)</label>
-                   <input type="number" step="0.01" value={localListing.cleaned?.shipping || 0} onChange={(e) => handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} onBlur={handleBlur} className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner" />
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                     <Truck size={10} /> Shipping ({localizedPricing.currency})
+                   </label>
+                   <div className="relative">
+                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300 pointer-events-none">{localizedPricing.currency}</span>
+                     <input 
+                       type="number" 
+                       step="0.01" 
+                       value={localizedPricing.shipping} 
+                       readOnly={activeMarketplace !== 'en'}
+                       onChange={(e) => activeMarketplace === 'en' && handleFieldChange('cleaned.shipping', parseFloat(e.target.value) || 0)} 
+                       onBlur={handleBlur} 
+                       className={`w-full pl-12 pr-5 py-4 bg-white border ${activeMarketplace !== 'en' ? 'border-amber-100 bg-amber-50/30' : 'border-slate-200'} rounded-2xl text-xl font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-inner`} 
+                     />
+                   </div>
                  </div>
                </div>
 
                {/* Logistics Localization section */}
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-slate-100/50">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Weight size={10} /> Weight ({activeMarketplace === 'en' ? (localListing.optimized?.optimized_weight_unit || localListing.cleaned?.item_weight_unit || 'lb') : (currentContent?.optimized_weight_unit || 'kg')})</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <Weight size={10} /> Localized Weight
+                    </label>
                     <div className="flex gap-2">
                       <input 
                         type="text" 
-                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_weight_value || localListing.cleaned?.item_weight_value || '') : (currentContent?.optimized_weight_value || '')} 
+                        value={currentContent?.optimized_weight_value || (activeMarketplace === 'en' ? (localListing.cleaned?.item_weight_value || '') : '')} 
                         onChange={(e) => {
                           const path = activeMarketplace === 'en' ? 'optimized.optimized_weight_value' : `translations.${activeMarketplace}.optimized_weight_value`;
                           handleFieldChange(path, e.target.value);
                         }}
                         onBlur={handleBlur}
-                        placeholder="Weight Value"
+                        placeholder="Value"
                         className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none shadow-sm" 
                       />
                       <input 
                         type="text" 
-                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_weight_unit || localListing.cleaned?.item_weight_unit || '') : (currentContent?.optimized_weight_unit || '')} 
+                        value={currentContent?.optimized_weight_unit || (activeMarketplace === 'en' ? (localListing.cleaned?.item_weight_unit || 'lb') : 'kg')} 
                         onChange={(e) => {
                           const path = activeMarketplace === 'en' ? 'optimized.optimized_weight_unit' : `translations.${activeMarketplace}.optimized_weight_unit`;
                           handleFieldChange(path, e.target.value);
                         }}
                         onBlur={handleBlur}
                         placeholder="Unit"
-                        className="w-20 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-indigo-600 outline-none shadow-sm text-center" 
+                        className="w-20 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-sm font-black text-indigo-600 outline-none shadow-sm text-center" 
                       />
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Ruler size={10} /> Dimensions ({activeMarketplace === 'en' ? (localListing.optimized?.optimized_size_unit || localListing.cleaned?.item_size_unit || 'in') : (currentContent?.optimized_size_unit || 'cm')})</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <Ruler size={10} /> Localized Dimensions
+                    </label>
                     <div className="flex gap-2">
                       <input 
                         placeholder="L"
-                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_length || localListing.cleaned?.item_length || '') : (currentContent?.optimized_length || '')}
+                        value={currentContent?.optimized_length || (activeMarketplace === 'en' ? (localListing.cleaned?.item_length || '') : '')}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'en' ? 'optimized.optimized_length' : `translations.${activeMarketplace}.optimized_length`, e.target.value)}
                         onBlur={handleBlur}
                         className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
                       />
                       <input 
                         placeholder="W"
-                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_width || localListing.cleaned?.item_width || '') : (currentContent?.optimized_width || '')}
+                        value={currentContent?.optimized_width || (activeMarketplace === 'en' ? (localListing.cleaned?.item_width || '') : '')}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'en' ? 'optimized.optimized_width' : `translations.${activeMarketplace}.optimized_width`, e.target.value)}
                         onBlur={handleBlur}
                         className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
                       />
                       <input 
                         placeholder="H"
-                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_height || localListing.cleaned?.item_height || '') : (currentContent?.optimized_height || '')}
+                        value={currentContent?.optimized_height || (activeMarketplace === 'en' ? (localListing.cleaned?.item_height || '') : '')}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'en' ? 'optimized.optimized_height' : `translations.${activeMarketplace}.optimized_height`, e.target.value)}
                         onBlur={handleBlur}
                         className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
                       />
                       <input 
                         placeholder="Unit"
-                        value={activeMarketplace === 'en' ? (localListing.optimized?.optimized_size_unit || localListing.cleaned?.item_size_unit || '') : (currentContent?.optimized_size_unit || '')}
+                        value={currentContent?.optimized_size_unit || (activeMarketplace === 'en' ? (localListing.cleaned?.item_size_unit || 'in') : 'cm')}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'en' ? 'optimized.optimized_size_unit' : `translations.${activeMarketplace}.optimized_size_unit`, e.target.value)}
                         onBlur={handleBlur}
-                        className="w-20 px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-[10px] font-black text-indigo-600 shadow-sm" 
+                        className="w-20 px-2 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-center text-[10px] font-black text-indigo-600 shadow-sm" 
                       />
                     </div>
                   </div>
