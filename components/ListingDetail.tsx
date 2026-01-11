@@ -90,6 +90,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     AMAZON_MARKETPLACES.find(m => m.code === activeMarketplace) || AMAZON_MARKETPLACES[0]
   , [activeMarketplace]);
 
+  // 计算详情页展示的价格和运费
   const localizedPricing = useMemo(() => {
     const rawPrice = Number(localListing.cleaned.price) || 0;
     const rawShipping = Number(localListing.cleaned.shipping) || 0;
@@ -98,6 +99,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return { price: rawPrice, shipping: rawShipping, currency: '$' };
     }
 
+    // 详情页预览逻辑：应用汇率转换
     const rateEntry = exchangeRates.find(r => r.marketplace === activeMarketplace);
     const rate = rateEntry ? Number(rateEntry.rate) : 1;
     
@@ -239,8 +241,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     try {
       const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
       const translated = aiProvider === 'gemini'
-        ? await translateListingWithAI(localListing.optimized, mkt?.lang || 'en')
-        : await translateListingWithOpenAI(localListing.optimized, mkt?.lang || 'en');
+        ? await translateListingWithAI(localListing.optimized, mkt?.name || 'English')
+        : await translateListingWithOpenAI(localListing.optimized, mkt?.name || 'English');
         
       const updated = { 
         ...localListing, 
@@ -268,8 +270,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         try {
           await new Promise(resolve => setTimeout(resolve, 500));
           const translated = aiProvider === 'gemini'
-            ? await translateListingWithAI(localListing.optimized!, mkt.lang)
-            : await translateListingWithOpenAI(localListing.optimized!, mkt.lang);
+            ? await translateListingWithAI(localListing.optimized!, mkt.name)
+            : await translateListingWithOpenAI(localListing.optimized!, mkt.name);
             
           currentTranslations[mkt.code] = translated;
           successCount++;
@@ -397,7 +399,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <div className="flex gap-2">
                       <input 
                         type="text" 
-                        value={formatDecimal(currentContent?.optimized_weight_value || (activeMarketplace === 'US' ? (localListing.cleaned?.item_weight_value || '') : ''))} 
+                        value={currentContent?.optimized_weight_value || (activeMarketplace === 'US' ? (localListing.cleaned?.item_weight_value || '') : '')} 
                         onChange={(e) => {
                           const path = activeMarketplace === 'US' ? 'optimized.optimized_weight_value' : `translations.${activeMarketplace}.optimized_weight_value`;
                           handleFieldChange(path, e.target.value);
@@ -427,21 +429,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <div className="flex gap-2">
                       <input 
                         placeholder="L"
-                        value={formatDecimal(currentContent?.optimized_length || (activeMarketplace === 'US' ? (localListing.cleaned?.item_length || '') : ''))}
+                        value={currentContent?.optimized_length || (activeMarketplace === 'US' ? (localListing.cleaned?.item_length || '') : '')}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_length' : `translations.${activeMarketplace}.optimized_length`, e.target.value)}
                         onBlur={handleBlur}
                         className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
                       />
                       <input 
                         placeholder="W"
-                        value={formatDecimal(currentContent?.optimized_width || (activeMarketplace === 'US' ? (localListing.cleaned?.item_width || '') : ''))}
+                        value={currentContent?.optimized_width || (activeMarketplace === 'US' ? (localListing.cleaned?.item_width || '') : '')}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_width' : `translations.${activeMarketplace}.optimized_width`, e.target.value)}
                         onBlur={handleBlur}
                         className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 
                       />
                       <input 
                         placeholder="H"
-                        value={formatDecimal(currentContent?.optimized_height || (activeMarketplace === 'US' ? (localListing.cleaned?.item_height || '') : ''))}
+                        value={currentContent?.optimized_height || (activeMarketplace === 'US' ? (localListing.cleaned?.item_height || '') : '')}
                         onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_height' : `translations.${activeMarketplace}.optimized_height`, e.target.value)}
                         onBlur={handleBlur}
                         className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" 

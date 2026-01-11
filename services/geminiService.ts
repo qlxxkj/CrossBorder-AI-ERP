@@ -58,17 +58,19 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Translate the following Amazon listing into ${targetLang}. 
+    Translate the following Amazon listing content into the language associated with "${targetLang}". 
     
-    [CRITICAL - MEASUREMENTS LOCALIZATION]
-    1. CONVERT values if units change (e.g., Imperial to Metric). 
-       - For European/Asian sites, use kilograms/centimeters. 
-       - For North American sites, use pounds/inches.
-    2. UNITS MUST BE FULL NAMES in ${targetLang}. NEVER USE ABBREVIATIONS (e.g., no 'kg', 'cm', 'in').
-       - Example (ZH): 'pounds' -> '磅', 'kilograms' -> '千克', 'inches' -> '英寸', 'centimeters' -> '厘米'.
-    3. NUMERIC VALUES MUST NOT EXCEED 2 DECIMAL PLACES.
+    [CRITICAL - LOCALIZATION RULES]
+    1. TEXT: Translate all marketing text (Title, Features, Description, Keywords) naturally for ${targetLang} speakers.
+    2. MEASUREMENTS CONVERSION: 
+       - If the target locale uses METRIC (most of Europe, Japan, China, etc.), convert Imperial (lb/in) to Metric (kg/cm).
+       - Conversion math: 1 pound ≈ 0.45 kg, 1 inch ≈ 2.54 cm.
+    3. UNIT NAMES: Use FULL NAMES in the target language ${targetLang}. NEVER use abbreviations like 'kg', 'lb', 'cm', 'in'.
+       - Example (Chinese): Use '千克' instead of 'kg', '厘米' instead of 'cm'.
+       - Example (Japanese): Use 'キログラム' instead of 'kg', 'センチメートル' instead of 'cm'.
+    4. PRECISION: Numerical values for weight/dimensions MUST be rounded to exactly 2 decimal places.
     
-    Maintain SEO performance and Amazon compliance. Output JSON only.
+    Maintain Amazon compliance. Output valid JSON only.
 
     Source Content:
     ${JSON.stringify(sourceData)}
@@ -94,7 +96,7 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
             optimized_height: { type: Type.STRING },
             optimized_size_unit: { type: Type.STRING }
           },
-          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
+          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords", "optimized_weight_value", "optimized_weight_unit", "optimized_length", "optimized_width", "optimized_height", "optimized_size_unit"]
         }
       }
     });

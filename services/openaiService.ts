@@ -95,18 +95,19 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   if (!apiKey) throw new Error("OpenAI API Key is missing.");
 
   const prompt = `
-    Translate the following Amazon listing content into ${targetLang}.
+    Translate the following Amazon listing content into the language of "${targetLang}".
     
-    [CRITICAL - MEASUREMENTS LOCALIZATION]
-    1. CONVERT values if units change (e.g., Imperial to Metric). 
-       - For European/Asian sites, use kilograms/centimeters. 
-       - For North American sites, use pounds/inches.
-    2. UNITS MUST BE FULL NAMES in ${targetLang}. NEVER USE ABBREVIATIONS like 'kg', 'lb', 'cm', 'in'.
-       - Example (ZH): 'pounds' -> '磅', 'kilograms' -> '千克', 'inches' -> '英寸', 'centimeters' -> '厘米'.
-       - Example (JA): 'kilograms' -> 'キログラム', 'centimeters' -> 'センチメートル'.
-    3. NUMERIC VALUES MUST NOT EXCEED 2 DECIMAL PLACES.
+    [CRITICAL - LOCALIZATION RULES]
+    1. MEASUREMENTS CONVERSION: 
+       - Convert all numerical values for Weight and Dimensions based on common marketplace standards for ${targetLang}. 
+       - If converting from US (Imperial) to Europe/Asia (Metric): 1 pound -> 0.45 kg, 1 inch -> 2.54 cm.
+    2. UNIT NAMES: Use FULL NAMES in ${targetLang}. DO NOT USE abbreviations like 'kg', 'lb', 'cm', 'in'.
+       - Example (JA): 'キログラム' (kilogram), 'センチメートル' (centimeter).
+       - Example (ZH): '千克' (kilogram), '厘米' (centimeter).
+    3. NUMERIC VALUES: Must be rounded to 2 decimal places.
+    4. TEXT: Maintain high-converting marketing tone in the target language.
     
-    Maintain JSON keys.
+    Maintain JSON keys. Output valid JSON only.
     Source:
     ${JSON.stringify(sourceData)}
   `;
