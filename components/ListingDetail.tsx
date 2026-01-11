@@ -98,7 +98,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return { price: rawPrice, shipping: rawShipping, currency: '$' };
     }
 
-    // 详情页逻辑：仅做汇率转换，不应用调价比例和运费累加
     const rateEntry = exchangeRates.find(r => r.marketplace === activeMarketplace);
     const rate = rateEntry ? Number(rateEntry.rate) : 1;
     

@@ -98,9 +98,13 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     Translate the following Amazon listing content into ${targetLang}.
     
     [CRITICAL - MEASUREMENTS LOCALIZATION]
-    1. CONVERT values if units change (e.g., Imperial to Metric).
-    2. UNITS MUST BE FULL NAMES in ${targetLang}. NEVER USE ABBREVIATIONS.
-    3. NUMERIC VALUES (Weight/Length/Width/Height) MUST NOT EXCEED 2 DECIMAL PLACES.
+    1. CONVERT values if units change (e.g., Imperial to Metric). 
+       - For European/Asian sites, use kilograms/centimeters. 
+       - For North American sites, use pounds/inches.
+    2. UNITS MUST BE FULL NAMES in ${targetLang}. NEVER USE ABBREVIATIONS like 'kg', 'lb', 'cm', 'in'.
+       - Example (ZH): 'pounds' -> '磅', 'kilograms' -> '千克', 'inches' -> '英寸', 'centimeters' -> '厘米'.
+       - Example (JA): 'kilograms' -> 'キログラム', 'centimeters' -> 'センチメートル'.
+    3. NUMERIC VALUES MUST NOT EXCEED 2 DECIMAL PLACES.
     
     Maintain JSON keys.
     Source:
