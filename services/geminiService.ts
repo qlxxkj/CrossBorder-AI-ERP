@@ -63,19 +63,24 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
   }
 };
 
-export const translateListingWithAI = async (sourceData: OptimizedData, targetLang: string): Promise<OptimizedData> => {
+export const translateListingWithAI = async (sourceData: OptimizedData, targetLang: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
     Task: Translate and LOCALIZE the TEXT ONLY of this Amazon listing into "${targetLang}".
     
     [CRITICAL]
-    1. DO NOT change or convert any numbers related to weights or dimensions. 
-    2. ONLY translate Title, 5 Bullets, Description, and Keywords.
-    3. BRAND REMOVAL: Strip all specific brands (Toyota, Lexus, etc.) and use generic localized terms.
+    1. DO NOT handle, mention, or return any numbers related to weights, lengths, or sizes.
+    2. ONLY translate: Title, 5 Bullets, Description, and Keywords.
+    3. BRAND REMOVAL: Strip all specific brands (e.g., Toyota, Lexus, Bosch, etc.) and replace with generic terms like "compatible vehicles" in "${targetLang}".
     4. QUALITY: Use natural, high-converting language for the "${targetLang}" market.
 
-    Source Content: ${JSON.stringify(sourceData)}
+    Source: ${JSON.stringify({
+      title: sourceData.optimized_title,
+      features: sourceData.optimized_features,
+      description: sourceData.optimized_description,
+      keywords: sourceData.search_keywords
+    })}
   `;
 
   try {
@@ -97,17 +102,10 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
       }
     });
 
-    if (!response.candidates || response.candidates.length === 0) {
-      throw new Error("Gemini translation returned no content.");
-    }
-
     const text = response.text || "{}";
-    const translatedText = JSON.parse(text.trim());
-    
-    // 返回 AI 翻译后的文本部分
-    return translatedText;
+    return JSON.parse(text.trim());
   } catch (error) {
-    console.error(`Translation failed:`, error);
+    console.error(`Gemini Translation failed:`, error);
     throw error;
   }
 };

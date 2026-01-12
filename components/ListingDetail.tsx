@@ -20,23 +20,19 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
-const formatDecimal = (val: any) => {
-  if (val === undefined || val === null || val === '') return '';
-  const num = parseFloat(String(val));
-  if (isNaN(num)) return val;
-  return Number(num.toFixed(2)).toString();
+// 确定性的物理单位换算系数 (英制转公制)
+const LB_TO_KG = 0.45359237;
+const IN_TO_CM = 2.54;
+
+const formatNumber = (val: any) => {
+  const n = parseFloat(String(val));
+  return isNaN(n) ? '' : parseFloat(n.toFixed(2)).toString();
 };
 
-// 确定性的物理单位换算系数
-const UNIT_FACTORS = {
-  LB_TO_KG: 0.45359237,
-  IN_TO_CM: 2.54
-};
-
-// 本地化单位名称映射
+// 各语种单位全称映射
 const LOCALIZED_UNITS: Record<string, { weight: string, size: string }> = {
   'US': { weight: 'pounds', size: 'inches' },
-  'CA': { weight: 'pounds', size: 'inches' },
+  'CA': { weight: 'pounds', size: 'inches' }, // 加拿大站通常也用英制
   'UK': { weight: 'Kilograms', size: 'Centimetres' },
   'DE': { weight: 'Kilogramm', size: 'Zentimeter' },
   'FR': { weight: 'Kilogrammes', size: 'Centimètres' },
@@ -148,34 +144,29 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     return { price: finalPrice, shipping: finalShipping, currency: targetMktConfig.currency };
   }, [localListing, activeMarketplace, exchangeRates, targetMktConfig]);
 
-  // 工具函数：手动计算本地化物流参数
-  const calculateLocalizedLogistics = (mktCode: string, source: OptimizedData) => {
-    const isImperial = ['US', 'CA'].includes(mktCode);
+  // 核心工具：纯 JavaScript 物理换算
+  const calculateLogistics = (mktCode: string, source: OptimizedData) => {
     const units = LOCALIZED_UNITS[mktCode] || LOCALIZED_UNITS.default;
-    
+    // US 和 CA 通常保持英制
+    const isImperial = ['US', 'CA'].includes(mktCode);
+
     if (isImperial) {
-      // 保持英制，仅更新单位全称
       return {
-        optimized_weight_value: formatDecimal(source.optimized_weight_value),
+        optimized_weight_value: formatNumber(source.optimized_weight_value),
         optimized_weight_unit: units.weight,
-        optimized_length: formatDecimal(source.optimized_length),
-        optimized_width: formatDecimal(source.optimized_width),
-        optimized_height: formatDecimal(source.optimized_height),
+        optimized_length: formatNumber(source.optimized_length),
+        optimized_width: formatNumber(source.optimized_width),
+        optimized_height: formatNumber(source.optimized_height),
         optimized_size_unit: units.size
       };
     } else {
-      // 执行公制转换
-      const convert = (val: any, factor: number) => {
-        const n = parseFloat(String(val));
-        return isNaN(n) ? '' : formatDecimal(n * factor);
-      };
-
+      // 换算为公制
       return {
-        optimized_weight_value: convert(source.optimized_weight_value, UNIT_FACTORS.LB_TO_KG),
+        optimized_weight_value: formatNumber(parseFloat(source.optimized_weight_value || '0') * LB_TO_KG),
         optimized_weight_unit: units.weight,
-        optimized_length: convert(source.optimized_length, UNIT_FACTORS.IN_TO_CM),
-        optimized_width: convert(source.optimized_width, UNIT_FACTORS.IN_TO_CM),
-        optimized_height: convert(source.optimized_height, UNIT_FACTORS.IN_TO_CM),
+        optimized_length: formatNumber(parseFloat(source.optimized_length || '0') * IN_TO_CM),
+        optimized_width: formatNumber(parseFloat(source.optimized_width || '0') * IN_TO_CM),
+        optimized_height: formatNumber(parseFloat(source.optimized_height || '0') * IN_TO_CM),
         optimized_size_unit: units.size
       };
     }
@@ -237,6 +228,28 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
+  // 单站点翻译核心逻辑
+  const processTranslation = async (mktCode: string, source: OptimizedData) => {
+    const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
+    // 加拿大站点强制使用英语
+    const targetLang = mktCode === 'CA' ? 'English' : (mkt?.name || 'English');
+
+    // 1. 获取 AI 翻译文本
+    const aiResult = aiProvider === 'gemini' 
+      ? await translateListingWithAI(source, targetLang)
+      : await translateListingWithOpenAI(source, targetLang);
+
+    // 2. 执行前端数学换算
+    const logistics = calculateLogistics(mktCode, source);
+
+    // 3. 组装完整数据
+    return {
+      ...source, // 兜底
+      ...aiResult, // AI 覆盖文本
+      ...logistics // JS 覆盖换算
+    } as OptimizedData;
+  };
+
   const handleTranslate = async (mktCode: string) => {
     if (!localListing.optimized) { 
       alert("Please optimize the English base first."); 
@@ -244,27 +257,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
     setIsTranslating(mktCode);
     try {
-      const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
-      // 特殊逻辑：加拿大使用英语
-      const targetLang = mktCode === 'CA' ? 'English' : (mkt?.name || 'English');
-      
-      // 1. 调用 AI 进行文本翻译
-      const translatedText = aiProvider === 'gemini'
-        ? await translateListingWithAI(localListing.optimized, targetLang)
-        : await translateListingWithOpenAI(localListing.optimized, targetLang);
-      
-      // 2. 调用确定性逻辑进行物流换算
-      const logistics = calculateLocalizedLogistics(mktCode, localListing.optimized);
-      
-      // 3. 组装结果
-      const finalTranslatedData: OptimizedData = {
-        ...translatedText,
-        ...logistics
+      const finalData = await processTranslation(mktCode, localListing.optimized);
+      const updated = { 
+        ...localListing, 
+        translations: { ...(localListing.translations || {}), [mktCode]: finalData } 
       };
-
-      const updated = { ...localListing, translations: { ...(localListing.translations || {}), [mktCode]: finalTranslatedData } };
       setLocalListing(updated);
-      await syncToSupabase(updated);
+      await syncToSupabase(updated); // 立即保存
       setActiveMarketplace(mktCode);
     } catch (e: any) { 
       alert(`Translation for ${mktCode} failed: ` + e.message); 
@@ -282,24 +281,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         if (mkt.code === 'US') continue;
         setIsTranslating(mkt.code);
         try {
-          const targetLang = mkt.code === 'CA' ? 'English' : mkt.name;
-          const translatedText = aiProvider === 'gemini'
-            ? await translateListingWithAI(localListing.optimized!, targetLang)
-            : await translateListingWithOpenAI(localListing.optimized!, targetLang);
-          
-          const logistics = calculateLocalizedLogistics(mkt.code, localListing.optimized!);
-          
-          currentTranslations[mkt.code] = {
-            ...translatedText,
-            ...logistics
-          };
+          currentTranslations[mkt.code] = await processTranslation(mkt.code, localListing.optimized!);
         } catch (mktErr) {
           console.error(`Skipping ${mkt.code} due to error:`, mktErr);
         }
       }
       const updated = { ...localListing, translations: currentTranslations };
       setLocalListing(updated);
-      await syncToSupabase(updated);
+      await syncToSupabase(updated); // 批量同步
       setIsTranslating(null);
     } catch (e: any) {
       alert("Batch translation error: " + e.message);
@@ -560,16 +549,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Weight size={10} /> Localized Weight</label>
                     <div className="flex gap-2">
-                      <input type="text" value={formatDecimal(displayVal('optimized_weight_value', 'item_weight_value'))} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_value' : `translations.${activeMarketplace}.optimized_weight_value`, e.target.value)} onBlur={handleBlur} className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none shadow-sm" />
+                      <input type="text" value={displayVal('optimized_weight_value', 'item_weight_value')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_value' : `translations.${activeMarketplace}.optimized_weight_value`, e.target.value)} onBlur={handleBlur} className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none shadow-sm" />
                       <input type="text" value={displayVal('optimized_weight_unit', 'item_weight_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_unit' : `translations.${activeMarketplace}.optimized_weight_unit`, e.target.value)} onBlur={handleBlur} placeholder="Unit" className="w-40 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-600 outline-none text-center" />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Ruler size={10} /> Localized Dimensions</label>
                     <div className="flex gap-2">
-                      <input placeholder="L" value={formatDecimal(displayVal('optimized_length', 'item_length'))} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_length' : `translations.${activeMarketplace}.optimized_length`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
-                      <input placeholder="W" value={formatDecimal(displayVal('optimized_width', 'item_width'))} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_width' : `translations.${activeMarketplace}.optimized_width`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
-                      <input placeholder="H" value={formatDecimal(displayVal('optimized_height', 'item_height'))} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_height' : `translations.${activeMarketplace}.optimized_height`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
+                      <input placeholder="L" value={displayVal('optimized_length', 'item_length')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_length' : `translations.${activeMarketplace}.optimized_length`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
+                      <input placeholder="W" value={displayVal('optimized_width', 'item_width')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_width' : `translations.${activeMarketplace}.optimized_width`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
+                      <input placeholder="H" value={displayVal('optimized_height', 'item_height')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_height' : `translations.${activeMarketplace}.optimized_height`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
                       <input placeholder="Unit" value={displayVal('optimized_size_unit', 'item_size_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_size_unit' : `translations.${activeMarketplace}.optimized_size_unit`, e.target.value)} onBlur={handleBlur} className="w-40 px-2 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-center text-[10px] font-black text-indigo-600 shadow-sm" />
                     </div>
                   </div>

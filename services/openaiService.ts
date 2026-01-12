@@ -60,7 +60,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   } catch (error: any) { throw error; }
 };
 
-export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLang: string): Promise<OptimizedData> => {
+export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLang: string): Promise<Partial<OptimizedData>> => {
   const apiKey = process.env.OPENAI_API_KEY;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const model = process.env.OPENAI_MODEL || "gpt-4o";
@@ -71,9 +71,9 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     Task: Translate and LOCALIZE the TEXT ONLY of this Amazon listing into "${targetLang}".
     
     Rules:
-    1. DO NOT calculate or change any weights or dimensions. 
+    1. DO NOT perform any math or return any logistics data (weight, length, width, height).
     2. ONLY translate: Title, Bullets, Description, Keywords.
-    3. BRAND SAFETY: Remove all specific brands (Toyota, Lexus, etc.) and use generic phrases.
+    3. BRAND SAFETY: Strip all specific brands/car names.
     
     Return JSON:
     {
@@ -83,7 +83,12 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
       "search_keywords": "..."
     }
 
-    Source: ${JSON.stringify(sourceData)}
+    Source: ${JSON.stringify({
+      title: sourceData.optimized_title,
+      features: sourceData.optimized_features,
+      description: sourceData.optimized_description,
+      keywords: sourceData.search_keywords
+    })}
   `;
 
   const endpoint = `${baseUrl}/chat/completions`;
@@ -104,6 +109,6 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     if (data.error) throw new Error(data.error.message || "OpenAI Translation Error");
     if (!data.choices || data.choices.length === 0) throw new Error("OpenAI returned no translation content.");
 
-    return JSON.parse(data.choices[0].message.content) as OptimizedData;
+    return JSON.parse(data.choices[0].message.content);
   } catch (error: any) { throw error; }
 };
