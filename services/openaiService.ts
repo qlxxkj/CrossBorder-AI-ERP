@@ -70,34 +70,32 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   if (!apiKey) throw new Error("OpenAI API Key is missing.");
 
   const prompt = `
-    Translate and LOCALIZE this Amazon listing into "${targetLang}".
+    Task: Translate and LOCALIZE this Amazon listing into "${targetLang}".
     
-    [CRITICAL - UNIT LOCALIZATION]
-    The input data is in Imperial units (pounds, inches). 
+    [CRITICAL - PHYSICAL CONVERSION]
+    Calculate Metric values from the provided US Imperial data using these exact factors:
+    - Weight: 1 lb = 0.45359 kg
+    - Size: 1 inch = 2.54 cm
     
-    1. MATH CONVERSION: 
-       If the target market uses METRIC (most markets except US/CA/UK):
-       - Convert pounds to kilograms (pounds * 0.4536).
-       - Convert inches to centimeters (inches * 2.54).
-       - Always round to 2 decimal places.
-    
-    2. UNIT NAMES: Use FULL native language names for units. NEVER use "kg", "lb", "cm", "in". 
-       For example, use "Kilogramm" in German, "キログラム" in Japanese.
-    
-    3. BRAND SAFETY: Remove any leftover specific brands or automotive names (like Toyota, Lexus) and replace with generic localized phrases.
+    Rules:
+    1. STRICT MATH: Calculate values based on ${sourceData.optimized_weight_value} lbs and dimensions ${sourceData.optimized_length}x${sourceData.optimized_width}x${sourceData.optimized_height} inches.
+    2. PRECISION: Round all results to 2 decimal places.
+    3. FULL UNIT NAMES in "${targetLang}": 
+       Example: "Kilogramm" (German), "キログラム" (Japanese), "Kilogrammes" (French). Do not use abbreviations like kg, cm.
+    4. NO BRANDS: Strip all brand/car names.
 
-    4. Return JSON with all logistics fields included:
+    Return JSON:
     {
       "optimized_title": "...",
       "optimized_features": [...],
       "optimized_description": "...",
       "search_keywords": "...",
-      "optimized_weight_value": "converted_number",
-      "optimized_weight_unit": "localized_full_name",
-      "optimized_length": "converted_number",
-      "optimized_width": "converted_number",
-      "optimized_height": "converted_number",
-      "optimized_size_unit": "localized_full_name"
+      "optimized_weight_value": "converted_value",
+      "optimized_weight_unit": "localized_full_unit",
+      "optimized_length": "converted_value",
+      "optimized_width": "converted_value",
+      "optimized_height": "converted_value",
+      "optimized_size_unit": "localized_full_unit"
     }
 
     Source: ${JSON.stringify(sourceData)}

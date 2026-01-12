@@ -68,26 +68,33 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Translate and LOCALIZE this Amazon listing into the language of "${targetLang}".
+    Task: Translate and LOCALIZE this Amazon listing into "${targetLang}".
     
     [CRITICAL - MATHEMATICAL UNIT CONVERSION]
-    The source data is in IMPERIAL units (pounds, inches).
+    The Source Data is in IMPERIAL units (pounds/inches). You MUST calculate METRIC values precisely.
     
-    1. CONVERSION RULES:
-       - If ${targetLang} is for METRIC markets (JP, DE, FR, IT, ES, MX, BR, CN): 
-         * CALCULATE: weight_value = source_pounds * 0.453592
-         * CALCULATE: dimensions = source_inches * 2.54
-         * UNIT NAMES: Use the FULL native word for "kilograms" and "centimeters" in ${targetLang}. 
-           (e.g., Japanese: "キログラム", "センチメートル"; Chinese: "千克", "厘米"; German: "Kilogramm", "Zentimeter")
-       - If ${targetLang} is for IMPERIAL markets (CA, UK): Keep original numbers but use the full unit names in ${targetLang}.
+    1. CONSTANTS:
+       - 1 pound = 0.45359237 kilograms
+       - 1 inch = 2.54 centimeters
 
-    2. PRECISION: All calculated numbers MUST be rounded to exactly 2 decimal places.
+    2. CALCULATION RULES (FOR METRIC MARKETS like JP, DE, FR, ES, IT, MX, BR, CN):
+       - weight_value = ${sourceData.optimized_weight_value} * 0.453592
+       - length/width/height = (source_value) * 2.54
+       - RESULT: Round to exactly 2 decimal places. 
+       - DO NOT ESTIMATE. Use math.
 
-    3. BRAND CLEANING: Ensure NO specific brand or automotive names (Toyota, Lexus, etc.) are present in the translation. Use generic localized terms for "compatible vehicles".
+    3. UNIT FULL NAMES (MANDATORY LOCALIZATION):
+       - German: "Kilogramm", "Zentimeter"
+       - Japanese: "キログラム", "センチメートル"
+       - French: "Kilogrammes", "Centimètres"
+       - Spanish: "Kilogramos", "Centímetros"
+       - Chinese: "千克", "厘米"
+       - English (UK/CA): "Kilograms", "Centimetres" (Note: UK/CA use Metric for Amazon logistics)
 
-    4. CONTENT: Translate Title, 5 Bullets, and Description naturally.
+    4. BRAND REMOVAL:
+       - Ensure NO brands (own brand or automotive brands like Toyota, Lexus) exist in output. Use generic localized descriptors.
 
-    Source Content (BASE): ${JSON.stringify(sourceData)}
+    Source Content: ${JSON.stringify(sourceData)}
   `;
 
   try {
