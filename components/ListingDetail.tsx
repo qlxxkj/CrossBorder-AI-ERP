@@ -20,29 +20,30 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
-// 确定性的物理单位换算系数 (英制转公制)
+// 换算常量
 const LB_TO_KG = 0.45359237;
 const IN_TO_CM = 2.54;
 
-const formatNumber = (val: any) => {
-  const n = parseFloat(String(val));
-  return isNaN(n) ? '' : parseFloat(n.toFixed(2)).toString();
+// 工具函数：安全数字格式化
+const formatNum = (val: any) => {
+  const n = parseFloat(String(val).replace(/[^0-9.]/g, ''));
+  return isNaN(n) ? '0' : parseFloat(n.toFixed(2)).toString();
 };
 
-// 各语种单位全称映射
-const LOCALIZED_UNITS: Record<string, { weight: string, size: string }> = {
-  'US': { weight: 'pounds', size: 'inches' },
-  'CA': { weight: 'pounds', size: 'inches' }, // 加拿大站通常也用英制
-  'UK': { weight: 'Kilograms', size: 'Centimetres' },
-  'DE': { weight: 'Kilogramm', size: 'Zentimeter' },
-  'FR': { weight: 'Kilogrammes', size: 'Centimètres' },
-  'IT': { weight: 'Chilogrammi', size: 'Centimetri' },
-  'ES': { weight: 'Kilogramos', size: 'Centímetros' },
-  'JP': { weight: 'キログラム', size: 'センチメートル' },
-  'MX': { weight: 'Kilogramos', size: 'Centímetros' },
-  'BR': { weight: 'Quilogramas', size: 'Centímetros' },
-  'CN': { weight: '千克', size: '厘米' },
-  'default': { weight: 'Kilograms', size: 'Centimeters' }
+// 站点单位全称配置
+const MKT_UNITS: Record<string, { w: string, s: string }> = {
+  'US': { w: 'pounds', s: 'inches' },
+  'CA': { w: 'pounds', s: 'inches' },
+  'UK': { w: 'Kilograms', s: 'Centimetres' },
+  'DE': { w: 'Kilogramm', s: 'Zentimeter' },
+  'FR': { w: 'Kilogrammes', s: 'Centimètres' },
+  'IT': { w: 'Chilogrammi', s: 'Centimetri' },
+  'ES': { w: 'Kilogramos', s: 'Centímetros' },
+  'JP': { w: 'キログラム', s: 'センチメートル' },
+  'MX': { w: 'Kilogramos', s: 'Centímetros' },
+  'BR': { w: 'Quilogramas', s: 'Centímetros' },
+  'CN': { w: '千克', s: '厘米' },
+  'default': { w: 'Kilograms', s: 'Centimeters' }
 };
 
 interface ListingDetailProps {
@@ -144,30 +145,41 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     return { price: finalPrice, shipping: finalShipping, currency: targetMktConfig.currency };
   }, [localListing, activeMarketplace, exchangeRates, targetMktConfig]);
 
-  // 核心工具：纯 JavaScript 物理换算
-  const calculateLogistics = (mktCode: string, source: OptimizedData) => {
-    const units = LOCALIZED_UNITS[mktCode] || LOCALIZED_UNITS.default;
-    // US 和 CA 通常保持英制
+  /**
+   * 独立的前端物流计算函数
+   * 逻辑：优先使用 Optimized(US) 的数值，如果 Optimized 为空，则从 Cleaned 原始数据中提取。
+   */
+  const generateLogisticsData = (mktCode: string): Partial<OptimizedData> => {
+    const config = MKT_UNITS[mktCode] || MKT_UNITS.default;
     const isImperial = ['US', 'CA'].includes(mktCode);
+    const usOpt = localListing.optimized;
+    const clean = localListing.cleaned;
+
+    // 1. 提取原始基准数值（英制）
+    const baseWeight = parseFloat(usOpt?.optimized_weight_value || String(clean.item_weight_value || clean.item_weight || '0').replace(/[^0-9.]/g, '')) || 0;
+    const baseL = parseFloat(usOpt?.optimized_length || String(clean.item_length || '0')) || 0;
+    const baseW = parseFloat(usOpt?.optimized_width || String(clean.item_width || '0')) || 0;
+    const baseH = parseFloat(usOpt?.optimized_height || String(clean.item_height || '0')) || 0;
 
     if (isImperial) {
+      // 保持英制
       return {
-        optimized_weight_value: formatNumber(source.optimized_weight_value),
-        optimized_weight_unit: units.weight,
-        optimized_length: formatNumber(source.optimized_length),
-        optimized_width: formatNumber(source.optimized_width),
-        optimized_height: formatNumber(source.optimized_height),
-        optimized_size_unit: units.size
+        optimized_weight_value: formatNum(baseWeight),
+        optimized_weight_unit: config.w,
+        optimized_length: formatNum(baseL),
+        optimized_width: formatNum(baseW),
+        optimized_height: formatNum(baseH),
+        optimized_size_unit: config.s
       };
     } else {
       // 换算为公制
       return {
-        optimized_weight_value: formatNumber(parseFloat(source.optimized_weight_value || '0') * LB_TO_KG),
-        optimized_weight_unit: units.weight,
-        optimized_length: formatNumber(parseFloat(source.optimized_length || '0') * IN_TO_CM),
-        optimized_width: formatNumber(parseFloat(source.optimized_width || '0') * IN_TO_CM),
-        optimized_height: formatNumber(parseFloat(source.optimized_height || '0') * IN_TO_CM),
-        optimized_size_unit: units.size
+        optimized_weight_value: formatNum(baseWeight * LB_TO_KG),
+        optimized_weight_unit: config.w,
+        optimized_length: formatNum(baseL * IN_TO_CM),
+        optimized_width: formatNum(baseW * IN_TO_CM),
+        optimized_height: formatNum(baseH * IN_TO_CM),
+        optimized_size_unit: config.s
       };
     }
   };
@@ -218,6 +230,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       let opt = aiProvider === 'gemini' 
         ? await optimizeListingWithAI(localListing.cleaned!)
         : await optimizeListingWithOpenAI(localListing.cleaned!);
+      
       const updated = { ...localListing, status: 'optimized' as const, optimized: opt };
       setLocalListing(updated);
       await syncToSupabase(updated);
@@ -228,42 +241,42 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
-  // 单站点翻译核心逻辑
-  const processTranslation = async (mktCode: string, source: OptimizedData) => {
+  /**
+   * 单站点处理逻辑：AI 翻译文本 + 前端 JS 计算物流数值
+   */
+  const processTranslation = async (mktCode: string): Promise<OptimizedData> => {
+    if (!localListing.optimized) throw new Error("Base listing not optimized yet.");
+
     const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
-    // 加拿大站点强制使用英语
+    // 特殊逻辑：加拿大使用英语
     const targetLang = mktCode === 'CA' ? 'English' : (mkt?.name || 'English');
 
-    // 1. 获取 AI 翻译文本
-    const aiResult = aiProvider === 'gemini' 
-      ? await translateListingWithAI(source, targetLang)
-      : await translateListingWithOpenAI(source, targetLang);
+    // 1. AI 翻译文本部分
+    const aiTextData = aiProvider === 'gemini'
+      ? await translateListingWithAI(localListing.optimized, targetLang)
+      : await translateListingWithOpenAI(localListing.optimized, targetLang);
 
-    // 2. 执行前端数学换算
-    const logistics = calculateLogistics(mktCode, source);
+    // 2. 前端计算物流部分
+    const logisticsData = generateLogisticsData(mktCode);
 
-    // 3. 组装完整数据
+    // 3. 合并
     return {
-      ...source, // 兜底
-      ...aiResult, // AI 覆盖文本
-      ...logistics // JS 覆盖换算
+      ...localListing.optimized, // 基础备份
+      ...aiTextData,            // AI 覆盖文本
+      ...logisticsData          // JS 覆盖物理量
     } as OptimizedData;
   };
 
   const handleTranslate = async (mktCode: string) => {
-    if (!localListing.optimized) { 
-      alert("Please optimize the English base first."); 
-      return; 
-    }
     setIsTranslating(mktCode);
     try {
-      const finalData = await processTranslation(mktCode, localListing.optimized);
+      const finalData = await processTranslation(mktCode);
       const updated = { 
         ...localListing, 
         translations: { ...(localListing.translations || {}), [mktCode]: finalData } 
       };
       setLocalListing(updated);
-      await syncToSupabase(updated); // 立即保存
+      await syncToSupabase(updated);
       setActiveMarketplace(mktCode);
     } catch (e: any) { 
       alert(`Translation for ${mktCode} failed: ` + e.message); 
@@ -276,19 +289,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!localListing.optimized) { alert("Optimize base content first."); return; }
     setIsTranslatingAll(true);
     try {
-      const currentTranslations = { ...(localListing.translations || {}) };
+      const newTranslations = { ...(localListing.translations || {}) };
       for (const mkt of AMAZON_MARKETPLACES) {
         if (mkt.code === 'US') continue;
         setIsTranslating(mkt.code);
         try {
-          currentTranslations[mkt.code] = await processTranslation(mkt.code, localListing.optimized!);
+          newTranslations[mkt.code] = await processTranslation(mkt.code);
         } catch (mktErr) {
-          console.error(`Skipping ${mkt.code} due to error:`, mktErr);
+          console.error(`Skipping ${mkt.code}:`, mktErr);
         }
       }
-      const updated = { ...localListing, translations: currentTranslations };
+      const updated = { ...localListing, translations: newTranslations };
       setLocalListing(updated);
-      await syncToSupabase(updated); // 批量同步
+      await syncToSupabase(updated);
       setIsTranslating(null);
     } catch (e: any) {
       alert("Batch translation error: " + e.message);
