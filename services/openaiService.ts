@@ -20,10 +20,8 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     - Accuracy: 2 decimal places.
 
     [CRITICAL - ANONYMIZATION RULE]
-    - YOU MUST REMOVE ALL SPECIFIC BRAND NAMES.
-    - REMOVE ALL AUTOMOTIVE BRAND NAMES AND MODELS (e.g., Lexus, Toyota, Camry, Ford, BMW, etc.).
-    - Replace them with generic terms: "Compatible with select vehicles", "Custom fit for specified models".
-    - Ensure the listing is brand-neutral.
+    - YOU MUST REMOVE ALL SPECIFIC BRAND NAMES AND AUTOMOTIVE MODELS (e.g. Toyota, Lexus).
+    - Replace with generic terms: "Compatible with select vehicles".
 
     Return JSON:
     {
@@ -70,32 +68,19 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   if (!apiKey) throw new Error("OpenAI API Key is missing.");
 
   const prompt = `
-    Task: Translate and LOCALIZE this Amazon listing into "${targetLang}".
-    
-    [CRITICAL - PHYSICAL CONVERSION]
-    Calculate Metric values from the provided US Imperial data using these exact factors:
-    - Weight: 1 lb = 0.45359 kg
-    - Size: 1 inch = 2.54 cm
+    Task: Translate and LOCALIZE the TEXT ONLY of this Amazon listing into "${targetLang}".
     
     Rules:
-    1. STRICT MATH: Calculate values based on ${sourceData.optimized_weight_value} lbs and dimensions ${sourceData.optimized_length}x${sourceData.optimized_width}x${sourceData.optimized_height} inches.
-    2. PRECISION: Round all results to 2 decimal places.
-    3. FULL UNIT NAMES in "${targetLang}": 
-       Example: "Kilogramm" (German), "キログラム" (Japanese), "Kilogrammes" (French). Do not use abbreviations like kg, cm.
-    4. NO BRANDS: Strip all brand/car names.
-
+    1. DO NOT calculate or change any weights or dimensions. 
+    2. ONLY translate: Title, Bullets, Description, Keywords.
+    3. BRAND SAFETY: Remove all specific brands (Toyota, Lexus, etc.) and use generic phrases.
+    
     Return JSON:
     {
       "optimized_title": "...",
       "optimized_features": [...],
       "optimized_description": "...",
-      "search_keywords": "...",
-      "optimized_weight_value": "converted_value",
-      "optimized_weight_unit": "localized_full_unit",
-      "optimized_length": "converted_value",
-      "optimized_width": "converted_value",
-      "optimized_height": "converted_value",
-      "optimized_size_unit": "localized_full_unit"
+      "search_keywords": "..."
     }
 
     Source: ${JSON.stringify(sourceData)}

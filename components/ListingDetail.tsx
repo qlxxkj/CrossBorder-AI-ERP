@@ -27,6 +27,28 @@ const formatDecimal = (val: any) => {
   return Number(num.toFixed(2)).toString();
 };
 
+// 确定性的物理单位换算系数
+const UNIT_FACTORS = {
+  LB_TO_KG: 0.45359237,
+  IN_TO_CM: 2.54
+};
+
+// 本地化单位名称映射
+const LOCALIZED_UNITS: Record<string, { weight: string, size: string }> = {
+  'US': { weight: 'pounds', size: 'inches' },
+  'CA': { weight: 'pounds', size: 'inches' },
+  'UK': { weight: 'Kilograms', size: 'Centimetres' },
+  'DE': { weight: 'Kilogramm', size: 'Zentimeter' },
+  'FR': { weight: 'Kilogrammes', size: 'Centimètres' },
+  'IT': { weight: 'Chilogrammi', size: 'Centimetri' },
+  'ES': { weight: 'Kilogramos', size: 'Centímetros' },
+  'JP': { weight: 'キログラム', size: 'センチメートル' },
+  'MX': { weight: 'Kilogramos', size: 'Centímetros' },
+  'BR': { weight: 'Quilogramas', size: 'Centímetros' },
+  'CN': { weight: '千克', size: '厘米' },
+  'default': { weight: 'Kilograms', size: 'Centimeters' }
+};
+
 interface ListingDetailProps {
   listing: Listing;
   onBack: () => void;
@@ -126,6 +148,39 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     return { price: finalPrice, shipping: finalShipping, currency: targetMktConfig.currency };
   }, [localListing, activeMarketplace, exchangeRates, targetMktConfig]);
 
+  // 工具函数：手动计算本地化物流参数
+  const calculateLocalizedLogistics = (mktCode: string, source: OptimizedData) => {
+    const isImperial = ['US', 'CA'].includes(mktCode);
+    const units = LOCALIZED_UNITS[mktCode] || LOCALIZED_UNITS.default;
+    
+    if (isImperial) {
+      // 保持英制，仅更新单位全称
+      return {
+        optimized_weight_value: formatDecimal(source.optimized_weight_value),
+        optimized_weight_unit: units.weight,
+        optimized_length: formatDecimal(source.optimized_length),
+        optimized_width: formatDecimal(source.optimized_width),
+        optimized_height: formatDecimal(source.optimized_height),
+        optimized_size_unit: units.size
+      };
+    } else {
+      // 执行公制转换
+      const convert = (val: any, factor: number) => {
+        const n = parseFloat(String(val));
+        return isNaN(n) ? '' : formatDecimal(n * factor);
+      };
+
+      return {
+        optimized_weight_value: convert(source.optimized_weight_value, UNIT_FACTORS.LB_TO_KG),
+        optimized_weight_unit: units.weight,
+        optimized_length: convert(source.optimized_length, UNIT_FACTORS.IN_TO_CM),
+        optimized_width: convert(source.optimized_width, UNIT_FACTORS.IN_TO_CM),
+        optimized_height: convert(source.optimized_height, UNIT_FACTORS.IN_TO_CM),
+        optimized_size_unit: units.size
+      };
+    }
+  };
+
   const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
     setIsSaving(true);
@@ -190,10 +245,24 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsTranslating(mktCode);
     try {
       const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
-      const translated = aiProvider === 'gemini'
-        ? await translateListingWithAI(localListing.optimized, mkt?.name || 'English')
-        : await translateListingWithOpenAI(localListing.optimized, mkt?.name || 'English');
-      const updated = { ...localListing, translations: { ...(localListing.translations || {}), [mktCode]: translated } };
+      // 特殊逻辑：加拿大使用英语
+      const targetLang = mktCode === 'CA' ? 'English' : (mkt?.name || 'English');
+      
+      // 1. 调用 AI 进行文本翻译
+      const translatedText = aiProvider === 'gemini'
+        ? await translateListingWithAI(localListing.optimized, targetLang)
+        : await translateListingWithOpenAI(localListing.optimized, targetLang);
+      
+      // 2. 调用确定性逻辑进行物流换算
+      const logistics = calculateLocalizedLogistics(mktCode, localListing.optimized);
+      
+      // 3. 组装结果
+      const finalTranslatedData: OptimizedData = {
+        ...translatedText,
+        ...logistics
+      };
+
+      const updated = { ...localListing, translations: { ...(localListing.translations || {}), [mktCode]: finalTranslatedData } };
       setLocalListing(updated);
       await syncToSupabase(updated);
       setActiveMarketplace(mktCode);
@@ -208,17 +277,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!localListing.optimized) { alert("Optimize base content first."); return; }
     setIsTranslatingAll(true);
     try {
-      // 核心修复：强制覆盖。每次批量翻译都重新基于最新的 optimized 计算。
       const currentTranslations = { ...(localListing.translations || {}) };
       for (const mkt of AMAZON_MARKETPLACES) {
         if (mkt.code === 'US') continue;
         setIsTranslating(mkt.code);
         try {
-          // 这里强制传入最新的 localListing.optimized，确保换算逻辑实时应用
-          const translated = aiProvider === 'gemini'
-            ? await translateListingWithAI(localListing.optimized!, mkt.name)
-            : await translateListingWithOpenAI(localListing.optimized!, mkt.name);
-          currentTranslations[mkt.code] = translated;
+          const targetLang = mkt.code === 'CA' ? 'English' : mkt.name;
+          const translatedText = aiProvider === 'gemini'
+            ? await translateListingWithAI(localListing.optimized!, targetLang)
+            : await translateListingWithOpenAI(localListing.optimized!, targetLang);
+          
+          const logistics = calculateLocalizedLogistics(mkt.code, localListing.optimized!);
+          
+          currentTranslations[mkt.code] = {
+            ...translatedText,
+            ...logistics
+          };
         } catch (mktErr) {
           console.error(`Skipping ${mkt.code} due to error:`, mktErr);
         }
@@ -535,7 +609,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                      handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_features' : `translations.${activeMarketplace}.optimized_features`, next); 
                                    }}
                                    onBlur={handleBlur}
-                                   className="w-full p-5 pl-7 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 min-h-[80px] shadow-sm"
+                                   className="w-full p-5 pl-7 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 focus:border-indigo-500 min-h-[80px] shadow-sm"
                                 />
                                 <button onClick={() => { 
                                   const next = currentContent.optimized_features.filter((_: any, idx: number) => idx !== i); 

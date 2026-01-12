@@ -22,7 +22,6 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     - STRICT: Remove ALL specific brand names from the output.
     - This includes the product's own brand AND any automotive brands/models (e.g., Toyota, Lexus, Camry, ES350, Honda, Ford, etc.).
     - REPLACE brands with generic terms like "select vehicles", "specified models", or "compatible vehicle series".
-    - DO NOT include any trademarked names.
     
     Return valid JSON.
   `;
@@ -68,31 +67,13 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Task: Translate and LOCALIZE this Amazon listing into "${targetLang}".
+    Task: Translate and LOCALIZE the TEXT ONLY of this Amazon listing into "${targetLang}".
     
-    [CRITICAL - MATHEMATICAL UNIT CONVERSION]
-    The Source Data is in IMPERIAL units (pounds/inches). You MUST calculate METRIC values precisely.
-    
-    1. CONSTANTS:
-       - 1 pound = 0.45359237 kilograms
-       - 1 inch = 2.54 centimeters
-
-    2. CALCULATION RULES (FOR METRIC MARKETS like JP, DE, FR, ES, IT, MX, BR, CN):
-       - weight_value = ${sourceData.optimized_weight_value} * 0.453592
-       - length/width/height = (source_value) * 2.54
-       - RESULT: Round to exactly 2 decimal places. 
-       - DO NOT ESTIMATE. Use math.
-
-    3. UNIT FULL NAMES (MANDATORY LOCALIZATION):
-       - German: "Kilogramm", "Zentimeter"
-       - Japanese: "キログラム", "センチメートル"
-       - French: "Kilogrammes", "Centimètres"
-       - Spanish: "Kilogramos", "Centímetros"
-       - Chinese: "千克", "厘米"
-       - English (UK/CA): "Kilograms", "Centimetres" (Note: UK/CA use Metric for Amazon logistics)
-
-    4. BRAND REMOVAL:
-       - Ensure NO brands (own brand or automotive brands like Toyota, Lexus) exist in output. Use generic localized descriptors.
+    [CRITICAL]
+    1. DO NOT change or convert any numbers related to weights or dimensions. 
+    2. ONLY translate Title, 5 Bullets, Description, and Keywords.
+    3. BRAND REMOVAL: Strip all specific brands (Toyota, Lexus, etc.) and use generic localized terms.
+    4. QUALITY: Use natural, high-converting language for the "${targetLang}" market.
 
     Source Content: ${JSON.stringify(sourceData)}
   `;
@@ -109,19 +90,9 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
             optimized_title: { type: Type.STRING },
             optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
             optimized_description: { type: Type.STRING },
-            search_keywords: { type: Type.STRING },
-            optimized_weight_value: { type: Type.STRING },
-            optimized_weight_unit: { type: Type.STRING },
-            optimized_length: { type: Type.STRING },
-            optimized_width: { type: Type.STRING },
-            optimized_height: { type: Type.STRING },
-            optimized_size_unit: { type: Type.STRING }
+            search_keywords: { type: Type.STRING }
           },
-          required: [
-            "optimized_title", "optimized_features", "optimized_description", 
-            "optimized_weight_value", "optimized_weight_unit", 
-            "optimized_length", "optimized_width", "optimized_height", "optimized_size_unit"
-          ]
+          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
         }
       }
     });
@@ -131,7 +102,10 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     }
 
     const text = response.text || "{}";
-    return JSON.parse(text.trim()) as OptimizedData;
+    const translatedText = JSON.parse(text.trim());
+    
+    // 返回 AI 翻译后的文本部分
+    return translatedText;
   } catch (error) {
     console.error(`Translation failed:`, error);
     throw error;
