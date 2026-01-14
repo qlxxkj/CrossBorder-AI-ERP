@@ -1,3 +1,4 @@
+
 import { CleanedData, OptimizedData } from './types';
 
 export const MOCK_CLEANED_DATA: CleanedData = {
@@ -19,13 +20,16 @@ export const MOCK_CLEANED_DATA: CleanedData = {
   ],
   "shipping": 0,
   "variants": [],
-  "item_width": 5.3,
+  // Fix: item_width must be a string according to CleanedData interface
+  "item_width": "5.3",
   "main_image": "https://picsum.photos/400/400", // Placeholder for demo
   "updated_at": "2025-12-10T15:32:19.874Z",
   "description": "Today, one of every three Asian, Domestic, and European vehicles on the road in North America includes Bosch braking components...",
   "final_price": 6.61,
-  "item_height": 3.33,
-  "item_length": 8.5,
+  // Fix: item_height must be a string according to CleanedData interface
+  "item_height": "3.33",
+  // Fix: item_length must be a string according to CleanedData interface
+  "item_length": "8.5",
   "item_weight": "3.5 pounds",
   "parent_asin": "B004AG7XSM",
   "other_images": [],

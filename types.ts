@@ -7,6 +7,14 @@ export interface Category {
   updated_at: string;
 }
 
+export interface SourcingRecord {
+  id: string;
+  title: string;
+  price: string;
+  image: string;
+  url: string;
+}
+
 export interface CleanedData {
   asin: string;
   title: string;
@@ -24,6 +32,12 @@ export interface CleanedData {
   BSR?: string;
   item_weight?: string;
   product_dimensions?: string;
+  item_weight_value?: string;
+  item_weight_unit?: string;
+  item_length?: string;
+  item_width?: string;
+  item_height?: string;
+  item_size_unit?: string;
   OEM_Part_Number?: string;
   Date_First_Available?: string;
   bought_in_past_month?: string;
@@ -60,6 +74,7 @@ export interface Listing {
   raw?: any;
   optimized?: OptimizedData;
   translations?: Record<string, OptimizedData>;
+  sourcing_data?: SourcingRecord[];
 }
 
 export interface PriceAdjustment {
