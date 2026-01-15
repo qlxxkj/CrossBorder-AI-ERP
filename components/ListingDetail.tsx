@@ -3,13 +3,14 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
   BrainCircuit, Globe, Languages, Loader2, DollarSign, Truck, Settings2, ZoomIn, Save, ChevronRight,
-  Zap, Check, AlertCircle, Weight, Ruler, Coins, ListFilter, FileText, Wand2, Star, Upload, Search, ExternalLink, Link2, Maximize2
+  Zap, Check, AlertCircle, Weight, Ruler, Coins, ListFilter, FileText, Wand2, Star, Upload, Search, ExternalLink, Link2, Maximize2, Edit3
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage, PriceAdjustment, ExchangeRate, SourcingRecord } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
 import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
 import { ImageEditor } from './ImageEditor';
 import { SourcingModal } from './SourcingModal';
+import { SourcingFormModal } from './SourcingFormModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { useTranslation } from '../lib/i18n';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
@@ -67,16 +68,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [isUploading, setIsUploading] = useState(false);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isSourcingModalOpen, setIsSourcingModalOpen] = useState(false);
+  const [isSourcingFormOpen, setIsSourcingFormOpen] = useState(false);
+  const [editingSourcingRecord, setEditingSourcingRecord] = useState<SourcingRecord | null>(null);
   const [isProcessingAllImages, setIsProcessingAllImages] = useState(false);
   
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [selectedImage, setSelectedImage] = useState<string>(listing.cleaned?.main_image || '');
-  const [hoveredImage, setHoveredImage] = useState<string | null>(null);
-  const [editorLeft, setEditorLeft] = useState<number>(0);
   const [activeMarketplace, setActiveMarketplace] = useState<string>('US'); 
 
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
+  // Fix: Added missing editorLeft state to resolve 'Cannot find name setEditorLeft' error
+  const [editorLeft, setEditorLeft] = useState(0);
 
   useEffect(() => {
     fetchPricingData();
@@ -437,11 +440,34 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsSourcingModalOpen(false);
   };
 
+  const handleSaveManualSourcing = (record: SourcingRecord) => {
+    let next;
+    const currentData = localListing.sourcing_data || [];
+    const exists = currentData.findIndex(r => r.id === record.id);
+    
+    if (exists !== -1) {
+      next = currentData.map(r => r.id === record.id ? record : r);
+    } else {
+      next = [...currentData, record];
+    }
+    
+    const updated = { ...localListing, sourcing_data: next };
+    setLocalListing(updated);
+    syncToSupabase(updated);
+    setIsSourcingFormOpen(false);
+    setEditingSourcingRecord(null);
+  };
+
   const handleRemoveSourcing = (id: string) => {
     const next = (localListing.sourcing_data || []).filter(r => r.id !== id);
     const updated = { ...localListing, sourcing_data: next };
     setLocalListing(updated);
     syncToSupabase(updated);
+  };
+
+  const openManualSourcing = (record?: SourcingRecord) => {
+    setEditingSourcingRecord(record || null);
+    setIsSourcingFormOpen(true);
   };
 
   if (!listing || !listing.cleaned) return null;
@@ -450,6 +476,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter animate-in fade-in duration-500 pb-20 relative">
       {isEditorOpen && <ImageEditor imageUrl={selectedImage} onClose={() => setIsEditorOpen(false)} onSave={handleAIImageUpdate} />}
       {isSourcingModalOpen && <SourcingModal productImage={localListing.cleaned.main_image} onClose={() => setIsSourcingModalOpen(false)} onAddLink={handleAddSourcingRecord} />}
+      {isSourcingFormOpen && <SourcingFormModal initialData={editingSourcingRecord} onClose={() => setIsSourcingFormOpen(false)} onSave={handleSaveManualSourcing} />}
       
       <div className="flex items-center justify-between bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-slate-200 shadow-sm sticky top-4 z-40">
         <div className="flex items-center gap-6">
@@ -519,7 +546,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col gap-6">
             <h3 className="font-black text-slate-900 flex items-center justify-between text-xs uppercase tracking-widest">
               <span className="flex items-center gap-2"><Link2 size={16} className="text-orange-500" /> Sourcing</span>
-              <button onClick={() => setIsSourcingModalOpen(true)} className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-lg transition-all"><Search size={14} /></button>
+              <div className="flex gap-1">
+                <button onClick={() => openManualSourcing()} className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-lg transition-all" title="Manual Add"><Plus size={14} /></button>
+                <button onClick={() => setIsSourcingModalOpen(true)} className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-lg transition-all" title="Visual Search 1688"><Search size={14} /></button>
+              </div>
             </h3>
             <div className="space-y-3">
               {(localListing.sourcing_data || []).map((record) => (
@@ -532,6 +562,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <p className="text-[9px] font-bold text-orange-600 uppercase">{record.price}</p>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => openManualSourcing(record)} className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-indigo-600"><Edit3 size={12} /></button>
                     <a href={record.url} target="_blank" className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-blue-600"><ExternalLink size={12} /></a>
                     <button onClick={() => handleRemoveSourcing(record.id)} className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-red-500"><Trash2 size={12} /></button>
                   </div>
@@ -540,7 +571,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               {(!localListing.sourcing_data || localListing.sourcing_data.length === 0) && (
                 <div className="p-6 border-2 border-dashed border-slate-100 rounded-2xl text-center">
                   <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">No Sources Linked</p>
-                  <button onClick={() => setIsSourcingModalOpen(true)} className="mt-2 text-[9px] font-black text-orange-500 hover:underline uppercase">Visual Search 1688</button>
+                  <button onClick={() => openManualSourcing()} className="mt-2 text-[9px] font-black text-orange-500 hover:underline uppercase">Add Link Manually</button>
                 </div>
               )}
             </div>
