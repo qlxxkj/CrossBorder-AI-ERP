@@ -110,6 +110,52 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   }
 };
 
+export const search1688WithAI = async (productTitle: string, imageUrl: string): Promise<any[]> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const prompt = `
+    Use Google Search to find exactly 4 REAL wholesale product listings on 1688.com that match this item:
+    Title: "${productTitle}"
+    Image context: ${imageUrl}
+
+    Instructions:
+    1. Find exact or very similar items on 1688.com.
+    2. Return a JSON array of objects.
+    3. Each object MUST have: "title" (product name), "price" (approximate price in CNY), "image" (thumbnail URL), "link" (1688 product URL).
+    4. Return ONLY the raw JSON.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-pro-preview", // 使用 Pro 模型以获得更好的联网搜索质量
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              price: { type: Type.STRING },
+              image: { type: Type.STRING },
+              link: { type: Type.STRING }
+            },
+            required: ["title", "price", "image", "link"]
+          }
+        }
+      }
+    });
+
+    const text = response.text || "[]";
+    return JSON.parse(text.trim());
+  } catch (error) {
+    console.error("AI 1688 Sourcing failed:", error);
+    return [];
+  }
+};
+
 export const editImageWithAI = async (base64ImageData: string, prompt: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   

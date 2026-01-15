@@ -102,23 +102,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   }, [filteredTemplates]);
 
   /**
-   * 导出价格核心计算函数
-   * 公式：((基础价 + 运费) × 调价) × 汇率
+   * 导出价格核心计算函数 - 修正版本
+   * 无论是否是美国站，都应用调价公式
    */
   const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
     const price = Number(listing.cleaned.price) || 0;
     const shipping = Number(listing.cleaned.shipping) || 0;
     
-    // 如果已经有目标市场的汇率换算数据（且用户进行了手动确认/AI确认），逻辑如下：
-    // 但目前系统架构中，cleaned.price始终为采集时的源货币(USD)，显示时的汇率是动态计算的
-    // 所以这里直接采用完整计算公式
-    
-    if (targetMkt === 'US') return price;
-
     // 1. 基准总和 (基础价 + 运费)
     let currentPrice = price + shipping;
 
-    // 2. 应用调价比例
+    // 2. 应用所有匹配的调价规则 (按叠加逻辑)
     const applicableAdj = adjustments.filter(adj => {
       const mktMatch = adj.marketplace === 'ALL' || adj.marketplace === targetMkt;
       const catMatch = adj.category_id === 'ALL' || adj.category_id === listing.category_id;
@@ -130,12 +124,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       currentPrice *= multiplier;
     });
 
-    // 3. 应用汇率换算
+    // 3. 应用汇率换算 (美国站汇率为 1.0)
     const rateEntry = exchangeRates.find(r => r.marketplace === targetMkt);
-    const rate = rateEntry ? Number(rateEntry.rate) : 1;
+    const rate = (targetMkt === 'US') ? 1 : (rateEntry ? Number(rateEntry.rate) : 1);
     currentPrice *= rate;
 
-    // 4. 针对特殊市场取整 (如日本站)
+    // 4. 特殊市场取整
     if (targetMkt === 'JP') {
       return Math.round(currentPrice);
     }
