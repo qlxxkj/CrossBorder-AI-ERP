@@ -69,6 +69,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [editingSourcingRecord, setEditingSourcingRecord] = useState<SourcingRecord | null>(null);
   const [isProcessingAllImages, setIsProcessingAllImages] = useState(false);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [hoveredImageUrl, setHoveredImageUrl] = useState<string | null>(null);
   
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
   const [localListing, setLocalListing] = useState<Listing>(listing);
@@ -80,9 +81,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   useEffect(() => {
     fetchPricingData();
-    updateEditorPosition();
+    // 初始延迟确保 DOM 渲染完成
+    const timer = setTimeout(updateEditorPosition, 300);
     window.addEventListener('resize', updateEditorPosition);
-    return () => window.removeEventListener('resize', updateEditorPosition);
+    return () => {
+      window.removeEventListener('resize', updateEditorPosition);
+      clearTimeout(timer);
+    };
   }, []);
 
   const updateEditorPosition = () => {
@@ -475,11 +480,37 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       {isSourcingModalOpen && <SourcingModal productImage={localListing.cleaned.main_image} onClose={() => setIsSourcingModalOpen(false)} onAddLink={handleAddSourcingRecord} />}
       {isSourcingFormOpen && <SourcingFormModal initialData={editingSourcingRecord} onClose={() => setIsSourcingFormOpen(false)} onSave={handleSaveManualSourcing} />}
       
-      {/* 全屏图片预览模态框 */}
+      {/* 全屏模态框预览 (Click Triggered) */}
       {previewImageUrl && (
         <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-10 animate-in fade-in duration-200" onClick={() => setPreviewImageUrl(null)}>
           <button className="absolute top-8 right-8 p-3 text-white/50 hover:text-white transition-colors"><X size={32} /></button>
           <img src={previewImageUrl} className="max-w-full max-h-full object-contain shadow-2xl rounded-2xl" alt="Preview" />
+        </div>
+      )}
+
+      {/* 超大悬浮预览 (Ultra-Lens Mode - Hover Triggered) */}
+      {hoveredImageUrl && !previewImageUrl && !isEditorOpen && (
+        <div 
+          className="fixed top-0 bottom-0 right-0 z-[80] bg-white/20 backdrop-blur-3xl border-l border-white/10 shadow-2xl flex items-center justify-center p-12 pointer-events-none animate-in fade-in slide-in-from-right-8 duration-300 overflow-hidden"
+          style={{ left: editorLeft }}
+        >
+          <div className="relative w-full h-full flex items-center justify-center p-8 bg-white/30 rounded-[4rem] border border-white/40 shadow-inner">
+            <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/10 via-transparent to-purple-500/10 rounded-[4rem]"></div>
+            <img 
+              src={hoveredImageUrl} 
+              className="max-w-full max-h-full object-contain drop-shadow-[0_50px_80px_rgba(0,0,0,0.4)] rounded-2xl relative z-10 scale-105" 
+              alt="Ultra-Lens Preview" 
+            />
+            {/* 视觉刻度装饰 */}
+            <div className="absolute top-12 left-12 w-16 h-16 border-t-4 border-l-4 border-indigo-500/40 rounded-tl-3xl"></div>
+            <div className="absolute bottom-12 right-12 w-16 h-16 border-b-4 border-r-4 border-purple-500/40 rounded-br-3xl"></div>
+            <div className="absolute top-12 right-12 flex flex-col items-end gap-1 opacity-40">
+               <div className="h-0.5 w-10 bg-indigo-500"></div>
+               <div className="h-0.5 w-6 bg-indigo-500"></div>
+               <div className="h-0.5 w-8 bg-indigo-500"></div>
+            </div>
+            <div className="absolute bottom-12 left-12 text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.3em] vertical-text">Ultra Lens Engine</div>
+          </div>
         </div>
       )}
 
@@ -518,13 +549,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               </div>
             </h3>
             
-            <div className="relative aspect-square rounded-[2rem] bg-slate-50 border border-slate-100 overflow-hidden shadow-inner group">
+            <div 
+              className="relative aspect-square rounded-[2rem] bg-slate-50 border border-slate-100 overflow-hidden shadow-inner group cursor-zoom-in"
+              onMouseEnter={() => setHoveredImageUrl(selectedImage)}
+              onMouseLeave={() => setHoveredImageUrl(null)}
+            >
               <img src={selectedImage} className="w-full h-full object-contain" alt="Main" />
               <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm gap-3">
-                 <button onClick={() => setIsEditorOpen(true)} className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transform hover:scale-105 active:scale-95 transition-all">
+                 <button onClick={(e) => { e.stopPropagation(); setIsEditorOpen(true); }} className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transform hover:scale-105 active:scale-95 transition-all">
                    <Wand2 size={16} /> AI Lab
                  </button>
-                 <button onClick={() => setPreviewImageUrl(selectedImage)} className="p-2.5 bg-white/20 hover:bg-white text-white hover:text-indigo-600 rounded-xl transition-all">
+                 <button onClick={(e) => { e.stopPropagation(); setPreviewImageUrl(selectedImage); }} className="p-2.5 bg-white/20 hover:bg-white text-white hover:text-indigo-600 rounded-xl transition-all">
                    <ZoomIn size={20} />
                  </button>
               </div>
@@ -541,6 +576,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                   <div 
                     key={url} 
                     onClick={() => setSelectedImage(url)} 
+                    onMouseEnter={() => setHoveredImageUrl(url)}
+                    onMouseLeave={() => setHoveredImageUrl(null)}
                     className={`relative aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all group ${selectedImage === url ? 'border-indigo-500 shadow-md ring-2 ring-indigo-500/20' : 'border-slate-100 hover:border-slate-300'}`}
                   >
                     <img src={url} className="w-full h-full object-cover transition-transform group-hover:scale-110" alt={`Thumb ${i}`} />
