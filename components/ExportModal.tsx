@@ -102,17 +102,31 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   }, [filteredTemplates]);
 
   /**
-   * 导出价格核心计算函数 - 修正版本
-   * 无论是否是美国站，都应用调价公式
+   * 核心价格导出算法 (2.0 版本)
+   * 逻辑：如果存在已换算的翻译价格，则直接使用翻译价格；否则进行实时汇率换算。
+   * 同时修复了美国站(US)不执行调价公式的问题。
    */
   const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
-    const price = Number(listing.cleaned.price) || 0;
-    const shipping = Number(listing.cleaned.shipping) || 0;
-    
-    // 1. 基准总和 (基础价 + 运费)
-    let currentPrice = price + shipping;
+    let basePrice = 0;
+    let baseShipping = 0;
+    let needsRateConversion = true;
 
-    // 2. 应用所有匹配的调价规则 (按叠加逻辑)
+    // 1. 检查是否存在该站点的本地化翻译价格
+    const translation = listing.translations?.[targetMkt];
+    if (translation && (translation.optimized_price !== undefined)) {
+      basePrice = translation.optimized_price;
+      baseShipping = translation.optimized_shipping || 0;
+      needsRateConversion = false; // 已翻译的价格被视为已应用汇率
+    } else {
+      // 如果没有翻译后的价格，使用 Cleaned 数据 (USD)
+      basePrice = Number(listing.cleaned.price) || 0;
+      baseShipping = Number(listing.cleaned.shipping) || 0;
+    }
+
+    // 2. 基础计算：(价格 + 运费)
+    let currentTotal = basePrice + baseShipping;
+
+    // 3. 应用调价规则 (支持多规则叠加)
     const applicableAdj = adjustments.filter(adj => {
       const mktMatch = adj.marketplace === 'ALL' || adj.marketplace === targetMkt;
       const catMatch = adj.category_id === 'ALL' || adj.category_id === listing.category_id;
@@ -121,20 +135,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
     applicableAdj.forEach(adj => {
       const multiplier = 1 + (Number(adj.percentage) / 100);
-      currentPrice *= multiplier;
+      currentTotal *= multiplier;
     });
 
-    // 3. 应用汇率换算 (美国站汇率为 1.0)
-    const rateEntry = exchangeRates.find(r => r.marketplace === targetMkt);
-    const rate = (targetMkt === 'US') ? 1 : (rateEntry ? Number(rateEntry.rate) : 1);
-    currentPrice *= rate;
-
-    // 4. 特殊市场取整
-    if (targetMkt === 'JP') {
-      return Math.round(currentPrice);
+    // 4. 应用汇率换算 (如果需要)
+    if (needsRateConversion && targetMkt !== 'US') {
+      const rateEntry = exchangeRates.find(r => r.marketplace === targetMkt);
+      const rate = rateEntry ? Number(rateEntry.rate) : 1;
+      currentTotal *= rate;
     }
 
-    return parseFloat(currentPrice.toFixed(2));
+    // 5. 针对特殊站点的精度调整
+    if (targetMkt === 'JP') {
+      return Math.round(currentTotal);
+    }
+
+    return parseFloat(currentTotal.toFixed(2));
   };
 
   const handleExportCSV = () => {
@@ -218,9 +234,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'title') val = localOpt?.optimized_title || cleaned.title || '';
             else if (f === 'price') val = calculateFinalPrice(listing, targetMarket);
             else if (f === 'shipping') {
-              const rate = exchangeRates.find(r => r.marketplace === targetMarket)?.rate || 1;
-              const calcShip = (cleaned.shipping || 0) * rate;
-              val = targetMarket === 'JP' ? Math.round(calcShip) : parseFloat(calcShip.toFixed(2));
+                const trans = listing.translations?.[targetMarket];
+                if (trans && trans.optimized_shipping !== undefined) {
+                    val = trans.optimized_shipping;
+                } else {
+                    const rate = exchangeRates.find(r => r.marketplace === targetMarket)?.rate || 1;
+                    const calcShip = (cleaned.shipping || 0) * (targetMarket === 'US' ? 1 : rate);
+                    val = targetMarket === 'JP' ? Math.round(calcShip) : parseFloat(calcShip.toFixed(2));
+                }
             }
             else if (f === 'brand') val = cleaned.brand || '';
             else if (f === 'description') val = localOpt?.optimized_description || cleaned.description || '';

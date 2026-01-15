@@ -22,6 +22,8 @@ export default defineConfig(({ mode }) => {
       'process.env.OPENAI_MODEL': JSON.stringify(env.OPENAI_MODEL),
       'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL),
       'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY),
+      'process.env.SOURCING_API_KEY': JSON.stringify(env.SOURCING_API_KEY),
+      'process.env.SOURCING_API_URL': JSON.stringify(env.SOURCING_API_URL),
     }
   };
 });

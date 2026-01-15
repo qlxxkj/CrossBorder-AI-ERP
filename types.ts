@@ -51,7 +51,9 @@ export interface OptimizedData {
   optimized_features: string[];
   optimized_description: string;
   search_keywords: string;
-  // 本地化物流参数
+  // 本地化价格与物流
+  optimized_price?: number;
+  optimized_shipping?: number;
   optimized_weight_value?: string;
   optimized_weight_unit?: string;
   optimized_length?: string;
