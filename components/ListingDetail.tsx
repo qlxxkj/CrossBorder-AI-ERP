@@ -21,17 +21,14 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
-// 换算常量
 const LB_TO_KG = 0.45359237;
 const IN_TO_CM = 2.54;
 
-// 工具函数：安全数字格式化
 const formatNum = (val: any) => {
   const n = parseFloat(String(val).replace(/[^0-9.]/g, ''));
   return isNaN(n) ? '0' : parseFloat(n.toFixed(2)).toString();
 };
 
-// 站点单位全称配置
 const MKT_UNITS: Record<string, { w: string, s: string }> = {
   'US': { w: 'pounds', s: 'inches' },
   'CA': { w: 'pounds', s: 'inches' },
@@ -71,6 +68,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [isSourcingFormOpen, setIsSourcingFormOpen] = useState(false);
   const [editingSourcingRecord, setEditingSourcingRecord] = useState<SourcingRecord | null>(null);
   const [isProcessingAllImages, setIsProcessingAllImages] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
   const [localListing, setLocalListing] = useState<Listing>(listing);
@@ -78,7 +76,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [activeMarketplace, setActiveMarketplace] = useState<string>('US'); 
 
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
-  // Fix: Added missing editorLeft state to resolve 'Cannot find name setEditorLeft' error
   const [editorLeft, setEditorLeft] = useState(0);
 
   useEffect(() => {
@@ -478,6 +475,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       {isSourcingModalOpen && <SourcingModal productImage={localListing.cleaned.main_image} onClose={() => setIsSourcingModalOpen(false)} onAddLink={handleAddSourcingRecord} />}
       {isSourcingFormOpen && <SourcingFormModal initialData={editingSourcingRecord} onClose={() => setIsSourcingFormOpen(false)} onSave={handleSaveManualSourcing} />}
       
+      {/* 全屏图片预览模态框 */}
+      {previewImageUrl && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-10 animate-in fade-in duration-200" onClick={() => setPreviewImageUrl(null)}>
+          <button className="absolute top-8 right-8 p-3 text-white/50 hover:text-white transition-colors"><X size={32} /></button>
+          <img src={previewImageUrl} className="max-w-full max-h-full object-contain shadow-2xl rounded-2xl" alt="Preview" />
+        </div>
+      )}
+
       <div className="flex items-center justify-between bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-slate-200 shadow-sm sticky top-4 z-40">
         <div className="flex items-center gap-6">
           <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-900 font-black text-sm uppercase tracking-widest">
@@ -519,6 +524,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                  <button onClick={() => setIsEditorOpen(true)} className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transform hover:scale-105 active:scale-95 transition-all">
                    <Wand2 size={16} /> AI Lab
                  </button>
+                 <button onClick={() => setPreviewImageUrl(selectedImage)} className="p-2.5 bg-white/20 hover:bg-white text-white hover:text-indigo-600 rounded-xl transition-all">
+                   <ZoomIn size={20} />
+                 </button>
               </div>
             </div>
 
@@ -530,11 +538,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               </div>
               <div className="grid grid-cols-4 gap-2">
                 {allImages.map((url, i) => (
-                  <div key={url} onClick={() => setSelectedImage(url)} className={`relative aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all group ${selectedImage === url ? 'border-indigo-500 shadow-md ring-2 ring-indigo-500/20' : 'border-slate-100 hover:border-slate-300'}`}>
-                    <img src={url} className="w-full h-full object-cover" alt={`Thumb ${i}`} />
+                  <div 
+                    key={url} 
+                    onClick={() => setSelectedImage(url)} 
+                    className={`relative aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all group ${selectedImage === url ? 'border-indigo-500 shadow-md ring-2 ring-indigo-500/20' : 'border-slate-100 hover:border-slate-300'}`}
+                  >
+                    <img src={url} className="w-full h-full object-cover transition-transform group-hover:scale-110" alt={`Thumb ${i}`} />
                     <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-1">
-                      {url !== localListing.cleaned.main_image && <button onClick={(e) => handleSetMain(url, e)} className="p-1 bg-amber-500 text-white rounded shadow-md hover:bg-amber-600"><Star size={10} /></button>}
-                      <button onClick={(e) => handleDeleteImage(url, e)} className="p-1 bg-red-500 text-white rounded shadow-md hover:bg-red-600"><Trash2 size={10} /></button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setPreviewImageUrl(url); }} 
+                        className="p-1.5 bg-indigo-600 text-white rounded-lg shadow-lg transform hover:scale-110"
+                        title="Enlarge Preview"
+                      >
+                        <Maximize2 size={10} />
+                      </button>
+                      {url !== localListing.cleaned.main_image && <button onClick={(e) => handleSetMain(url, e)} className="p-1.5 bg-amber-500 text-white rounded-lg shadow-lg hover:bg-amber-600"><Star size={10} /></button>}
+                      <button onClick={(e) => handleDeleteImage(url, e)} className="p-1.5 bg-red-500 text-white rounded-lg shadow-lg hover:bg-red-600"><Trash2 size={10} /></button>
                     </div>
                   </div>
                 ))}
@@ -562,9 +581,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     <p className="text-[9px] font-bold text-orange-600 uppercase">{record.price}</p>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openManualSourcing(record)} className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-indigo-600"><Edit3 size={12} /></button>
-                    <a href={record.url} target="_blank" className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-blue-600"><ExternalLink size={12} /></a>
-                    <button onClick={() => handleRemoveSourcing(record.id)} className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-red-500"><Trash2 size={12} /></button>
+                    <button onClick={() => openManualSourcing(record)} className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-indigo-600" title="Edit Record"><Edit3 size={12} /></button>
+                    <a href={record.url} target="_blank" className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-blue-600" title="Go to Link"><ExternalLink size={12} /></a>
+                    <button onClick={() => handleRemoveSourcing(record.id)} className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-red-500" title="Remove"><Trash2 size={12} /></button>
                   </div>
                 </div>
               ))}
