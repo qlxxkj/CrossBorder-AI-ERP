@@ -307,7 +307,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           img.onerror = () => reject(new Error("Image load failed"));
         });
 
-        // Upload to host
         const byteString = atob(processedDataUrl.split(',')[1]);
         const ab = new ArrayBuffer(byteString.length);
         const ia = new Uint8Array(ab);
@@ -423,20 +422,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     <span className={`text-[10px] font-black ${count > limit ? 'text-red-500' : 'text-slate-400'}`}> {count} / {limit} </span>
   );
 
-  const handleAddSourcing = (link: string) => {
-    const newRecord: SourcingRecord = {
-      id: Date.now().toString(),
-      title: 'Manual Sourcing Link',
-      price: '-',
-      image: '',
-      url: link
-    };
-    const next = [...(localListing.sourcing_data || []), newRecord];
-    const updated = { ...localListing, sourcing_data: next };
-    setLocalListing(updated);
-    syncToSupabase(updated);
-  };
-
   const handleAddSourcingRecord = (record: any) => {
     const newRecord: SourcingRecord = {
       id: record.id || Date.now().toString(),
@@ -483,22 +468,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
       </div>
 
-      {hoveredImage && (
-        <div className="fixed top-0 bottom-0 right-0 z-[100] bg-white/95 backdrop-blur-3xl shadow-[-20px_0_100px_rgba(0,0,0,0.2)] flex items-center justify-center p-20 animate-in fade-in slide-in-from-right-10 duration-300 pointer-events-none" style={{ left: `${editorLeft}px` }}>
-          <div className="absolute top-10 left-10 flex items-center gap-4 bg-slate-900/10 px-6 py-3 rounded-full border border-white/20 shadow-sm">
-             <Search size={22} className="text-indigo-600" />
-             <span className="text-sm font-black text-slate-800 uppercase tracking-[0.4em]">Ultra-HD Lens Preview</span>
-          </div>
-          <img src={hoveredImage} className="max-w-full max-h-[85vh] object-contain drop-shadow-[0_40px_100px_rgba(0,0,0,0.25)] scale-110" alt="HD Lens View" />
-        </div>
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         <div className="space-y-6 lg:sticky lg:top-24">
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col gap-6">
             <h3 className="font-black text-slate-900 flex items-center justify-between text-xs uppercase tracking-widest">
               <span className="flex items-center gap-2"><ImageIcon size={16} className="text-blue-500" /> Media Studio</span>
-              <div className="flex gap-2">
+              <div className="flex gap-1">
                 <button 
                   onClick={handleStandardizeAllImages} 
                   disabled={isProcessingAllImages}
@@ -518,11 +493,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                    <Wand2 size={16} /> AI Lab
                  </button>
               </div>
-              {selectedImage === localListing.cleaned.main_image && (
-                <div className="absolute top-4 left-4 px-3 py-1 bg-amber-500 text-white text-[8px] font-black uppercase rounded-full shadow-lg flex items-center gap-1">
-                  <Star size={10} /> Main
-                </div>
-              )}
             </div>
 
             <div className="space-y-3">
@@ -533,7 +503,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               </div>
               <div className="grid grid-cols-4 gap-2">
                 {allImages.map((url, i) => (
-                  <div key={url} onClick={() => setSelectedImage(url)} onMouseEnter={() => setHoveredImage(url)} onMouseLeave={() => setHoveredImage(null)} className={`relative aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all group ${selectedImage === url ? 'border-indigo-500 shadow-md ring-2 ring-indigo-500/20' : 'border-slate-100 hover:border-slate-300'}`}>
+                  <div key={url} onClick={() => setSelectedImage(url)} className={`relative aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all group ${selectedImage === url ? 'border-indigo-500 shadow-md ring-2 ring-indigo-500/20' : 'border-slate-100 hover:border-slate-300'}`}>
                     <img src={url} className="w-full h-full object-cover" alt={`Thumb ${i}`} />
                     <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-1">
                       {url !== localListing.cleaned.main_image && <button onClick={(e) => handleSetMain(url, e)} className="p-1 bg-amber-500 text-white rounded shadow-md hover:bg-amber-600"><Star size={10} /></button>}
@@ -596,7 +566,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         <div ref={editorRef} className="lg:col-span-2 space-y-6 min-h-[1200px]">
           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
              <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
-               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Edit2 size={14} /> Global Editor &bull; {targetMktConfig.name}</h4>
+               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Edit2 size={14} /> Global Editor & bull; {targetMktConfig.name}</h4>
                {activeMarketplace !== 'US' && <div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase bg-amber-50 px-3 py-1 rounded-full border border-amber-100"><Coins size={12} /> Unit System & Rate Applied</div>}
              </div>
              
@@ -619,9 +589,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-slate-100/50">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1"><Weight size={10} /> Localized Weight</label>
-                    <div className="grid grid-cols-[1fr_100px] gap-2">
+                    <div className="grid grid-cols-[1fr_80px] gap-2">
                       <input type="text" value={displayVal('optimized_weight_value', 'item_weight_value')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_value' : `translations.${activeMarketplace}.optimized_weight_value`, e.target.value)} onBlur={handleBlur} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none shadow-sm" />
-                      <input type="text" value={displayVal('optimized_weight_unit', 'item_weight_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_unit' : `translations.${activeMarketplace}.optimized_weight_unit`, e.target.value)} onBlur={handleBlur} placeholder="Unit" className="w-full px-2 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-600 outline-none text-center" />
+                      <input type="text" value={displayVal('optimized_weight_unit', 'item_weight_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_weight_unit' : `translations.${activeMarketplace}.optimized_weight_unit`, e.target.value)} onBlur={handleBlur} placeholder="Unit" className="w-full px-1 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-600 outline-none text-center" />
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -630,7 +600,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       <input placeholder="L" value={displayVal('optimized_length', 'item_length')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_length' : `translations.${activeMarketplace}.optimized_length`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
                       <input placeholder="W" value={displayVal('optimized_width', 'item_width')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_width' : `translations.${activeMarketplace}.optimized_width`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
                       <input placeholder="H" value={displayVal('optimized_height', 'item_height')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_height' : `translations.${activeMarketplace}.optimized_height`, e.target.value)} onBlur={handleBlur} className="w-full px-2 py-3 bg-white border border-slate-200 rounded-xl text-center text-xs font-bold shadow-sm" />
-                      <input placeholder="Unit" value={displayVal('optimized_size_unit', 'item_size_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_size_unit' : `translations.${activeMarketplace}.optimized_size_unit`, e.target.value)} onBlur={handleBlur} className="w-40 px-2 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-center text-[10px] font-black text-indigo-600 shadow-sm" />
+                      <input placeholder="Unit" value={displayVal('optimized_size_unit', 'item_size_unit')} onChange={(e) => handleFieldChange(activeMarketplace === 'US' ? 'optimized.optimized_size_unit' : `translations.${activeMarketplace}.optimized_size_unit`, e.target.value)} onBlur={handleBlur} className="w-24 px-1 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-center text-[10px] font-black text-indigo-600 shadow-sm" />
                     </div>
                   </div>
                </div>

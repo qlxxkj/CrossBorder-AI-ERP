@@ -23,7 +23,6 @@ function safeDecode(base64: string): Uint8Array {
   return bytes;
 }
 
-// 辅助函数：导出时的数值格式化（保留2位）
 const formatExportVal = (val: any) => {
   if (val === undefined || val === null || val === '') return '';
   const num = parseFloat(String(val));
@@ -102,38 +101,41 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     else setSelectedTemplate(null);
   }, [filteredTemplates]);
 
+  /**
+   * 导出价格核心计算函数
+   * 公式：((基础价 + 运费) × 调价) × 汇率
+   */
   const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
     const price = Number(listing.cleaned.price) || 0;
     const shipping = Number(listing.cleaned.shipping) || 0;
     
+    // 如果已经有目标市场的汇率换算数据（且用户进行了手动确认/AI确认），逻辑如下：
+    // 但目前系统架构中，cleaned.price始终为采集时的源货币(USD)，显示时的汇率是动态计算的
+    // 所以这里直接采用完整计算公式
+    
     if (targetMkt === 'US') return price;
 
-    let basePrice = price;
+    // 1. 基准总和 (基础价 + 运费)
+    let currentPrice = price + shipping;
 
-    // 导出逻辑：查询调价比例
+    // 2. 应用调价比例
     const applicableAdj = adjustments.filter(adj => {
       const mktMatch = adj.marketplace === 'ALL' || adj.marketplace === targetMkt;
       const catMatch = adj.category_id === 'ALL' || adj.category_id === listing.category_id;
       return mktMatch && catMatch;
     });
 
-    // 如果调价规则包含运费，则将运费计入基准价
-    const needsShipping = applicableAdj.some(a => a.include_shipping === true);
-    if (needsShipping) {
-      basePrice = price + shipping;
-    }
-
-    let currentPrice = basePrice;
     applicableAdj.forEach(adj => {
       const multiplier = 1 + (Number(adj.percentage) / 100);
       currentPrice *= multiplier;
     });
 
+    // 3. 应用汇率换算
     const rateEntry = exchangeRates.find(r => r.marketplace === targetMkt);
     const rate = rateEntry ? Number(rateEntry.rate) : 1;
     currentPrice *= rate;
 
-    // 针对日本站(JP)导出时取整
+    // 4. 针对特殊市场取整 (如日本站)
     if (targetMkt === 'JP') {
       return Math.round(currentPrice);
     }
