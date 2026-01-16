@@ -30,6 +30,19 @@ const formatExportVal = (val: any) => {
   return parseFloat(num.toFixed(2));
 };
 
+// 辅助函数：首字母大写
+const capitalizeUnit = (val: string) => {
+  if (!val) return "";
+  const trimmed = val.trim();
+  if (trimmed.length === 0) return "";
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+};
+
+// 判定是否为拉丁语系/西文站点
+const IS_LATIN_MKT = (code: string) => [
+  'US', 'CA', 'MX', 'BR', 'UK', 'DE', 'FR', 'IT', 'ES', 'IE', 'PL', 'NL', 'SE', 'BE', 'AU', 'SG'
+].includes(code);
+
 const generateRandomValue = (type?: 'alphanumeric' | 'ean13'): string => {
   if (type === 'ean13') {
     const country = "608";
@@ -101,32 +114,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     else setSelectedTemplate(null);
   }, [filteredTemplates]);
 
-  /**
-   * 核心价格导出算法 (2.0 版本)
-   * 逻辑：如果存在已换算的翻译价格，则直接使用翻译价格；否则进行实时汇率换算。
-   * 同时修复了美国站(US)不执行调价公式的问题。
-   */
   const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
     let basePrice = 0;
     let baseShipping = 0;
     let needsRateConversion = true;
 
-    // 1. 检查是否存在该站点的本地化翻译价格
     const translation = listing.translations?.[targetMkt];
     if (translation && (translation.optimized_price !== undefined)) {
       basePrice = translation.optimized_price;
       baseShipping = translation.optimized_shipping || 0;
-      needsRateConversion = false; // 已翻译的价格被视为已应用汇率
+      needsRateConversion = false; 
     } else {
-      // 如果没有翻译后的价格，使用 Cleaned 数据 (USD)
       basePrice = Number(listing.cleaned.price) || 0;
       baseShipping = Number(listing.cleaned.shipping) || 0;
     }
 
-    // 2. 基础计算：(价格 + 运费)
     let currentTotal = basePrice + baseShipping;
 
-    // 3. 应用调价规则 (支持多规则叠加)
     const applicableAdj = adjustments.filter(adj => {
       const mktMatch = adj.marketplace === 'ALL' || adj.marketplace === targetMkt;
       const catMatch = adj.category_id === 'ALL' || adj.category_id === listing.category_id;
@@ -138,14 +142,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       currentTotal *= multiplier;
     });
 
-    // 4. 应用汇率换算 (如果需要)
     if (needsRateConversion && targetMkt !== 'US') {
       const rateEntry = exchangeRates.find(r => r.marketplace === targetMkt);
       const rate = rateEntry ? Number(rateEntry.rate) : 1;
       currentTotal *= rate;
     }
 
-    // 5. 针对特殊站点的精度调整
     if (targetMkt === 'JP') {
       return Math.round(currentTotal);
     }
@@ -251,7 +253,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               val = localOpt?.optimized_weight_value || cleaned.item_weight_value || '';
               val = formatExportVal(val);
             }
-            else if (f === 'item_weight_unit') val = localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '';
+            // 优化：重量单位首字母大写
+            else if (f === 'item_weight_unit') {
+              const unit = localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '';
+              val = IS_LATIN_MKT(targetMarket) ? capitalizeUnit(unit) : unit;
+            }
             else if (f === 'item_length') {
               val = localOpt?.optimized_length || cleaned.item_length || '';
               val = formatExportVal(val);
@@ -264,7 +270,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               val = localOpt?.optimized_height || cleaned.item_height || '';
               val = formatExportVal(val);
             }
-            else if (f === 'item_size_unit') val = localOpt?.optimized_size_unit || cleaned.item_size_unit || '';
+            // 优化：尺寸单位首字母大写
+            else if (f === 'item_size_unit') {
+              const unit = localOpt?.optimized_size_unit || cleaned.item_size_unit || '';
+              val = IS_LATIN_MKT(targetMarket) ? capitalizeUnit(unit) : unit;
+            }
             
             else if (f?.startsWith('other_image')) {
               const num = parseInt(f.replace('other_image', '')) || 1;
@@ -406,7 +416,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         <div className="p-10 bg-slate-50 border-t border-slate-100 flex justify-end gap-5">
           {exporting && <div className="mr-auto flex items-center gap-3 text-xs font-black text-indigo-600 uppercase animate-pulse"><Loader2 className="animate-spin" size={16} /> {exportStatus}</div>}
           <button onClick={onClose} className="px-10 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">Cancel</button>
-          <button disabled={!selectedTemplate || exporting} onClick={handleExportTemplate} className="px-14 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50">
+          <button disabled={!selectedTemplate || exporting} onClick={handleExportTemplate} className="px-14 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50">
             {exporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} Template Export (.XLSM)
           </button>
         </div>
