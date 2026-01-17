@@ -136,38 +136,42 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     }
   };
 
-  const getAmazonUrl = (asin: string, marketplace: string) => {
-    const mkt = AMAZON_MARKETPLACES.find(m => m.code === marketplace);
+  // 生成对应的亚马逊跳转链接
+  const getAmazonUrl = (asin: string, mktCode: string) => {
+    const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
     const domain = mkt?.domain || 'amazon.com';
     return `https://${domain}/dp/${asin}`;
   };
 
-  const renderStatusIcons = (listing: Listing) => {
-    const translatedCodes = listing.translations ? Object.keys(listing.translations) : [];
-    const exportedCodes = listing.exported_marketplaces || [];
-    
+  // 渲染分发看板
+  const renderDistributionStatus = (listing: Listing) => {
+    const translations = listing.translations ? Object.keys(listing.translations) : [];
+    const exports = listing.exported_marketplaces || [];
+
     return (
       <div className="flex flex-col gap-2">
-        {translatedCodes.length > 0 && (
-          <div className="flex items-center gap-1">
+        {translations.length > 0 && (
+          <div className="flex items-center gap-1.5" title="Translated Markets">
             <Languages size={10} className="text-purple-400" />
-            <div className="flex -space-x-1 overflow-hidden">
-              {translatedCodes.slice(0, 5).map(code => {
-                const flag = AMAZON_MARKETPLACES.find(m => m.code === code)?.flag || '🏳️';
-                return <span key={code} className="text-xs grayscale-[0.2]" title={`Translated to ${code}`}>{flag}</span>;
-              })}
-              {translatedCodes.length > 5 && <span className="text-[8px] font-black text-slate-300 pl-1">+{translatedCodes.length - 5}</span>}
+            <div className="flex -space-x-1.5">
+              {translations.slice(0, 4).map(code => (
+                <span key={code} className="text-xs grayscale-[0.3]" title={code}>
+                  {AMAZON_MARKETPLACES.find(m => m.code === code)?.flag || '🏳️'}
+                </span>
+              ))}
+              {translations.length > 4 && <span className="text-[8px] font-black text-slate-300 pl-1">+{translations.length - 4}</span>}
             </div>
           </div>
         )}
-        {exportedCodes.length > 0 && (
-          <div className="flex items-center gap-1">
+        {exports.length > 0 && (
+          <div className="flex items-center gap-1.5" title="Exported Markets">
             <Download size={10} className="text-emerald-400" />
-            <div className="flex -space-x-1 overflow-hidden">
-              {exportedCodes.slice(0, 5).map(code => {
-                const flag = AMAZON_MARKETPLACES.find(m => m.code === code)?.flag || '🏳️';
-                return <span key={code} className="text-xs brightness-95" title={`Exported to ${code}`}>{flag}</span>;
-              })}
+            <div className="flex -space-x-1.5">
+              {exports.slice(0, 4).map(code => (
+                <span key={code} className="text-xs drop-shadow-sm" title={`Exported to ${code}`}>
+                  {AMAZON_MARKETPLACES.find(m => m.code === code)?.flag || '🏳️'}
+                </span>
+              ))}
             </div>
           </div>
         )}
@@ -252,11 +256,10 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                   />
                 </th>
                 <th className="p-8">Image</th>
-                <th className="p-8">Distribution</th>
+                <th className="p-8">Status / Distribution</th>
                 <th className="p-8">Category</th>
                 <th className="p-8">ASIN</th>
                 <th className="p-8 w-1/4">Title</th>
-                <th className="p-8">Status</th>
                 <th className="p-8 text-right">Actions</th>
               </tr>
             </thead>
@@ -276,7 +279,14 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                         </div>
                       </td>
                       <td className="p-8">
-                        {renderStatusIcons(listing)}
+                        <div className="space-y-2">
+                          {listing.status === 'optimized' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-green-50 text-green-600 rounded-md text-[8px] font-black uppercase border border-green-100">Optimized</span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 text-slate-400 rounded-md text-[8px] font-black uppercase border border-slate-100">Collected</span>
+                          )}
+                          {renderDistributionStatus(listing)}
+                        </div>
                       </td>
                       <td className="p-8">
                         <span className={`text-[10px] font-black uppercase ${listing.category_id ? 'text-indigo-600' : 'text-slate-300 italic'}`}>
@@ -285,25 +295,18 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                       </td>
                       <td className="p-8">
                         <a 
-                          href={getAmazonUrl(listing.asin, listing.marketplace)} 
-                          target="_blank" 
+                          href={getAmazonUrl(listing.asin, listing.marketplace)}
+                          target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="flex items-center gap-1.5 group/link"
+                          className="flex items-center gap-1 group/asin"
                         >
-                          <span className="font-mono text-[10px] font-black text-slate-400 group-hover/link:text-blue-600 transition-colors">{listing.asin}</span>
-                          <ExternalLink size={10} className="text-slate-200 group-hover/link:text-blue-400 transition-colors" />
+                          <span className="font-mono text-[11px] font-black text-slate-400 group-hover/asin:text-blue-600 transition-colors underline decoration-dotted decoration-slate-300">{listing.asin}</span>
+                          <ExternalLink size={10} className="text-slate-200 group-hover/asin:text-blue-500" />
                         </a>
                         <span className="block mt-1 text-[8px] font-black text-slate-300 uppercase">{mkt?.flag} {listing.marketplace}</span>
                       </td>
                       <td className="p-8"><p className="text-xs font-bold text-slate-800 line-clamp-2 leading-relaxed">{title}</p></td>
-                      <td className="p-8">
-                        {listing.status === 'optimized' ? (
-                          <span className="inline-flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full text-[9px] font-black uppercase border border-green-100">Optimized</span>
-                        ) : (
-                          <span className="inline-flex items-center px-3 py-1 bg-slate-50 text-slate-400 rounded-full text-[9px] font-black uppercase border border-slate-100">Collected</span>
-                        )}
-                      </td>
                       <td className="p-8 text-right">
                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
                           <button onClick={(e) => handleDelete(listing.id, e)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg transition-all"><Trash2 size={16} /></button>
@@ -316,7 +319,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               }
               {paginatedListings.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="p-20 text-center text-slate-300 font-black uppercase tracking-widest text-sm italic">
+                  <td colSpan={7} className="p-20 text-center text-slate-300 font-black uppercase tracking-widest text-sm italic">
                     No matching listings found.
                   </td>
                 </tr>
@@ -325,7 +328,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
           </table>
         </div>
 
-        {/* Improved Pagination Footer */}
         <div className="px-10 py-6 border-t border-slate-50 bg-slate-50/50 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-3">

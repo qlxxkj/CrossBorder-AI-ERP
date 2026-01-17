@@ -74,8 +74,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [hoveredImageUrl, setHoveredImageUrl] = useState<string | null>(null);
   
   const [aiProvider, setAiProvider] = useState<AIProvider>(() => {
-    return (localStorage.getItem('app_ai_provider') as AIProvider) || 'gemini';
+    const saved = localStorage.getItem('app_ai_provider') as AIProvider;
+    return saved || 'gemini';
   });
+  
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [selectedImage, setSelectedImage] = useState<string>(listing.cleaned?.main_image || '');
   const [activeMarketplace, setActiveMarketplace] = useState<string>('US'); 
@@ -235,9 +237,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const handleOptimize = async () => {
     setIsOptimizing(true);
     try {
-      let opt = aiProvider === 'gemini' 
-        ? await optimizeListingWithAI(localListing.cleaned!)
-        : await optimizeListingWithOpenAI(localListing.cleaned!); // OpenAI logic shared with DeepSeek if API compatible
+      let opt;
+      if (aiProvider === 'openai' || aiProvider === 'deepseek') {
+        opt = await optimizeListingWithOpenAI(localListing.cleaned!);
+      } else {
+        opt = await optimizeListingWithAI(localListing.cleaned!);
+      }
       const updated = { ...localListing, status: 'optimized' as const, optimized: opt };
       setLocalListing(updated);
       await syncToSupabase(updated);
@@ -249,9 +254,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!localListing.optimized) throw new Error("Base listing not optimized yet.");
     const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
     const targetLang = mktCode === 'CA' ? 'English' : (mkt?.name || 'English');
-    const aiTextData = aiProvider === 'gemini'
-      ? await translateListingWithAI(localListing.optimized, targetLang)
-      : await translateListingWithOpenAI(localListing.optimized, targetLang);
+    
+    let aiTextData;
+    if (aiProvider === 'openai' || aiProvider === 'deepseek') {
+      aiTextData = await translateListingWithOpenAI(localListing.optimized, targetLang);
+    } else {
+      aiTextData = await translateListingWithAI(localListing.optimized, targetLang);
+    }
+
     const logisticsData = generateLogisticsData(mktCode);
     return { ...localListing.optimized, ...aiTextData, ...logisticsData } as OptimizedData;
   };
@@ -280,7 +290,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           const translatedData = await processTranslation(mkt.code); 
           currentTranslations[mkt.code] = translatedData;
           
-          // 更新本地状态并立即保存到服务器
+          // 关键需求：每翻译一个站点，立即执行保存
           const updated = { ...localListing, translations: { ...currentTranslations } };
           setLocalListing(updated);
           await syncToSupabase(updated);
