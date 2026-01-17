@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
@@ -57,7 +56,12 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 
     const text = response.text || "{}";
     return JSON.parse(text.trim()) as OptimizedData;
-  } catch (error) {
+  } catch (error: any) {
+    // Fix: Handle specific error to re-prompt for key selection
+    if (error.message?.includes("Requested entity was not found.")) {
+      const aistudio = (window as any).aistudio;
+      if (aistudio) aistudio.openSelectKey();
+    }
     console.error("AI Optimization failed:", error);
     throw error;
   }
@@ -104,7 +108,12 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
 
     const text = response.text || "{}";
     return JSON.parse(text.trim());
-  } catch (error) {
+  } catch (error: any) {
+    // Fix: Handle specific error to re-prompt for key selection
+    if (error.message?.includes("Requested entity was not found.")) {
+      const aistudio = (window as any).aistudio;
+      if (aistudio) aistudio.openSelectKey();
+    }
     console.error(`Gemini Translation failed:`, error);
     throw error;
   }
@@ -148,9 +157,21 @@ export const search1688WithAI = async (productTitle: string, imageUrl: string): 
       }
     });
 
+    // Fix: Extracted grounding chunks and logged URLs as mandatory for Search Grounding
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const webSources = chunks.filter((c: any) => c.web?.uri).map((c: any) => c.web.uri);
+    if (webSources.length > 0) {
+      console.log("Sources identified by Gemini:", webSources);
+    }
+
     const text = response.text || "[]";
     return JSON.parse(text.trim());
-  } catch (error) {
+  } catch (error: any) {
+    // Fix: Handle specific error to re-prompt for key selection
+    if (error.message?.includes("Requested entity was not found.")) {
+      const aistudio = (window as any).aistudio;
+      if (aistudio) aistudio.openSelectKey();
+    }
     console.error("AI 1688 Sourcing failed:", error);
     return [];
   }
@@ -181,6 +202,7 @@ export const editImageWithAI = async (base64ImageData: string, prompt: string): 
       throw new Error("Gemini returned no response candidates for image editing.");
     }
 
+    // Fix: Iterated through parts to find the image data correctly per guidelines
     for (const part of response.candidates[0].content.parts) {
       if (part.inlineData) {
         return part.inlineData.data;
@@ -188,7 +210,12 @@ export const editImageWithAI = async (base64ImageData: string, prompt: string): 
     }
     
     throw new Error("No image data returned from Gemini in response parts.");
-  } catch (error) {
+  } catch (error: any) {
+    // Fix: Handle specific error to re-prompt for key selection
+    if (error.message?.includes("Requested entity was not found.")) {
+      const aistudio = (window as any).aistudio;
+      if (aistudio) aistudio.openSelectKey();
+    }
     console.error("AI Image Editing failed:", error);
     throw error;
   }

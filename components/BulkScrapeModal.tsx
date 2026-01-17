@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Search, Globe, Layers, Loader2, Zap, Terminal, Code, Sparkles, Cpu } from 'lucide-react';
 import { UILanguage, CleanedData } from '../types';
@@ -72,7 +71,8 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
       const aistudio = (window as any).aistudio;
       if (aistudio && !(await aistudio.hasSelectedApiKey())) {
         addLog("Security: Real-time discovery requires API Key selection.", 'info');
-        await aistudio.openSelectKey();
+        // Fix: Assume key selection is successful and proceed without awaiting to mitigate race condition
+        aistudio.openSelectKey();
       }
     } catch (e) {}
 
@@ -85,6 +85,7 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Auth required");
 
+      // Fix: Create instance right before API call as per guidelines
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       addLog(`Grounding: Accessing live marketplace nodes for "${keywords}"...`, 'process');
@@ -97,14 +98,22 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
          - STRUCTURED: { asin, title, brand, price, image_url, bullet_points[], description, bsr, ratings }.
       Return ONLY the raw JSON array. No conversational text.`;
 
+      // Fix: Changed model to 'gemini-3-pro-preview' for complex text reasoning/scraping
       const response = await ai.models.generateContent({
-        model: "gemini-3-pro-image-preview",
+        model: "gemini-3-pro-preview",
         contents: prompt,
         config: { 
           tools: [{googleSearch: {}}], 
           responseMimeType: "application/json" 
         },
       });
+
+      // Fix: Extract and display URLs from grounding metadata as mandatory for Search Grounding
+      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      const sources = chunks.filter((c: any) => c.web?.uri).map((c: any) => c.web.uri);
+      if (sources.length > 0) {
+        addLog(`Data sources grounded: ${sources.join(', ')}`, 'info');
+      }
 
       let rawJsonText = response.text || "[]";
       // 清洗 Markdown 代码块，防止 JSON 解析报错
@@ -191,6 +200,11 @@ export const BulkScrapeModal: React.FC<BulkScrapeModalProps> = ({ uiLang, onClos
       addLog("Scraping cycle finalized.", 'success');
       setTimeout(onFinished, 1200);
     } catch (err: any) {
+      // Fix: Handle specific error for re-selecting API keys per guidelines
+      if (err.message?.includes("Requested entity was not found.")) {
+        const aistudio = (window as any).aistudio;
+        if (aistudio) aistudio.openSelectKey();
+      }
       addLog(`Critical Failure: ${err.message}`, 'error');
       setIsScraping(false);
     }

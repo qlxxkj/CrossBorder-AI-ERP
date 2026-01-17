@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   CreditCard, Check, Zap, Crown, ShieldCheck, 
-  Loader2, Wallet, ExternalLink, ArrowRight, History, AlertCircle, Clock
+  Loader2, Wallet, ExternalLink, ArrowRight, History, AlertCircle, Clock, 
+  Terminal, ShieldAlert, WifiOff, FileSearch
 } from 'lucide-react';
 import { UILanguage, UserProfile } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -36,6 +37,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [orders, setOrders] = useState<any[]>([]);
+  const [connError, setConnError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -45,27 +47,51 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
 
   const fetchData = async () => {
     if (!isSupabaseConfigured()) return;
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setLoading(false);
+        return;
+      }
 
-    const { data: profileData } = await supabase.from('user_profiles').select('*').eq('id', session.user.id).single();
-    if (profileData) setProfile(profileData);
+      const { data: profileData, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+      
+      if (profileError) {
+        if (profileError.code === 'PGRST106' || profileError.message.includes('406')) {
+          setConnError("DATABASE_MISSING");
+        }
+      } else if (profileData) {
+        setProfile(profileData);
+      }
 
-    const { data: orderData } = await supabase.from('payment_orders').select('*').order('created_at', { ascending: false }).limit(10);
-    if (orderData) setOrders(orderData || []);
-    
-    setLoading(false);
+      const { data: orderData } = await supabase
+        .from('payment_orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      if (orderData) setOrders(orderData);
+      
+    } catch (err) {
+      console.error("Fetch Data Error:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePay = async (plan: typeof PLANS[0], method: 'alipay' | 'paypal') => {
     setProcessingId(plan.id);
     try {
-      if (!isSupabaseConfigured()) throw new Error("Supabase is not configured properly in .env");
+      if (!isSupabaseConfigured()) throw new Error("Supabase URL or Key missing in .env");
 
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error(uiLang === 'zh' ? "请先登录" : "Please sign in first.");
+      if (!session) throw new Error(uiLang === 'zh' ? "请先登录后再充值" : "Please sign in first.");
 
-      // 1. 创建订单记录
+      // 1. 创建本地订单记录
       const { data: order, error: orderError } = await supabase
         .from('payment_orders')
         .insert([{
@@ -79,12 +105,10 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
         .select().single();
 
       if (orderError) {
-        console.error("Database Error:", orderError);
-        throw new Error(uiLang === 'zh' ? `订单创建失败: ${orderError.message}` : `Order creation failed: ${orderError.message}`);
+        throw new Error(uiLang === 'zh' ? `订单创建失败。请确保数据库包含 'payment_orders' 表。` : `Order table missing.`);
       }
 
-      // 2. 调用支付接口
-      // 这里的 'create-payment' 必须完全匹配 Supabase Edge Functions 中的函数名
+      // 2. 调用 Edge Function
       const { data, error: invokeError } = await supabase.functions.invoke('create-payment', {
         body: { 
           orderId: order.id, 
@@ -94,38 +118,28 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
         }
       });
 
-      // 核心调试提示
+      // 如果返回了非 200 错误
       if (invokeError) {
-        console.error("DEBUG - Invoke Error:", invokeError);
-        const isNotFound = JSON.stringify(invokeError).includes('404') || invokeError.message?.includes('404');
-        
-        let errorHint = "";
-        if (isNotFound) {
-          errorHint = uiLang === 'zh' 
-            ? "【重要】未找到 'create-payment' 函数。请确保您在 Supabase 控制面板中新建了一个名为 'create-payment' 的 Edge Function 并已部署代码。"
-            : "【CRITICAL】'create-payment' function not found. Please ensure the function is created and deployed in Supabase.";
-        } else {
-          errorHint = uiLang === 'zh'
-            ? `无法连接到支付接口。请检查您的网络连接或 Supabase 服务状态。\n详情: ${invokeError.message}`
-            : `Could not connect to payment gateway. Detail: ${invokeError.message}`;
-        }
-        throw new Error(errorHint);
-      }
+        // 尝试从错误体中提取后端抛出的具体异常
+        let errorMsg = invokeError.message;
+        try {
+          // 如果返回的是 JSON 错误
+          const body = await (invokeError as any).context?.response?.json();
+          if (body?.error) errorMsg = body.error;
+        } catch (e) {}
 
-      if (data?.error) {
-        throw new Error(`Business Error: ${data.error}`);
+        throw new Error(errorMsg || "Payment interface failed to respond.");
       }
 
       if (data?.url) {
         window.location.href = data.url;
       } else {
-        throw new Error("Gateway did not return a valid payment URL.");
+        throw new Error(data?.error || "No redirect URL generated.");
       }
 
     } catch (err: any) {
-      console.error("Final Catch Error:", err);
-      // 使用 alert 以确保用户能看到具体原因
-      alert(err.message);
+      console.error("handlePay Error:", err);
+      alert(uiLang === 'zh' ? `支付失败: ${err.message}` : `Payment Error: ${err.message}`);
     } finally {
       setProcessingId(null);
     }
@@ -136,6 +150,27 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
       <Loader2 className="animate-spin text-indigo-600" size={32} />
     </div>
   );
+
+  if (connError === "DATABASE_MISSING") {
+    return (
+      <div className="p-8 max-w-2xl mx-auto mt-20 text-center space-y-6 animate-in zoom-in-95">
+        <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto shadow-xl">
+          <FileSearch size={40} />
+        </div>
+        <h2 className="text-2xl font-black text-slate-900">数据库表未就绪</h2>
+        <p className="text-slate-500 font-medium">
+          系统检测到您的 Supabase 数据库中缺失 <code className="bg-slate-100 px-2 py-0.5 rounded text-red-600">user_profiles</code> 表，导致无法读取您的余额和套餐信息。
+        </p>
+        <div className="p-6 bg-slate-900 rounded-2xl text-left font-mono text-xs text-indigo-300">
+          <p>-- 请在 Supabase SQL Editor 执行：</p>
+          <p className="mt-2 text-white">create table user_profiles ( id uuid references auth.users not null primary key, plan_type text default 'Free', credits_total int default 0, credits_used int default 0 );</p>
+        </div>
+        <button onClick={fetchData} className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 mx-auto">
+          <RefreshCw size={16} /> 重新检查连接
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-12 animate-in fade-in duration-500 pb-24">
@@ -198,15 +233,23 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
                 </div>
 
                 <div className="p-8 bg-slate-50 border-t border-slate-100">
-                   {/* 根据语言切换支付方式 */}
                    {uiLang === 'zh' ? (
                      <button 
                       disabled={processingId !== null}
                       onClick={() => handlePay(plan, 'alipay')}
                       className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
                      >
-                       {isThisPlanProcessing ? <Loader2 className="animate-spin" size={18} /> : <Wallet size={18} />}
-                       使用 支付宝 支付
+                       {isThisPlanProcessing ? (
+                         <>
+                           <Loader2 className="animate-spin" size={18} />
+                           正在启动安全连接...
+                         </>
+                       ) : (
+                         <>
+                           <Wallet size={18} />
+                           使用 支付宝 支付
+                         </>
+                       )}
                      </button>
                    ) : (
                      <button 
@@ -284,8 +327,8 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
             <h4 className="text-xl font-black tracking-tight">{uiLang === 'zh' ? '安全支付与保障' : 'Secure Payment Guarantee'}</h4>
             <p className="text-sm text-slate-400 font-medium leading-relaxed">
               {uiLang === 'zh' 
-                ? '我们所有的交易都通过行业标准的加密网关处理。支付成功后，额度通常在 30 秒内到账。如有疑问请联系客服。'
-                : 'All transactions are processed via secure gateways. Credits are typically added within 30 seconds of successful payment.'}
+                ? '我们所有的交易都通过行业标准的加密网关处理。如果您支付后 5 分钟内额度未更新，请通过订单历史联系我们的技术支持。'
+                : 'All transactions are processed via secure gateways. If your credits are not updated within 5 minutes, please contact support via history.'}
             </p>
          </div>
          <button onClick={() => setShowHistory(!showHistory)} className="px-8 py-4 bg-white/10 hover:bg-white/20 border border-white/5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2">
@@ -295,3 +338,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
     </div>
   );
 };
+
+const RefreshCw = ({ size }: { size: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M3 21v-5h5"></path></svg>
+);
