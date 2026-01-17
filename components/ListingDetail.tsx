@@ -5,7 +5,7 @@ import {
   BrainCircuit, Globe, Languages, Loader2, DollarSign, Truck, Settings2, ZoomIn, Save, ChevronRight,
   Zap, Check, AlertCircle, Weight, Ruler, Coins, ListFilter, FileText, Wand2, Star, Upload, Search, ExternalLink, Link2, Maximize2, Edit3
 } from 'lucide-react';
-import { Listing, OptimizedData, CleanedData, UILanguage, PriceAdjustment, ExchangeRate, SourcingRecord } from '../types';
+import { Listing, OptimizedData, CleanedData, UILanguage, PriceAdjustment, ExchangeRate, SourcingRecord, UserProfile } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
 import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
 import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
@@ -122,6 +122,31 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setLastSaved(null);
   }, [listing.id]);
 
+  const checkAndConsumeCredit = async (): Promise<boolean> => {
+    if (!isSupabaseConfigured()) return false;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return false;
+
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', session.user.id)
+      .single();
+
+    if (!profile || (profile.credits_total - profile.credits_used) <= 0) {
+      alert(uiLang === 'zh' ? "您的额度已耗尽，请前往财务中心升级套餐。" : "Credits exhausted. Please upgrade your plan.");
+      return false;
+    }
+
+    // 预扣除额度（理想情况应由后端逻辑在 API 调用成功后扣除，此处演示简单实现）
+    await supabase
+      .from('user_profiles')
+      .update({ credits_used: profile.credits_used + 1 })
+      .eq('id', session.user.id);
+      
+    return true;
+  };
+
   const currentContent = useMemo(() => {
     if (activeMarketplace === 'US') return localListing.optimized || null;
     return localListing.translations?.[activeMarketplace] || null;
@@ -236,6 +261,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const handleBlur = () => { if (listingRef.current) syncToSupabase(listingRef.current); };
 
   const handleOptimize = async () => {
+    if (!(await checkAndConsumeCredit())) return;
+
     setIsOptimizing(true);
     try {
       let opt;
@@ -272,6 +299,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const handleTranslate = async (mktCode: string) => {
+    if (!(await checkAndConsumeCredit())) return;
+
     setIsTranslating(mktCode);
     try {
       const finalData = await processTranslation(mktCode);
@@ -285,6 +314,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleTranslateAll = async () => {
     if (!localListing.optimized) { alert("Optimize base content first."); return; }
+    
+    const count = AMAZON_MARKETPLACES.length - 1; // Exclude US
+    if (!confirm(uiLang === 'zh' ? `批量生成将消耗 ${count} 点额度，确定继续吗？` : `Batch generating will consume ${count} credits. Continue?`)) return;
+    
+    // 粗略额度检查
+    const { data: { session } } = await supabase.auth.getSession();
+    const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', session?.user.id).single();
+    if (!profile || (profile.credits_total - profile.credits_used) < count) {
+      alert(uiLang === 'zh' ? "您的额度不足以完成批量生成。" : "Insufficient credits for batch operation.");
+      return;
+    }
+
     setIsTranslatingAll(true);
     try {
       let currentTranslations = { ...(localListing.translations || {}) };
@@ -295,10 +336,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           const translatedData = await processTranslation(mkt.code); 
           currentTranslations[mkt.code] = translatedData;
           
-          // 关键需求：每翻译一个站点，立即执行保存
           const updated = { ...localListing, translations: { ...currentTranslations } };
           setLocalListing(updated);
           await syncToSupabase(updated);
+          
+          // 逐个扣费
+          await supabase.from('user_profiles').update({ credits_used: profile.credits_used + 1 }).eq('id', session?.user.id);
         } catch (mktErr) { 
           console.error(`Skipping ${mkt.code}:`, mktErr); 
         }

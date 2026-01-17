@@ -9,6 +9,7 @@ import { AuthPage } from './components/AuthPage';
 import { TemplateManager } from './components/TemplateManager';
 import { CategoryManager } from './components/CategoryManager';
 import { PricingManager } from './components/PricingManager';
+import { BillingCenter } from './components/BillingCenter';
 import { AppView, Listing, UILanguage } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { AlertTriangle, Loader2 } from 'lucide-react';
@@ -42,8 +43,7 @@ const App: React.FC = () => {
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       setSession(currentSession);
       if (currentSession) {
-        // 如果已登录且在 Landing，则根据需要决定是否跳转
-        // 这里我们保持 view 状态，除非用户点击了 handleLoginClick
+        setView(AppView.DASHBOARD);
         fetchListings(currentSession.user.id);
       }
       setLoading(false);
@@ -57,11 +57,9 @@ const App: React.FC = () => {
       setSession(newSession);
       
       if (event === 'SIGNED_IN' && newSession) {
-        // 登录成功后统一进入 Dashboard
         setView(AppView.DASHBOARD);
         fetchListings(newSession.user.id);
       } else if (event === 'SIGNED_OUT') {
-        // 登出后统一回首页
         setView(AppView.LANDING);
         setListings([]);
         setSelectedListing(null);
@@ -103,14 +101,12 @@ const App: React.FC = () => {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    // 切换 Tab 时确保视图处于 DASHBOARD 模式（如果之前在详情页）
     if (view === AppView.LISTING_DETAIL) {
       setView(AppView.DASHBOARD);
     }
   };
 
   const handleLoginClick = () => {
-    // 如果已有会话，直接进后台，否则进登录页
     if (session) {
       setView(AppView.DASHBOARD);
     } else {
@@ -154,13 +150,13 @@ const App: React.FC = () => {
       case 'categories': return <CategoryManager uiLang={lang} />;
       case 'pricing': return <PricingManager uiLang={lang} />;
       case 'templates': return <TemplateManager uiLang={lang} />;
+      case 'billing': return <BillingCenter uiLang={lang} />;
       default: return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
     }
   };
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      {/* 侧边栏仅在非 Landing/Auth 视图下显示 */}
       {view !== AppView.LANDING && view !== AppView.AUTH && (
         <Sidebar 
           onLogout={handleLogout} 
@@ -174,18 +170,9 @@ const App: React.FC = () => {
       <main className={`${view !== AppView.LANDING && view !== AppView.AUTH ? 'ml-64' : 'w-full'} flex-1 flex flex-col h-screen overflow-hidden`}>
         <div className="flex-1 overflow-y-auto custom-scrollbar">
            {view === AppView.LANDING ? (
-             <LandingPage 
-               onLogin={handleLoginClick} 
-               onLogoClick={() => setView(AppView.LANDING)} 
-               uiLang={lang} 
-               onLanguageChange={handleLanguageChange} 
-             />
+             <LandingPage onLogin={handleLoginClick} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} onLanguageChange={handleLanguageChange} />
            ) : view === AppView.AUTH ? (
-             <AuthPage 
-               onBack={() => setView(AppView.LANDING)} 
-               onLogoClick={() => setView(AppView.LANDING)} 
-               uiLang={lang} 
-             />
+             <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} />
            ) : (
              renderContent()
            )}

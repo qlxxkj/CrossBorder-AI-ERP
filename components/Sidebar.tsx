@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Package, LogOut, LayoutDashboard, Settings, Layout, List, Tags, Coins } from 'lucide-react';
+import { Package, LogOut, LayoutDashboard, Settings, Layout, List, Tags, Coins, CreditCard } from 'lucide-react';
 import { UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 
@@ -20,6 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
     { id: 'categories', label: lang === 'zh' ? '分类管理' : 'Categories', icon: <Tags size={20} /> },
     { id: 'pricing', label: lang === 'zh' ? '定价中心' : 'Pricing Center', icon: <Coins size={20} /> },
     { id: 'templates', label: t('templates'), icon: <Layout size={20} /> },
+    { id: 'billing', label: lang === 'zh' ? '财务中心' : 'Billing', icon: <CreditCard size={20} /> },
     { id: 'settings', label: t('settings'), icon: <Settings size={20} /> },
   ];
 

@@ -7,6 +7,14 @@ export interface Category {
   updated_at: string;
 }
 
+export interface UserProfile {
+  id: string;
+  plan_type: 'Free' | 'Pro' | 'Elite';
+  credits_total: number;
+  credits_used: number;
+  subscription_end_at?: string;
+}
+
 export interface SourcingRecord {
   id: string;
   title: string;
@@ -80,16 +88,18 @@ export interface Listing {
   exported_marketplaces?: string[];
 }
 
+// Fix: Added missing PriceAdjustment interface to resolve import errors in Pricing and Export modules
 export interface PriceAdjustment {
   id: string;
   user_id: string;
-  marketplace: string; // 'ALL' or code
-  category_id: string; // 'ALL' or uuid
+  marketplace: string;
+  category_id: string;
   percentage: number;
   include_shipping: boolean;
   created_at: string;
 }
 
+// Fix: Added missing ExchangeRate interface to resolve import errors in Pricing and Export modules
 export interface ExchangeRate {
   id: string;
   user_id: string;
@@ -98,22 +108,23 @@ export interface ExchangeRate {
   created_at: string;
 }
 
+// Fix: Added missing FieldMapping interface to resolve import errors in Template Manager
 export interface FieldMapping {
   header: string;
   source: 'listing' | 'custom' | 'random' | 'template_default';
-  listingField?: string; 
+  listingField?: string;
   defaultValue?: string;
   templateDefault?: string;
   randomType?: 'alphanumeric' | 'ean13';
-  acceptedValues?: string[]; 
 }
 
+// Fix: Added missing ExportTemplate interface to resolve import errors in Template and Export modules
 export interface ExportTemplate {
   id: string;
+  user_id: string;
   name: string;
   headers: string[];
-  required_headers?: string[];
-  mappings?: Record<string, any>; 
+  mappings: Record<string, any>;
   marketplace: string;
   category_id?: string;
   created_at: string;
@@ -126,7 +137,8 @@ export enum AppView {
   LISTING_DETAIL = 'LISTING_DETAIL',
   TEMPLATES = 'TEMPLATES',
   CATEGORIES = 'CATEGORIES',
-  PRICING = 'PRICING'
+  PRICING = 'PRICING',
+  BILLING = 'BILLING'
 }
 
 export type UILanguage = 'en' | 'zh' | 'ja' | 'de' | 'fr' | 'es';
