@@ -61,9 +61,9 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
     setProcessingId(plan.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error(uiLang === 'zh' ? "请先登录" : "Please sign in first.");
+      if (!session) throw new Error(uiLang === 'zh' ? "请先登录后再进行充值。" : "Please sign in first.");
 
-      // 1. 创建本地待处理订单 (需要 RLS 具有 INSERT 权限)
+      // 1. 创建本地待处理订单
       const { data: order, error: orderError } = await supabase
         .from('payment_orders')
         .insert([{
@@ -76,15 +76,9 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
         }])
         .select().single();
 
-      if (orderError) {
-        if (orderError.message.includes('RLS')) {
-          throw new Error(uiLang === 'zh' ? "数据库权限不足(RLS)，请检查 payment_orders 表的策略设置。" : "Database RLS Policy error.");
-        }
-        throw orderError;
-      }
+      if (orderError) throw orderError;
 
-      // 2. 调用后端 Edge Function
-      // 如果报错 "Failed to send a request", 通常是因为项目里还没部署名为 create-payment 的函数
+      // 2. 调用后端 Edge Function 发起支付
       const { data, error: invokeError } = await supabase.functions.invoke('create-payment', {
         body: { 
           orderId: order.id, 
@@ -94,23 +88,27 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
         }
       });
 
+      // 如果调用本身报错（比如 404 函数不存在，或者网络断开）
       if (invokeError) {
-        console.error("Invoke Error:", invokeError);
+        console.error("Invoke error detail:", invokeError);
         throw new Error(uiLang === 'zh' 
-          ? "无法连接到支付接口。请确保您已在 Supabase 部署了名为 'create-payment' 的 Edge Function。" 
-          : "Could not connect to 'create-payment' function. Please ensure it is deployed.");
+          ? "无法连接到支付接口。请检查是否已在 Supabase 部署了 'create-payment' 函数。" 
+          : "Payment API unavailable. Check if 'create-payment' is deployed.");
+      }
+
+      // 如果调用成功但逻辑返回错误
+      if (data?.error) {
+        throw new Error(data.error);
       }
 
       if (data?.url) {
         window.location.href = data.url;
-      } else if (data?.error) {
-        throw new Error(data.error);
       } else {
-        throw new Error("Invalid response from payment gateway.");
+        throw new Error("Payment gateway returned no URL.");
       }
 
     } catch (err: any) {
-      console.error("Payment Initiation Error:", err);
+      console.error("Payment Process Error:", err);
       alert(err.message);
     } finally {
       setProcessingId(null);
@@ -183,23 +181,29 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
                    </div>
                 </div>
 
-                <div className="p-8 bg-slate-50 border-t border-slate-100 flex flex-col gap-3">
-                   <button 
-                    disabled={processingId !== null}
-                    onClick={() => handlePay(plan, 'alipay')}
-                    className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
-                   >
-                     {isThisPlanProcessing ? <Loader2 className="animate-spin" size={18} /> : <Wallet size={18} />}
-                     {uiLang === 'zh' ? '使用 支付宝 支付' : 'Pay with Alipay'}
-                   </button>
-                   <button 
-                    disabled={processingId !== null}
-                    onClick={() => handlePay(plan, 'paypal')}
-                    className="w-full py-4 bg-white border-2 border-slate-200 text-slate-700 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-50"
-                   >
-                     <img src="https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg" className="h-4" />
-                     {uiLang === 'zh' ? '使用 PayPal 支付' : 'Pay with PayPal'}
-                   </button>
+                <div className="p-8 bg-slate-50 border-t border-slate-100">
+                   {/* 根据语言动态显示支付方式 */}
+                   {uiLang === 'zh' ? (
+                     <button 
+                      disabled={processingId !== null}
+                      onClick={() => handlePay(plan, 'alipay')}
+                      className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
+                     >
+                       {isThisPlanProcessing ? <Loader2 className="animate-spin" size={18} /> : <Wallet size={18} />}
+                       使用 支付宝 支付
+                     </button>
+                   ) : (
+                     <button 
+                      disabled={processingId !== null}
+                      onClick={() => handlePay(plan, 'paypal')}
+                      className="w-full py-4 bg-white border-2 border-slate-200 text-slate-700 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-50"
+                     >
+                       {isThisPlanProcessing ? <Loader2 className="animate-spin" size={18} /> : (
+                         <img src="https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg" className="h-4" alt="PayPal" />
+                       )}
+                       Pay with PayPal
+                     </button>
+                   )}
                 </div>
               </div>
             );
