@@ -24,49 +24,50 @@ const App: React.FC = () => {
   const [listings, setListings] = useState<Listing[]>([]);
   const [initError, setInitError] = useState<string | null>(null);
 
+  // 语言初始化
   useEffect(() => {
     const savedLang = localStorage.getItem('app_lang') as UILanguage;
     if (savedLang) setLang(savedLang);
-    
+  }, []);
+
+  // 身份验证监听器：仅在挂载时运行一次
+  useEffect(() => {
     if (!isSupabaseConfigured()) {
       setInitError("Supabase configuration is missing.");
       setLoading(false);
       return;
     }
 
-    const initAuth = async () => {
-      try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        setSession(currentSession);
-        if (currentSession) {
-          if (view === AppView.LANDING) setView(AppView.DASHBOARD);
-          fetchListings(currentSession.user.id);
-        }
-      } catch (err: any) {
-        setInitError(err.message);
-      } finally {
-        setLoading(false);
+    // 获取初始 Session
+    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+      setSession(currentSession);
+      if (currentSession) {
+        // 如果已登录，默认视图设为 DASHBOARD，但之后允许用户切回 LANDING
+        setView(AppView.DASHBOARD);
+        fetchListings(currentSession.user.id);
       }
-    };
+      setLoading(false);
+    }).catch(err => {
+      setInitError(err.message);
+      setLoading(false);
+    });
 
-    initAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setSession(session);
-      if (session) {
-        // 只有当从外部进入或从 Auth 进入时才重置视图，防止切换程序回来导致的详情页消失
-        if (view === AppView.LANDING || view === AppView.AUTH) {
-          setView(AppView.DASHBOARD);
-        }
-        if (event === 'SIGNED_IN') fetchListings(session.user.id);
-      } else {
+    // 监听状态变化
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      setSession(newSession);
+      
+      if (event === 'SIGNED_IN' && newSession) {
+        setView(AppView.DASHBOARD);
+        fetchListings(newSession.user.id);
+      } else if (event === 'SIGNED_OUT') {
         setView(AppView.LANDING);
         setListings([]);
+        setSelectedListing(null);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [view]);
+  }, []);
 
   const handleLanguageChange = (newLang: UILanguage) => {
     setLang(newLang);
@@ -88,7 +89,7 @@ const App: React.FC = () => {
       if (error) throw error;
       setListings(data || []);
     } catch (e) {
-      console.error(e);
+      console.error("Fetch failed:", e);
     } finally {
       setIsInitialFetch(false);
     }
@@ -96,15 +97,21 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setView(AppView.LANDING);
-    setSession(null);
-    setListings([]);
+    // onAuthStateChange 会处理视图重置
   };
 
-  const handleTabChange = (tab: string) => {
+  const handleTabChange = (tab) => {
     setActiveTab(tab);
-    // 关键修复：点击其他菜单时，强制重置 View 模式，以便渲染对应 Tab 的内容
+    // 切换 Tab 时确保处于 DASHBOARD 视图模式
     setView(AppView.DASHBOARD);
+  };
+
+  const handleLoginClick = () => {
+    if (session) {
+      setView(AppView.DASHBOARD);
+    } else {
+      setView(AppView.AUTH);
+    }
   };
 
   if (loading) return (
@@ -115,7 +122,7 @@ const App: React.FC = () => {
   );
 
   const renderContent = () => {
-    // 只有当 View 是 LISTING_DETAIL 时才渲染详情页，确保 Tab 切换优先级更高
+    // 详情页视图
     if (view === AppView.LISTING_DETAIL && selectedListing) {
       return (
         <ListingDetail 
@@ -136,6 +143,7 @@ const App: React.FC = () => {
       );
     }
 
+    // 根据 activeTab 渲染对应的主功能组件
     switch (activeTab) {
       case 'dashboard': return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
       case 'listings': return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => fetchListings()} isInitialLoading={isInitialFetch} />;
@@ -148,16 +156,35 @@ const App: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-slate-50">
+      {/* 侧边栏仅在非 Landing/Auth 视图下显示 */}
       {view !== AppView.LANDING && view !== AppView.AUTH && (
-        <Sidebar onLogout={handleLogout} onLogoClick={() => setView(AppView.LANDING)} activeTab={activeTab} setActiveTab={handleTabChange} lang={lang} />
+        <Sidebar 
+          onLogout={handleLogout} 
+          onLogoClick={() => setView(AppView.LANDING)} 
+          activeTab={activeTab} 
+          setActiveTab={handleTabChange} 
+          lang={lang} 
+        />
       )}
+      
       <main className={`${view !== AppView.LANDING && view !== AppView.AUTH ? 'ml-64' : 'w-full'} flex-1 flex flex-col h-screen overflow-hidden`}>
         <div className="flex-1 overflow-y-auto custom-scrollbar">
            {view === AppView.LANDING ? (
-             <LandingPage onLogin={() => setView(session ? AppView.DASHBOARD : AppView.AUTH)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} onLanguageChange={handleLanguageChange} />
+             <LandingPage 
+               onLogin={handleLoginClick} 
+               onLogoClick={() => setView(AppView.LANDING)} 
+               uiLang={lang} 
+               onLanguageChange={handleLanguageChange} 
+             />
            ) : view === AppView.AUTH ? (
-             <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} />
-           ) : renderContent()}
+             <AuthPage 
+               onBack={() => setView(AppView.LANDING)} 
+               onLogoClick={() => setView(AppView.LANDING)} 
+               uiLang={lang} 
+             />
+           ) : (
+             renderContent()
+           )}
         </div>
       </main>
     </div>
