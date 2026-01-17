@@ -33,7 +33,7 @@ const PLANS = [
 export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState<string | null>(null); // 修改为存储 Plan ID
+  const [processingId, setProcessingId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [orders, setOrders] = useState<any[]>([]);
 
@@ -52,13 +52,13 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
     if (profileData) setProfile(profileData);
 
     const { data: orderData } = await supabase.from('payment_orders').select('*').order('created_at', { ascending: false }).limit(10);
-    if (orderData) setOrders(orderData);
+    if (orderData) setOrders(orderData || []);
     
     setLoading(false);
   };
 
   const handlePay = async (plan: typeof PLANS[0], method: 'alipay' | 'paypal') => {
-    setProcessingId(plan.id); // 锁定当前套餐按钮
+    setProcessingId(plan.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error(uiLang === 'zh' ? "请先登录" : "Please sign in first.");
@@ -77,12 +77,15 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
         .select().single();
 
       if (orderError) {
-        console.error("Database Insert Error:", orderError);
-        throw new Error(orderError.message);
+        if (orderError.message.includes('RLS')) {
+          throw new Error(uiLang === 'zh' ? "数据库权限不足(RLS)，请检查 payment_orders 表的策略设置。" : "Database RLS Policy error.");
+        }
+        throw orderError;
       }
 
-      // 2. 调用后端 Edge Function 获取支付链接
-      const { data, error } = await supabase.functions.invoke('create-payment', {
+      // 2. 调用后端 Edge Function
+      // 如果报错 "Failed to send a request", 通常是因为项目里还没部署名为 create-payment 的函数
+      const { data, error: invokeError } = await supabase.functions.invoke('create-payment', {
         body: { 
           orderId: order.id, 
           amount: plan.price, 
@@ -91,21 +94,26 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
         }
       });
 
-      if (error) throw error;
+      if (invokeError) {
+        console.error("Invoke Error:", invokeError);
+        throw new Error(uiLang === 'zh' 
+          ? "无法连接到支付接口。请确保您已在 Supabase 部署了名为 'create-payment' 的 Edge Function。" 
+          : "Could not connect to 'create-payment' function. Please ensure it is deployed.");
+      }
 
       if (data?.url) {
         window.location.href = data.url;
+      } else if (data?.error) {
+        throw new Error(data.error);
       } else {
-        // 如果后端还没部署好，此处模拟一下逻辑
-        alert(uiLang === 'zh' 
-          ? `订单 #${order.id.slice(0,8)} 已创建。后端支付网关 create-payment 尚未响应有效 URL，请检查 Edge Function 部署。` 
-          : `Order #${order.id.slice(0,8)} created. Gateway not responding with URL.`);
+        throw new Error("Invalid response from payment gateway.");
       }
 
     } catch (err: any) {
-      alert("Payment Initiation Failed: " + err.message);
+      console.error("Payment Initiation Error:", err);
+      alert(err.message);
     } finally {
-      setProcessingId(null); // 释放锁定
+      setProcessingId(null);
     }
   };
 
@@ -204,38 +212,45 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
             <button onClick={() => setShowHistory(false)} className="text-sm font-black text-indigo-600 uppercase hover:underline">Back to Plans</button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  <th className="p-6">Order ID</th>
-                  <th className="p-6">Plan</th>
-                  <th className="p-6">Amount</th>
-                  <th className="p-6">Method</th>
-                  <th className="p-6">Status</th>
-                  <th className="p-6">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {orders.map(order => (
-                  <tr key={order.id} className="text-sm font-bold text-slate-600">
-                    <td className="p-6 font-mono text-[10px] text-slate-400">#{order.id.slice(0,8)}</td>
-                    <td className="p-6"><span className="px-2 py-1 bg-slate-100 rounded-lg text-[10px]">{order.plan_id}</span></td>
-                    <td className="p-6 text-slate-900">${order.amount}</td>
-                    <td className="p-6 uppercase text-[10px]">{order.provider}</td>
-                    <td className="p-6">
-                      <span className={`px-2 py-1 rounded-lg text-[10px] uppercase ${
-                        order.status === 'completed' ? 'bg-green-100 text-green-700' : 
-                        order.status === 'pending' ? 'bg-amber-100 text-amber-700 animate-pulse' : 
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {order.status}
-                      </span>
-                    </td>
-                    <td className="p-6 text-[10px] text-slate-400">{new Date(order.created_at).toLocaleString()}</td>
+            {orders.length === 0 ? (
+              <div className="p-20 text-center text-slate-300 flex flex-col items-center gap-4">
+                <Clock size={48} className="opacity-20" />
+                <p className="font-black uppercase tracking-widest text-xs">No transaction history found</p>
+              </div>
+            ) : (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <th className="p-6">Order ID</th>
+                    <th className="p-6">Plan</th>
+                    <th className="p-6">Amount</th>
+                    <th className="p-6">Method</th>
+                    <th className="p-6">Status</th>
+                    <th className="p-6">Date</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {orders.map(order => (
+                    <tr key={order.id} className="text-sm font-bold text-slate-600">
+                      <td className="p-6 font-mono text-[10px] text-slate-400">#{order.id.slice(0,8)}</td>
+                      <td className="p-6"><span className="px-2 py-1 bg-slate-100 rounded-lg text-[10px]">{order.plan_id}</span></td>
+                      <td className="p-6 text-slate-900">${order.amount}</td>
+                      <td className="p-6 uppercase text-[10px]">{order.provider}</td>
+                      <td className="p-6">
+                        <span className={`px-2 py-1 rounded-lg text-[10px] uppercase ${
+                          order.status === 'completed' ? 'bg-green-100 text-green-700' : 
+                          order.status === 'pending' ? 'bg-amber-100 text-amber-700 animate-pulse' : 
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {order.status}
+                        </span>
+                      </td>
+                      <td className="p-6 text-[10px] text-slate-400">{new Date(order.created_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
