@@ -60,6 +60,8 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
   const handlePay = async (plan: typeof PLANS[0], method: 'alipay' | 'paypal') => {
     setProcessingId(plan.id);
     try {
+      if (!isSupabaseConfigured()) throw new Error("Supabase is not configured properly in .env");
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error(uiLang === 'zh' ? "请先登录" : "Please sign in first.");
 
@@ -76,9 +78,13 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
         }])
         .select().single();
 
-      if (orderError) throw orderError;
+      if (orderError) {
+        console.error("Database Error:", orderError);
+        throw new Error(uiLang === 'zh' ? `订单创建失败: ${orderError.message}` : `Order creation failed: ${orderError.message}`);
+      }
 
       // 2. 调用支付接口
+      // 这里的 'create-payment' 必须完全匹配 Supabase Edge Functions 中的函数名
       const { data, error: invokeError } = await supabase.functions.invoke('create-payment', {
         body: { 
           orderId: order.id, 
@@ -88,15 +94,22 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
         }
       });
 
-      // 深度调试逻辑
+      // 核心调试提示
       if (invokeError) {
-        console.error("DEBUG - Full Invoke Error:", invokeError);
-        // 如果是 404，说明函数名写错了或没部署
-        const is404 = invokeError.message?.includes('404') || JSON.stringify(invokeError).includes('404');
-        const errorMsg = uiLang === 'zh' 
-          ? `支付启动失败。\n原因: ${is404 ? '找不到 create-payment 函数，请确认名称是否拼写正确并已在 Supabase 部署。' : invokeError.message}`
-          : `Failed to invoke payment function. Error: ${invokeError.message}`;
-        throw new Error(errorMsg);
+        console.error("DEBUG - Invoke Error:", invokeError);
+        const isNotFound = JSON.stringify(invokeError).includes('404') || invokeError.message?.includes('404');
+        
+        let errorHint = "";
+        if (isNotFound) {
+          errorHint = uiLang === 'zh' 
+            ? "【重要】未找到 'create-payment' 函数。请确保您在 Supabase 控制面板中新建了一个名为 'create-payment' 的 Edge Function 并已部署代码。"
+            : "【CRITICAL】'create-payment' function not found. Please ensure the function is created and deployed in Supabase.";
+        } else {
+          errorHint = uiLang === 'zh'
+            ? `无法连接到支付接口。请检查您的网络连接或 Supabase 服务状态。\n详情: ${invokeError.message}`
+            : `Could not connect to payment gateway. Detail: ${invokeError.message}`;
+        }
+        throw new Error(errorHint);
       }
 
       if (data?.error) {
@@ -111,6 +124,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
 
     } catch (err: any) {
       console.error("Final Catch Error:", err);
+      // 使用 alert 以确保用户能看到具体原因
       alert(err.message);
     } finally {
       setProcessingId(null);
@@ -184,6 +198,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
                 </div>
 
                 <div className="p-8 bg-slate-50 border-t border-slate-100">
+                   {/* 根据语言切换支付方式 */}
                    {uiLang === 'zh' ? (
                      <button 
                       disabled={processingId !== null}
