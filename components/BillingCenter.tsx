@@ -39,6 +39,9 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
 
   useEffect(() => {
     fetchData();
+    // 设置一个轮询，如果用户支付完回来，自动刷新数据
+    const interval = setInterval(fetchData, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchData = async () => {
@@ -46,22 +49,10 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
-    // 获取 Profile
-    const { data: profileData } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .single();
-    
+    const { data: profileData } = await supabase.from('user_profiles').select('*').eq('id', session.user.id).single();
     if (profileData) setProfile(profileData);
 
-    // 获取历史订单
-    const { data: orderData } = await supabase
-      .from('payment_orders')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(10);
-    
+    const { data: orderData } = await supabase.from('payment_orders').select('*').order('created_at', { ascending: false }).limit(10);
     if (orderData) setOrders(orderData);
     
     setLoading(false);
@@ -73,7 +64,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Please sign in first.");
 
-      // 1. 在本地数据库创建 Pending 订单
+      // 1. 创建本地待处理订单
       const { data: order, error: orderError } = await supabase
         .from('payment_orders')
         .insert([{
@@ -81,35 +72,39 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
           amount: plan.price,
           plan_id: plan.id,
           provider: method,
-          currency: 'USD',
+          currency: 'CNY', // 支付宝通常使用人民币
           status: 'pending'
         }])
-        .select()
-        .single();
+        .select().single();
 
       if (orderError) throw orderError;
 
-      // 2. 调用后端/第三方支付
-      // 这里应该是跳转到你的支付处理页面或 Edge Function 
-      // 演示模拟：
-      addLog(`Created Order #${order.id.slice(0,8)}`, 'info');
-      
-      setTimeout(() => {
-        alert(uiLang === 'zh' 
-          ? `[演示模式] 订单已创建。在生产环境下，现在将跳转到 ${method} 支付页面。支付成功后，您的额度将自动更新。` 
-          : `[Demo Mode] Order created. In production, you would be redirected to ${method}. Credits will update after payment.`);
-        setIsProcessing(false);
-        fetchData(); // 刷新列表
-      }, 1000);
+      // 2. 调用后端 Edge Function 获取支付链接
+      // 注意：这里需要你再创建一个名为 'create-payment' 的 Edge Function
+      // 或者在此处直接调用支付宝 SDK（不安全，建议走后端）
+      // 下面是演示如何调用后端的逻辑
+      const { data, error } = await supabase.functions.invoke('create-payment', {
+        body: { 
+          orderId: order.id, 
+          amount: plan.price, 
+          planName: plan.name,
+          method: method 
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.url) {
+        // 跳转到支付页面
+        window.location.href = data.url;
+      } else {
+        throw new Error("Failed to generate payment URL");
+      }
 
     } catch (err: any) {
       alert("Payment Initiation Failed: " + err.message);
       setIsProcessing(false);
     }
-  };
-
-  const addLog = (msg: string, type: string) => {
-    console.log(`[Billing] ${type}: ${msg}`);
   };
 
   if (loading) return (
@@ -120,6 +115,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-12 animate-in fade-in duration-500 pb-24">
+      {/* 保持之前的 UI 结构不变，只需确保按钮绑定 handlePay */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
           <div className="w-16 h-16 bg-slate-900 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl">
@@ -234,9 +230,6 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
                     <td className="p-6 text-[10px] text-slate-400">{new Date(order.created_at).toLocaleString()}</td>
                   </tr>
                 ))}
-                {orders.length === 0 && (
-                  <tr><td colSpan={6} className="p-20 text-center text-slate-300 italic">No transactions found</td></tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -256,10 +249,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
                 : 'All transactions are processed via secure gateways. Credits are typically added within 30 seconds of successful payment.'}
             </p>
          </div>
-         <button 
-          onClick={() => setShowHistory(!showHistory)}
-          className="px-8 py-4 bg-white/10 hover:bg-white/20 border border-white/5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2"
-         >
+         <button onClick={() => setShowHistory(!showHistory)} className="px-8 py-4 bg-white/10 hover:bg-white/20 border border-white/5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2">
            <History size={16} /> {showHistory ? 'View Plans' : 'History'}
          </button>
       </div>
