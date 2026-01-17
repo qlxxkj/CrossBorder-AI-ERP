@@ -61,9 +61,9 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
     setProcessingId(plan.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error(uiLang === 'zh' ? "请先登录后再进行充值。" : "Please sign in first.");
+      if (!session) throw new Error(uiLang === 'zh' ? "请先登录" : "Please sign in first.");
 
-      // 1. 创建本地待处理订单
+      // 1. 创建订单记录
       const { data: order, error: orderError } = await supabase
         .from('payment_orders')
         .insert([{
@@ -78,7 +78,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
 
       if (orderError) throw orderError;
 
-      // 2. 调用后端 Edge Function 发起支付
+      // 2. 调用支付接口
       const { data, error: invokeError } = await supabase.functions.invoke('create-payment', {
         body: { 
           orderId: order.id, 
@@ -88,27 +88,29 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
         }
       });
 
-      // 如果调用本身报错（比如 404 函数不存在，或者网络断开）
+      // 深度调试逻辑
       if (invokeError) {
-        console.error("Invoke error detail:", invokeError);
-        throw new Error(uiLang === 'zh' 
-          ? "无法连接到支付接口。请检查是否已在 Supabase 部署了 'create-payment' 函数。" 
-          : "Payment API unavailable. Check if 'create-payment' is deployed.");
+        console.error("DEBUG - Full Invoke Error:", invokeError);
+        // 如果是 404，说明函数名写错了或没部署
+        const is404 = invokeError.message?.includes('404') || JSON.stringify(invokeError).includes('404');
+        const errorMsg = uiLang === 'zh' 
+          ? `支付启动失败。\n原因: ${is404 ? '找不到 create-payment 函数，请确认名称是否拼写正确并已在 Supabase 部署。' : invokeError.message}`
+          : `Failed to invoke payment function. Error: ${invokeError.message}`;
+        throw new Error(errorMsg);
       }
 
-      // 如果调用成功但逻辑返回错误
       if (data?.error) {
-        throw new Error(data.error);
+        throw new Error(`Business Error: ${data.error}`);
       }
 
       if (data?.url) {
         window.location.href = data.url;
       } else {
-        throw new Error("Payment gateway returned no URL.");
+        throw new Error("Gateway did not return a valid payment URL.");
       }
 
     } catch (err: any) {
-      console.error("Payment Process Error:", err);
+      console.error("Final Catch Error:", err);
       alert(err.message);
     } finally {
       setProcessingId(null);
@@ -182,7 +184,6 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
                 </div>
 
                 <div className="p-8 bg-slate-50 border-t border-slate-100">
-                   {/* 根据语言动态显示支付方式 */}
                    {uiLang === 'zh' ? (
                      <button 
                       disabled={processingId !== null}
