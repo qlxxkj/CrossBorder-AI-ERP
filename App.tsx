@@ -30,7 +30,7 @@ const App: React.FC = () => {
     if (savedLang) setLang(savedLang);
   }, []);
 
-  // 身份验证监听器：仅在挂载时运行一次
+  // 身份验证监听器
   useEffect(() => {
     if (!isSupabaseConfigured()) {
       setInitError("Supabase configuration is missing.");
@@ -42,13 +42,13 @@ const App: React.FC = () => {
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       setSession(currentSession);
       if (currentSession) {
-        // 如果已登录，默认视图设为 DASHBOARD，但之后允许用户切回 LANDING
-        setView(AppView.DASHBOARD);
+        // 如果已登录且在 Landing，则根据需要决定是否跳转
+        // 这里我们保持 view 状态，除非用户点击了 handleLoginClick
         fetchListings(currentSession.user.id);
       }
       setLoading(false);
     }).catch(err => {
-      setInitError(err.message);
+      console.error("Auth init error:", err);
       setLoading(false);
     });
 
@@ -57,9 +57,11 @@ const App: React.FC = () => {
       setSession(newSession);
       
       if (event === 'SIGNED_IN' && newSession) {
+        // 登录成功后统一进入 Dashboard
         setView(AppView.DASHBOARD);
         fetchListings(newSession.user.id);
       } else if (event === 'SIGNED_OUT') {
+        // 登出后统一回首页
         setView(AppView.LANDING);
         setListings([]);
         setSelectedListing(null);
@@ -97,16 +99,18 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    // onAuthStateChange 会处理视图重置
   };
 
-  const handleTabChange = (tab) => {
+  const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    // 切换 Tab 时确保处于 DASHBOARD 视图模式
-    setView(AppView.DASHBOARD);
+    // 切换 Tab 时确保视图处于 DASHBOARD 模式（如果之前在详情页）
+    if (view === AppView.LISTING_DETAIL) {
+      setView(AppView.DASHBOARD);
+    }
   };
 
   const handleLoginClick = () => {
+    // 如果已有会话，直接进后台，否则进登录页
     if (session) {
       setView(AppView.DASHBOARD);
     } else {
@@ -116,13 +120,14 @@ const App: React.FC = () => {
 
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white">
-      <Loader2 className="animate-spin text-indigo-600 mb-4" size={32} />
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Establishing Connection</p>
+      <div className="relative">
+        <div className="w-16 h-16 border-4 border-indigo-600/20 border-t-indigo-600 rounded-full animate-spin"></div>
+      </div>
+      <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Initializing AMZBot</p>
     </div>
   );
 
   const renderContent = () => {
-    // 详情页视图
     if (view === AppView.LISTING_DETAIL && selectedListing) {
       return (
         <ListingDetail 
@@ -143,7 +148,6 @@ const App: React.FC = () => {
       );
     }
 
-    // 根据 activeTab 渲染对应的主功能组件
     switch (activeTab) {
       case 'dashboard': return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
       case 'listings': return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => fetchListings()} isInitialLoading={isInitialFetch} />;

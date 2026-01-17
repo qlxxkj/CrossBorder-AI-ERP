@@ -8,6 +8,7 @@ import {
 import { Listing, OptimizedData, CleanedData, UILanguage, PriceAdjustment, ExchangeRate, SourcingRecord } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
 import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
+import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
 import { ImageEditor } from './ImageEditor';
 import { SourcingModal } from './SourcingModal';
 import { SourcingFormModal } from './SourcingFormModal';
@@ -238,8 +239,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsOptimizing(true);
     try {
       let opt;
-      if (aiProvider === 'openai' || aiProvider === 'deepseek') {
+      if (aiProvider === 'openai') {
         opt = await optimizeListingWithOpenAI(localListing.cleaned!);
+      } else if (aiProvider === 'deepseek') {
+        opt = await optimizeListingWithDeepSeek(localListing.cleaned!);
       } else {
         opt = await optimizeListingWithAI(localListing.cleaned!);
       }
@@ -256,8 +259,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const targetLang = mktCode === 'CA' ? 'English' : (mkt?.name || 'English');
     
     let aiTextData;
-    if (aiProvider === 'openai' || aiProvider === 'deepseek') {
+    if (aiProvider === 'openai') {
       aiTextData = await translateListingWithOpenAI(localListing.optimized, targetLang);
+    } else if (aiProvider === 'deepseek') {
+      aiTextData = await translateListingWithDeepSeek(localListing.optimized, targetLang);
     } else {
       aiTextData = await translateListingWithAI(localListing.optimized, targetLang);
     }
