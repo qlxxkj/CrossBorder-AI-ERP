@@ -33,14 +33,13 @@ const PLANS = [
 export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingId, setProcessingId] = useState<string | null>(null); // 修改为存储 Plan ID
   const [showHistory, setShowHistory] = useState(false);
   const [orders, setOrders] = useState<any[]>([]);
 
   useEffect(() => {
     fetchData();
-    // 设置一个轮询，如果用户支付完回来，自动刷新数据
-    const interval = setInterval(fetchData, 10000);
+    const interval = setInterval(fetchData, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -59,12 +58,12 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
   };
 
   const handlePay = async (plan: typeof PLANS[0], method: 'alipay' | 'paypal') => {
-    setIsProcessing(true);
+    setProcessingId(plan.id); // 锁定当前套餐按钮
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Please sign in first.");
+      if (!session) throw new Error(uiLang === 'zh' ? "请先登录" : "Please sign in first.");
 
-      // 1. 创建本地待处理订单
+      // 1. 创建本地待处理订单 (需要 RLS 具有 INSERT 权限)
       const { data: order, error: orderError } = await supabase
         .from('payment_orders')
         .insert([{
@@ -72,17 +71,17 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
           amount: plan.price,
           plan_id: plan.id,
           provider: method,
-          currency: 'CNY', // 支付宝通常使用人民币
+          currency: 'CNY',
           status: 'pending'
         }])
         .select().single();
 
-      if (orderError) throw orderError;
+      if (orderError) {
+        console.error("Database Insert Error:", orderError);
+        throw new Error(orderError.message);
+      }
 
       // 2. 调用后端 Edge Function 获取支付链接
-      // 注意：这里需要你再创建一个名为 'create-payment' 的 Edge Function
-      // 或者在此处直接调用支付宝 SDK（不安全，建议走后端）
-      // 下面是演示如何调用后端的逻辑
       const { data, error } = await supabase.functions.invoke('create-payment', {
         body: { 
           orderId: order.id, 
@@ -95,15 +94,18 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
       if (error) throw error;
 
       if (data?.url) {
-        // 跳转到支付页面
         window.location.href = data.url;
       } else {
-        throw new Error("Failed to generate payment URL");
+        // 如果后端还没部署好，此处模拟一下逻辑
+        alert(uiLang === 'zh' 
+          ? `订单 #${order.id.slice(0,8)} 已创建。后端支付网关 create-payment 尚未响应有效 URL，请检查 Edge Function 部署。` 
+          : `Order #${order.id.slice(0,8)} created. Gateway not responding with URL.`);
       }
 
     } catch (err: any) {
       alert("Payment Initiation Failed: " + err.message);
-      setIsProcessing(false);
+    } finally {
+      setProcessingId(null); // 释放锁定
     }
   };
 
@@ -115,7 +117,6 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-12 animate-in fade-in duration-500 pb-24">
-      {/* 保持之前的 UI 结构不变，只需确保按钮绑定 handlePay */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
           <div className="w-16 h-16 bg-slate-900 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl">
@@ -146,52 +147,55 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
 
       {!showHistory ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {PLANS.map(plan => (
-            <div key={plan.id} className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col group hover:border-indigo-200 transition-all">
-              <div className="p-10 space-y-6 flex-1">
-                 <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="text-2xl font-black text-slate-900">{plan.name}</h3>
-                      <p className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">Best for Power Sellers</p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-4xl font-black text-slate-900">${plan.price}</span>
-                      <span className="text-sm text-slate-400 font-bold ml-1">/mo</span>
-                    </div>
-                 </div>
-
-                 <div className="space-y-4">
-                    {plan.features.map((f, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <div className="w-5 h-5 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
-                          <Check size={12} strokeWidth={3} />
-                        </div>
-                        <span className="text-sm font-bold text-slate-600">{f}</span>
+          {PLANS.map(plan => {
+            const isThisPlanProcessing = processingId === plan.id;
+            return (
+              <div key={plan.id} className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col group hover:border-indigo-200 transition-all">
+                <div className="p-10 space-y-6 flex-1">
+                   <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-2xl font-black text-slate-900">{plan.name}</h3>
+                        <p className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">Best for Power Sellers</p>
                       </div>
-                    ))}
-                 </div>
-              </div>
+                      <div className="text-right">
+                        <span className="text-4xl font-black text-slate-900">${plan.price}</span>
+                        <span className="text-sm text-slate-400 font-bold ml-1">/mo</span>
+                      </div>
+                   </div>
 
-              <div className="p-8 bg-slate-50 border-t border-slate-100 flex flex-col gap-3">
-                 <button 
-                  disabled={isProcessing}
-                  onClick={() => handlePay(plan, 'alipay')}
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
-                 >
-                   {isProcessing ? <Loader2 className="animate-spin" size={18} /> : <Wallet size={18} />}
-                   {uiLang === 'zh' ? '使用 支付宝 支付' : 'Pay with Alipay'}
-                 </button>
-                 <button 
-                  disabled={isProcessing}
-                  onClick={() => handlePay(plan, 'paypal')}
-                  className="w-full py-4 bg-white border-2 border-slate-200 text-slate-700 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-50"
-                 >
-                   <img src="https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg" className="h-4" />
-                   {uiLang === 'zh' ? '使用 PayPal 支付' : 'Pay with PayPal'}
-                 </button>
+                   <div className="space-y-4">
+                      {plan.features.map((f, i) => (
+                        <div key={i} className="flex items-center gap-3">
+                          <div className="w-5 h-5 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
+                            <Check size={12} strokeWidth={3} />
+                          </div>
+                          <span className="text-sm font-bold text-slate-600">{f}</span>
+                        </div>
+                      ))}
+                   </div>
+                </div>
+
+                <div className="p-8 bg-slate-50 border-t border-slate-100 flex flex-col gap-3">
+                   <button 
+                    disabled={processingId !== null}
+                    onClick={() => handlePay(plan, 'alipay')}
+                    className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
+                   >
+                     {isThisPlanProcessing ? <Loader2 className="animate-spin" size={18} /> : <Wallet size={18} />}
+                     {uiLang === 'zh' ? '使用 支付宝 支付' : 'Pay with Alipay'}
+                   </button>
+                   <button 
+                    disabled={processingId !== null}
+                    onClick={() => handlePay(plan, 'paypal')}
+                    className="w-full py-4 bg-white border-2 border-slate-200 text-slate-700 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-50"
+                   >
+                     <img src="https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg" className="h-4" />
+                     {uiLang === 'zh' ? '使用 PayPal 支付' : 'Pay with PayPal'}
+                   </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden animate-in slide-in-from-bottom-4">
