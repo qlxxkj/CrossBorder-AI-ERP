@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Search, CheckCircle, Trash2, Download, Package, 
   Loader2, Globe, ChevronLeft, ChevronRight, 
-  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags
+  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink
 } from 'lucide-react';
 import { Listing, UILanguage, Category } from '../types';
 import { useTranslation } from '../lib/i18n';
@@ -136,10 +136,49 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     }
   };
 
+  const getAmazonUrl = (asin: string, marketplace: string) => {
+    const mkt = AMAZON_MARKETPLACES.find(m => m.code === marketplace);
+    const domain = mkt?.domain || 'amazon.com';
+    return `https://${domain}/dp/${asin}`;
+  };
+
+  const renderStatusIcons = (listing: Listing) => {
+    const translatedCodes = listing.translations ? Object.keys(listing.translations) : [];
+    const exportedCodes = listing.exported_marketplaces || [];
+    
+    return (
+      <div className="flex flex-col gap-2">
+        {translatedCodes.length > 0 && (
+          <div className="flex items-center gap-1">
+            <Languages size={10} className="text-purple-400" />
+            <div className="flex -space-x-1 overflow-hidden">
+              {translatedCodes.slice(0, 5).map(code => {
+                const flag = AMAZON_MARKETPLACES.find(m => m.code === code)?.flag || '🏳️';
+                return <span key={code} className="text-xs grayscale-[0.2]" title={`Translated to ${code}`}>{flag}</span>;
+              })}
+              {translatedCodes.length > 5 && <span className="text-[8px] font-black text-slate-300 pl-1">+{translatedCodes.length - 5}</span>}
+            </div>
+          </div>
+        )}
+        {exportedCodes.length > 0 && (
+          <div className="flex items-center gap-1">
+            <Download size={10} className="text-emerald-400" />
+            <div className="flex -space-x-1 overflow-hidden">
+              {exportedCodes.slice(0, 5).map(code => {
+                const flag = AMAZON_MARKETPLACES.find(m => m.code === code)?.flag || '🏳️';
+                return <span key={code} className="text-xs brightness-95" title={`Exported to ${code}`}>{flag}</span>;
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
       {isManualModalOpen && <ManualListingModal uiLang={lang} onClose={() => setIsManualModalOpen(false)} onSave={() => { setIsManualModalOpen(false); refreshListings(); }} />}
-      {isExportModalOpen && <ExportModal uiLang={lang} selectedListings={listings.filter(l => selectedIds.has(l.id))} onClose={() => setIsExportModalOpen(false)} />}
+      {isExportModalOpen && <ExportModal uiLang={lang} selectedListings={listings.filter(l => selectedIds.has(l.id))} onClose={() => setIsExportModalOpen(false)} onExportSuccess={refreshListings} />}
       
       <div className="flex flex-col gap-2">
         <h2 className="text-4xl font-black text-slate-900 tracking-tighter">{t('listings')}</h2>
@@ -213,7 +252,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                   />
                 </th>
                 <th className="p-8">Image</th>
-                <th className="p-8">Site</th>
+                <th className="p-8">Distribution</th>
                 <th className="p-8">Category</th>
                 <th className="p-8">ASIN</th>
                 <th className="p-8 w-1/4">Title</th>
@@ -237,16 +276,26 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                         </div>
                       </td>
                       <td className="p-8">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-black uppercase border border-slate-200">
-                          {mkt?.flag} {listing.marketplace}
-                        </span>
+                        {renderStatusIcons(listing)}
                       </td>
                       <td className="p-8">
                         <span className={`text-[10px] font-black uppercase ${listing.category_id ? 'text-indigo-600' : 'text-slate-300 italic'}`}>
                           {catName}
                         </span>
                       </td>
-                      <td className="p-8"><span className="font-mono text-[10px] font-black text-slate-400">{listing.asin}</span></td>
+                      <td className="p-8">
+                        <a 
+                          href={getAmazonUrl(listing.asin, listing.marketplace)} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center gap-1.5 group/link"
+                        >
+                          <span className="font-mono text-[10px] font-black text-slate-400 group-hover/link:text-blue-600 transition-colors">{listing.asin}</span>
+                          <ExternalLink size={10} className="text-slate-200 group-hover/link:text-blue-400 transition-colors" />
+                        </a>
+                        <span className="block mt-1 text-[8px] font-black text-slate-300 uppercase">{mkt?.flag} {listing.marketplace}</span>
+                      </td>
                       <td className="p-8"><p className="text-xs font-bold text-slate-800 line-clamp-2 leading-relaxed">{title}</p></td>
                       <td className="p-8">
                         {listing.status === 'optimized' ? (

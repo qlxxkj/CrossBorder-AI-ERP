@@ -52,6 +52,8 @@ interface ListingDetailProps {
   uiLang: UILanguage;
 }
 
+type AIProvider = 'gemini' | 'openai' | 'deepseek';
+
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -71,7 +73,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [hoveredImageUrl, setHoveredImageUrl] = useState<string | null>(null);
   
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
+  const [aiProvider, setAiProvider] = useState<AIProvider>(() => {
+    return (localStorage.getItem('app_ai_provider') as AIProvider) || 'gemini';
+  });
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [selectedImage, setSelectedImage] = useState<string>(listing.cleaned?.main_image || '');
   const [activeMarketplace, setActiveMarketplace] = useState<string>('US'); 
@@ -80,8 +84,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [editorLeft, setEditorLeft] = useState(0);
 
   useEffect(() => {
+    localStorage.setItem('app_ai_provider', aiProvider);
+  }, [aiProvider]);
+
+  useEffect(() => {
     fetchPricingData();
-    // 初始延迟确保 DOM 渲染完成
     const timer = setTimeout(updateEditorPosition, 300);
     window.addEventListener('resize', updateEditorPosition);
     return () => {
@@ -230,7 +237,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     try {
       let opt = aiProvider === 'gemini' 
         ? await optimizeListingWithAI(localListing.cleaned!)
-        : await optimizeListingWithOpenAI(localListing.cleaned!);
+        : await optimizeListingWithOpenAI(localListing.cleaned!); // OpenAI logic shared with DeepSeek if API compatible
       const updated = { ...localListing, status: 'optimized' as const, optimized: opt };
       setLocalListing(updated);
       await syncToSupabase(updated);
@@ -265,19 +272,28 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!localListing.optimized) { alert("Optimize base content first."); return; }
     setIsTranslatingAll(true);
     try {
-      const newTranslations = { ...(localListing.translations || {}) };
+      let currentTranslations = { ...(localListing.translations || {}) };
       for (const mkt of AMAZON_MARKETPLACES) {
         if (mkt.code === 'US') continue;
         setIsTranslating(mkt.code);
-        try { newTranslations[mkt.code] = await processTranslation(mkt.code); } 
-        catch (mktErr) { console.error(`Skipping ${mkt.code}:`, mktErr); }
+        try { 
+          const translatedData = await processTranslation(mkt.code); 
+          currentTranslations[mkt.code] = translatedData;
+          
+          // 更新本地状态并立即保存到服务器
+          const updated = { ...localListing, translations: { ...currentTranslations } };
+          setLocalListing(updated);
+          await syncToSupabase(updated);
+        } catch (mktErr) { 
+          console.error(`Skipping ${mkt.code}:`, mktErr); 
+        }
       }
-      const updated = { ...localListing, translations: newTranslations };
-      setLocalListing(updated);
-      await syncToSupabase(updated);
       setIsTranslating(null);
-    } catch (e: any) { alert("Batch translation error: " + e.message); } 
-    finally { setIsTranslatingAll(false); }
+    } catch (e: any) { 
+      alert("Batch translation error: " + e.message); 
+    } finally { 
+      setIsTranslatingAll(false); 
+    }
   };
 
   const handleStandardizeAllImages = async () => {
@@ -480,7 +496,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       {isSourcingModalOpen && <SourcingModal productImage={localListing.cleaned.main_image} onClose={() => setIsSourcingModalOpen(false)} onAddLink={handleAddSourcingRecord} />}
       {isSourcingFormOpen && <SourcingFormModal initialData={editingSourcingRecord} onClose={() => setIsSourcingFormOpen(false)} onSave={handleSaveManualSourcing} />}
       
-      {/* 全屏模态框预览 (Click Triggered) */}
       {previewImageUrl && (
         <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-10 animate-in fade-in duration-200" onClick={() => setPreviewImageUrl(null)}>
           <button className="absolute top-8 right-8 p-3 text-white/50 hover:text-white transition-colors"><X size={32} /></button>
@@ -488,7 +503,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
       )}
 
-      {/* 超大悬浮预览 (Ultra-Lens Mode - Hover Triggered) */}
       {hoveredImageUrl && !previewImageUrl && !isEditorOpen && (
         <div 
           className="fixed top-0 bottom-0 right-0 z-[80] bg-white/20 backdrop-blur-3xl border-l border-white/10 shadow-2xl flex items-center justify-center p-12 pointer-events-none animate-in fade-in slide-in-from-right-8 duration-300 overflow-hidden"
@@ -501,7 +515,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               className="max-w-full max-h-full object-contain drop-shadow-[0_50px_80px_rgba(0,0,0,0.4)] rounded-2xl relative z-10 scale-105" 
               alt="Ultra-Lens Preview" 
             />
-            {/* 视觉刻度装饰 */}
             <div className="absolute top-12 left-12 w-16 h-16 border-t-4 border-l-4 border-indigo-500/40 rounded-tl-3xl"></div>
             <div className="absolute bottom-12 right-12 w-16 h-16 border-b-4 border-r-4 border-purple-500/40 rounded-br-3xl"></div>
             <div className="absolute top-12 right-12 flex flex-col items-end gap-1 opacity-40">
@@ -525,6 +538,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button onClick={() => setAiProvider('gemini')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase transition-all ${aiProvider === 'gemini' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Gemini</button>
             <button onClick={() => setAiProvider('openai')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase transition-all ${aiProvider === 'openai' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>GPT-4o</button>
+            <button onClick={() => setAiProvider('deepseek')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase transition-all ${aiProvider === 'deepseek' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400'}`}>DeepSeek</button>
           </div>
           <button onClick={handleOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition-all uppercase">{isOptimizing ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />} AI Optimize</button>
           <button onClick={handleSaveAndNext} disabled={isSaving} className="flex items-center gap-2 px-8 py-2.5 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg active:scale-95 transition-all uppercase">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} {t('saveAndNext')}</button>

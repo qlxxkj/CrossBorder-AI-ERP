@@ -11,6 +11,7 @@ interface ExportModalProps {
   uiLang: UILanguage;
   selectedListings: Listing[];
   onClose: () => void;
+  onExportSuccess?: () => void;
 }
 
 function safeDecode(base64: string): Uint8Array {
@@ -64,7 +65,7 @@ const generateRandomValue = (type?: 'alphanumeric' | 'ean13'): string => {
   }
 };
 
-export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListings, onClose }) => {
+export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListings, onClose, onExportSuccess }) => {
   const t = useTranslation(uiLang);
   const [templates, setTemplates] = useState<ExportTemplate[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -114,6 +115,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     else setSelectedTemplate(null);
   }, [filteredTemplates]);
 
+  const recordExportHistory = async (mkt: string) => {
+    if (!isSupabaseConfigured()) return;
+    try {
+      for (const listing of selectedListings) {
+        const currentExports = listing.exported_marketplaces || [];
+        if (!currentExports.includes(mkt)) {
+          await supabase.from('listings').update({
+            exported_marketplaces: [...currentExports, mkt]
+          }).eq('id', listing.id);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to record export history", e);
+    }
+  };
+
   const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
     let basePrice = 0;
     let baseShipping = 0;
@@ -155,7 +172,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     return parseFloat(currentTotal.toFixed(2));
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     setExporting(true);
     setExportStatus('Generating Default CSV...');
     
@@ -188,6 +205,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       link.download = `AMZBot_DefaultExport_${Date.now()}.csv`;
       link.click();
       URL.revokeObjectURL(url);
+      
+      await recordExportHistory('CSV-DEFAULT');
+      if (onExportSuccess) onExportSuccess();
     } catch (err: any) {
       alert("CSV Export failed: " + err.message);
     } finally {
@@ -253,7 +273,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               val = localOpt?.optimized_weight_value || cleaned.item_weight_value || '';
               val = formatExportVal(val);
             }
-            // 优化：重量单位首字母大写
             else if (f === 'item_weight_unit') {
               const unit = localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '';
               val = IS_LATIN_MKT(targetMarket) ? capitalizeUnit(unit) : unit;
@@ -270,7 +289,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               val = localOpt?.optimized_height || cleaned.item_height || '';
               val = formatExportVal(val);
             }
-            // 优化：尺寸单位首字母大写
             else if (f === 'item_size_unit') {
               const unit = localOpt?.optimized_size_unit || cleaned.item_size_unit || '';
               val = IS_LATIN_MKT(targetMarket) ? capitalizeUnit(unit) : unit;
@@ -309,6 +327,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       link.download = `Localized_Export_${targetMarket}_${Date.now()}.xlsm`;
       link.click();
       URL.revokeObjectURL(url);
+      
+      await recordExportHistory(targetMarket);
+      if (onExportSuccess) onExportSuccess();
     } catch (err: any) {
       alert("Template export failed: " + err.message);
     } finally {

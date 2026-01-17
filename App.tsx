@@ -43,7 +43,11 @@ const App: React.FC = () => {
         const { data: { session: currentSession } } = await supabase.auth.getSession();
         setSession(currentSession);
         if (currentSession) {
-          setView(AppView.DASHBOARD);
+          // 只在初始加载时根据当前视图状态决定是否设为 DASHBOARD
+          // 避免切换程序回来时重置视图
+          if (view === AppView.LANDING) {
+            setView(AppView.DASHBOARD);
+          }
           fetchListings(currentSession.user.id);
         }
       } catch (err: any) {
@@ -58,7 +62,9 @@ const App: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) {
-        setView(AppView.DASHBOARD);
+        if (view === AppView.LANDING || view === AppView.AUTH) {
+          setView(AppView.DASHBOARD);
+        }
         fetchListings(session.user.id);
       } else {
         setView(AppView.LANDING);
@@ -93,7 +99,7 @@ const App: React.FC = () => {
       );
 
       let query = mode === 'extreme' 
-        ? supabase.from('listings').select('id, asin, marketplace, category_id, status, created_at, cleaned, user_id')
+        ? supabase.from('listings').select('id, asin, marketplace, category_id, status, created_at, cleaned, user_id, translations, exported_marketplaces')
         : supabase.from('listings').select('*');
 
       query = query.eq('user_id', uid).order('created_at', { ascending: false });
@@ -124,6 +130,14 @@ const App: React.FC = () => {
     setSession(null);
     setListings([]);
     setFetchStatus('idle');
+  };
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    // 当点击侧边栏菜单时，如果当前在详情页，则退出详情页返回主视图
+    if (view === AppView.LISTING_DETAIL) {
+      setView(AppView.DASHBOARD);
+    }
   };
 
   if (loading) return (
@@ -167,7 +181,7 @@ const App: React.FC = () => {
   return (
     <div className="flex min-h-screen bg-slate-50">
       {view !== AppView.LANDING && view !== AppView.AUTH && (
-        <Sidebar onLogout={handleLogout} onLogoClick={() => setView(AppView.LANDING)} activeTab={activeTab} setActiveTab={setActiveTab} lang={lang} />
+        <Sidebar onLogout={handleLogout} onLogoClick={() => setView(AppView.LANDING)} activeTab={activeTab} setActiveTab={handleTabChange} lang={lang} />
       )}
       <main className={`${view !== AppView.LANDING && view !== AppView.AUTH ? 'ml-64' : 'w-full'} flex-1 flex flex-col h-screen overflow-hidden`}>
         <div className="flex-1 overflow-y-auto custom-scrollbar">

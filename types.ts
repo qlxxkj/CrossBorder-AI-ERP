@@ -77,6 +77,7 @@ export interface Listing {
   optimized?: OptimizedData;
   translations?: Record<string, OptimizedData>;
   sourcing_data?: SourcingRecord[];
+  exported_marketplaces?: string[];
 }
 
 export interface PriceAdjustment {
