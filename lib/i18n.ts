@@ -76,7 +76,6 @@ const translations: Record<UILanguage, Record<string, string>> = {
     cancel: 'Cancel',
     save: 'Save Listing',
     uploading: 'Uploading...',
-    // Bulk Scrape
     scrapeKeywords: 'Keywords to Scrape',
     scrapeMarketplace: 'Marketplace',
     scrapePages: 'Pages',
@@ -90,7 +89,10 @@ const translations: Record<UILanguage, Record<string, string>> = {
     noTemplates: 'No templates added yet. Upload one from Amazon Central.',
     selectTemplate: 'Select Template',
     confirmExport: 'Confirm Export',
-    downloadCsv: 'Download CSV'
+    downloadCsv: 'Download CSV',
+    upgradePlan: 'Upgrade Plan',
+    personalInfo: 'Personal Info',
+    credits: 'Credits'
   },
   zh: {
     heroTitle: '让跨境电商更智能、更高效',
@@ -157,7 +159,6 @@ const translations: Record<UILanguage, Record<string, string>> = {
     cancel: '取消',
     save: '保存产品',
     uploading: '正在上传图片...',
-    // Bulk Scrape
     scrapeKeywords: '采集关键词',
     scrapeMarketplace: '目标站点',
     scrapePages: '采集页数',
@@ -171,7 +172,10 @@ const translations: Record<UILanguage, Record<string, string>> = {
     noTemplates: '尚未添加模板。请上传从亚马逊后台下载的 Excel/CSV 模板。',
     selectTemplate: '选择导出模板',
     confirmExport: '确认导出',
-    downloadCsv: '下载 CSV 文件'
+    downloadCsv: '下载 CSV 文件',
+    upgradePlan: '升级套餐',
+    personalInfo: '个人信息',
+    credits: '点数'
   },
   ja: {
     heroTitle: '越境ECをスマートに、効率的に',
@@ -251,7 +255,10 @@ const translations: Record<UILanguage, Record<string, string>> = {
     noTemplates: 'テンプレートがありません。',
     selectTemplate: 'テンプレートを選択',
     confirmExport: 'エクスポートを確認',
-    downloadCsv: 'CSVをダウンロード'
+    downloadCsv: 'CSVをダウンロード',
+    upgradePlan: 'プランのアップグレード',
+    personalInfo: '個人情報',
+    credits: 'クレジット'
   },
   de: {
     heroTitle: 'Automatisieren Sie Ihr grenzüberschreitendes Imperium',
@@ -331,7 +338,10 @@ const translations: Record<UILanguage, Record<string, string>> = {
     noTemplates: 'Keine Vorlagen vorhanden.',
     selectTemplate: 'Vorlage wählen',
     confirmExport: 'Export bestätigen',
-    downloadCsv: 'CSV herunterladen'
+    downloadCsv: 'CSV herunterladen',
+    upgradePlan: 'Upgrade Plan',
+    personalInfo: 'Persönliche Info',
+    credits: 'Credits'
   },
   fr: {
     heroTitle: 'Automatisez votre empire transfrontalier',
@@ -411,7 +421,10 @@ const translations: Record<UILanguage, Record<string, string>> = {
     noTemplates: 'Aucun modèle.',
     selectTemplate: 'Choisir un modèle',
     confirmExport: 'Confirmer l\'export',
-    downloadCsv: 'Télécharger CSV'
+    downloadCsv: 'Télécharger CSV',
+    upgradePlan: 'Améliorer le plan',
+    personalInfo: 'Infos personnelles',
+    credits: 'Crédits'
   },
   es: {
     heroTitle: 'Automatice su imperio transfronterizo',
@@ -471,7 +484,7 @@ const translations: Record<UILanguage, Record<string, string>> = {
     shippingLabel: 'Envío (USD)',
     weightLabel: 'Peso',
     dimensionsLabel: 'Dimensiones (L x W x H)',
-    descLabel: 'Descripción',
+    descLabel: 'Description',
     uploadMain: 'Imagen principal *',
     uploadOthers: 'Galería de imágenes',
     saving: 'Guardando...',
@@ -490,9 +503,11 @@ const translations: Record<UILanguage, Record<string, string>> = {
     manageTemplates: 'Gestionar plantillas',
     noTemplates: 'Sin plantillas.',
     selectTemplate: 'Elegir plantilla',
-    // Fixed typo: was 'confirm export', which caused a conflict with the global 'confirm' function in TypeScript.
     confirmExport: 'Confirmar exportación',
-    downloadCsv: 'Descargar CSV'
+    downloadCsv: 'Descargar CSV',
+    upgradePlan: 'Actualizar plan',
+    personalInfo: 'Información personal',
+    credits: 'Créditos'
   }
 };
 

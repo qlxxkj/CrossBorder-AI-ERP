@@ -10,7 +10,7 @@ import { TemplateManager } from './components/TemplateManager';
 import { CategoryManager } from './components/CategoryManager';
 import { PricingManager } from './components/PricingManager';
 import { BillingCenter } from './components/BillingCenter';
-import { AppView, Listing, UILanguage } from './types';
+import { AppView, Listing, UILanguage, UserProfile } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 
@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [session, setSession] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isInitialFetch, setIsInitialFetch] = useState(false);
   const [lang, setLang] = useState<UILanguage>('zh');
@@ -30,6 +31,17 @@ const App: React.FC = () => {
     const savedLang = localStorage.getItem('app_lang') as UILanguage;
     if (savedLang) setLang(savedLang);
   }, []);
+
+  // 获取用户资料
+  const fetchUserProfile = async (userId: string) => {
+    if (!isSupabaseConfigured()) return;
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    if (data) setUserProfile(data);
+  };
 
   // 身份验证监听器
   useEffect(() => {
@@ -45,6 +57,7 @@ const App: React.FC = () => {
       if (currentSession) {
         setView(AppView.DASHBOARD);
         fetchListings(currentSession.user.id);
+        fetchUserProfile(currentSession.user.id);
       }
       setLoading(false);
     }).catch(err => {
@@ -59,10 +72,12 @@ const App: React.FC = () => {
       if (event === 'SIGNED_IN' && newSession) {
         setView(AppView.DASHBOARD);
         fetchListings(newSession.user.id);
+        fetchUserProfile(newSession.user.id);
       } else if (event === 'SIGNED_OUT') {
         setView(AppView.LANDING);
         setListings([]);
         setSelectedListing(null);
+        setUserProfile(null);
       }
     });
 
@@ -164,6 +179,8 @@ const App: React.FC = () => {
           activeTab={activeTab} 
           setActiveTab={handleTabChange} 
           lang={lang} 
+          userEmail={session?.user?.email}
+          userProfile={userProfile}
         />
       )}
       
