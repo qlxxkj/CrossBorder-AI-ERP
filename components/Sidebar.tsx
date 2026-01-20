@@ -1,10 +1,12 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   LayoutDashboard, List, Tags, Coins, Layout, ShieldCheck, 
   Settings, LogOut, ChevronRight, Crown, Zap, 
-  User, CreditCard, ArrowUpRight, ChevronUp, Mail, UserCircle
+  CreditCard, ArrowUpRight, Mail
 } from 'lucide-react';
 import { UILanguage, UserProfile } from '../types';
+import { useTranslation } from '../lib/i18n';
 
 interface SidebarProps {
   activeTab: string;
@@ -13,9 +15,11 @@ interface SidebarProps {
   userProfile: UserProfile;
   session: any;
   onLogout: () => void;
+  onLogoClick?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang, userProfile, session, onLogout }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang, userProfile, session, onLogout, onLogoClick }) => {
+  const t = useTranslation(lang);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   
@@ -26,7 +30,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
   const emailPrefix = userEmail.split('@')[0];
   const creditsLeft = (userProfile.credits_total || 0) - (userProfile.credits_used || 0);
 
-  // 点击外部关闭菜单
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -38,19 +41,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
   }, []);
 
   const navItems = [
-    { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: lang === 'zh' ? '仪表盘' : 'Dashboard' },
-    { id: 'listings', icon: <List size={18} />, label: lang === 'zh' ? '产品管理' : 'Listings' },
-    { id: 'categories', icon: <Tags size={18} />, label: lang === 'zh' ? '类目管理' : 'Categories' },
-    { id: 'pricing', icon: <Coins size={18} />, label: lang === 'zh' ? '定价中心' : 'Pricing' },
-    { id: 'templates', icon: <Layout size={18} />, label: lang === 'zh' ? '模板管理' : 'Templates' },
+    { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: t('dashboard') },
+    { id: 'listings', icon: <List size={18} />, label: t('listings') },
+    { id: 'categories', icon: <Tags size={18} />, label: t('categories') },
+    { id: 'pricing', icon: <Coins size={18} />, label: t('pricing') },
+    { id: 'templates', icon: <Layout size={18} />, label: t('templateManager') },
   ];
 
   return (
     <div className="w-64 bg-slate-900 text-white h-screen fixed left-0 top-0 flex flex-col p-4 shadow-2xl z-50">
-      <div className="p-4 mb-8 flex items-center gap-3">
+      <button onClick={onLogoClick} className="p-4 mb-8 flex items-center gap-3 hover:opacity-80 transition-opacity text-left">
         <div className="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center text-lg font-black shadow-lg shadow-blue-900/40">A</div>
         <span className="font-black text-xl tracking-tight uppercase">AMZBot</span>
-      </div>
+      </button>
 
       <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-1">
         <p className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Core Modules</p>
@@ -79,7 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              <Settings size={18} /> <span className="text-sm font-bold">{lang === 'zh' ? '系统配置' : 'System'}</span>
+              <Settings size={18} /> <span className="text-sm font-bold">{t('systemMgmt')}</span>
             </button>
           </>
         )}
@@ -95,15 +98,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              <ShieldCheck size={18} /> <span className="text-sm font-bold">{lang === 'zh' ? '管理后台' : 'Admin'}</span>
+              <ShieldCheck size={18} /> <span className="text-sm font-bold">Admin Panel</span>
             </button>
           </>
         )}
       </nav>
 
-      {/* User Center Interaction Area */}
       <div className="mt-auto relative pt-4 border-t border-slate-800" ref={menuRef}>
-        {/* Modal Popover Menu */}
         {showUserMenu && (
           <div className="absolute bottom-full left-0 w-full mb-4 bg-slate-800 rounded-[2rem] border border-slate-700 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300 backdrop-blur-xl">
             <div className="p-6 border-b border-slate-700 bg-slate-900/40">
@@ -121,13 +122,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
                
                <div className="grid grid-cols-1 gap-3">
                   <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-xl">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{lang === 'zh' ? '订阅计划' : 'Plan'}</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Plan</span>
                     <span className="text-[10px] font-black text-amber-400 flex items-center gap-1 uppercase">
                       <Crown size={12}/> {userProfile.plan_type}
                     </span>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-xl">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{lang === 'zh' ? '剩余点数' : 'Credits'}</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Credits</span>
                     <span className="text-[10px] font-black text-emerald-400 flex items-center gap-1">
                       <Zap size={12}/> {creditsLeft}
                     </span>
@@ -142,7 +143,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
                >
                  <div className="flex items-center gap-3">
                    <div className="p-2 bg-indigo-500/10 rounded-lg group-hover:bg-indigo-500/20"><CreditCard size={14} className="text-indigo-400"/></div>
-                   {lang === 'zh' ? '升级方案' : 'Upgrade Plan'}
+                   Upgrade Plan
                  </div>
                  <ArrowUpRight size={14} className="text-slate-500 group-hover:text-white" />
                </button>
@@ -152,13 +153,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
                 className="w-full flex items-center gap-3 p-4 text-[10px] font-black uppercase text-red-400 hover:bg-red-500/10 rounded-2xl transition-all group"
                >
                  <div className="p-2 bg-red-500/10 rounded-lg group-hover:bg-red-500/20"><LogOut size={14}/></div>
-                 {lang === 'zh' ? '退出登录' : 'Sign Out'}
+                 Sign Out
                </button>
             </div>
           </div>
         )}
 
-        {/* User Pill Display */}
         <button 
           onClick={() => setShowUserMenu(!showUserMenu)}
           className={`w-full p-2.5 rounded-2xl border transition-all flex items-center gap-3 text-left ${

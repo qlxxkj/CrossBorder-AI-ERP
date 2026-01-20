@@ -16,18 +16,16 @@ import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
-  // 核心视图状态，默认为 LANDING，但 loading 为 true 会阻塞渲染
   const [view, setView] = useState<AppView>(AppView.LANDING);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [org, setOrg] = useState<Organization | null>(null);
-  const [loading, setLoading] = useState(true); // 初始加载状态
+  const [loading, setLoading] = useState(true);
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // 记录最新的视图状态以便在 identity 检查中使用
   const viewRef = useRef(view);
   useEffect(() => { viewRef.current = view; }, [view]);
 
@@ -59,7 +57,6 @@ const App: React.FC = () => {
 
       if (profileErr) throw profileErr;
 
-      // 自动迁移逻辑 (Legacy User Fix)
       if (!profile) {
         const newOrgId = crypto.randomUUID();
         await supabase.from('organizations').insert([{
@@ -93,7 +90,6 @@ const App: React.FC = () => {
 
       setUserProfile(profile);
 
-      // 关键：先设置视图，再结束 Loading
       if (viewRef.current === AppView.LANDING || viewRef.current === AppView.AUTH) {
         setView(AppView.DASHBOARD);
         setActiveTab('dashboard');
@@ -107,32 +103,35 @@ const App: React.FC = () => {
   }, [fetchListings]);
 
   useEffect(() => {
-    // 初始会话检查
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
       if (cur) fetchIdentity(cur.user.id, cur);
       else setLoading(false);
     });
 
-    // 会话监听
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-      // 避免重复触发导致的闪烁
+      // 深度修复退出逻辑：当事件为 SIGNED_OUT 或新会话不存在时，彻底重置
+      if (!newSession) {
+        setSession(null);
+        setUserProfile(null);
+        setOrg(null);
+        setListings([]);
+        setView(AppView.LANDING);
+        setLoading(false);
+        return;
+      }
+
       if (newSession?.user?.id === session?.user?.id && event !== 'SIGNED_IN') return;
 
       setSession(newSession);
       if (newSession) {
-        setLoading(true); // 重新进入加载状态
+        setLoading(true);
         fetchIdentity(newSession.user.id, newSession);
-      } else {
-        setUserProfile(null);
-        setOrg(null);
-        setView(AppView.LANDING);
-        setLoading(false);
       }
     });
     
     return () => subscription.unsubscribe();
-  }, [fetchIdentity]);
+  }, [fetchIdentity, session?.user?.id]);
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -170,7 +169,6 @@ const App: React.FC = () => {
     }
   };
 
-  // 全局加载遮罩
   if (loading) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-white space-y-6">
@@ -189,12 +187,12 @@ const App: React.FC = () => {
   return (
     <div className="flex min-h-screen bg-slate-50">
       {userProfile && session && (
-        <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} lang={lang} userProfile={userProfile} session={session} onLogout={() => supabase.auth.signOut()} />
+        <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} lang={lang} userProfile={userProfile} session={session} onLogout={() => supabase.auth.signOut()} onLogoClick={() => setView(AppView.LANDING)} />
       )}
       <main className={`${userProfile ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
-          {view === AppView.LANDING ? <LandingPage onLogin={() => setView(AppView.AUTH)} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => {}} /> :
-           view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => {}} /> :
+          {view === AppView.LANDING ? <LandingPage onLogin={() => setView(AppView.AUTH)} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
+           view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => setView(AppView.LANDING)} /> :
            renderContent()}
         </div>
       </main>
