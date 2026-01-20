@@ -26,14 +26,22 @@ const App: React.FC = () => {
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
 
+  // 1. 语言切换持久化逻辑
+  const handleLanguageChange = (newLang: UILanguage) => {
+    setLang(newLang);
+    localStorage.setItem('app_lang', newLang);
+    // 强制更新 HTML lang 属性
+    document.documentElement.lang = newLang;
+  };
+
   useEffect(() => {
     const savedLang = localStorage.getItem('app_lang') as UILanguage;
-    if (savedLang) setLang(savedLang);
+    if (savedLang) handleLanguageChange(savedLang);
   }, []);
 
-  const fetchUserProfile = async (userId: string) => {
+  const fetchUserProfile = useCallback(async (userId: string) => {
     if (!isSupabaseConfigured()) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('id', userId)
@@ -46,9 +54,12 @@ const App: React.FC = () => {
         return;
       }
       setUserProfile(data);
+      console.log("UserProfile Loaded:", data.role); // 调试日志
       await supabase.from('user_profiles').update({ last_login_at: new Date().toISOString() }).eq('id', userId);
+    } else if (error) {
+      console.error("Fetch profile error:", error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -56,6 +67,7 @@ const App: React.FC = () => {
       return;
     }
 
+    // 初始化获取 Session 和 Profile
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       setSession(currentSession);
       if (currentSession) {
@@ -66,9 +78,10 @@ const App: React.FC = () => {
       setLoading(false);
     });
 
+    // 监听 Auth 状态变化
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
-      if (event === 'SIGNED_IN' && newSession) {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && newSession) {
         setView(AppView.DASHBOARD);
         fetchListings(newSession.user.id);
         fetchUserProfile(newSession.user.id);
@@ -80,7 +93,7 @@ const App: React.FC = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [fetchUserProfile]);
 
   const fetchListings = useCallback(async (userId?: string) => {
     const uid = userId || session?.user?.id;
@@ -95,7 +108,12 @@ const App: React.FC = () => {
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     if (tab === 'admin') {
-      setView(AppView.ADMIN);
+      if (userProfile?.role === 'admin') {
+        setView(AppView.ADMIN);
+      } else {
+        alert("需要管理员权限。");
+        setActiveTab('dashboard');
+      }
     } else {
       setView(AppView.DASHBOARD);
     }
@@ -137,7 +155,7 @@ const App: React.FC = () => {
       )}
       <main className={`${view !== AppView.LANDING && view !== AppView.AUTH ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
-          {view === AppView.LANDING ? <LandingPage onLogin={() => setView(AppView.AUTH)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} onLanguageChange={(l) => setLang(l)} /> :
+          {view === AppView.LANDING ? <LandingPage onLogin={() => setView(AppView.AUTH)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} onLanguageChange={handleLanguageChange} /> :
            view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} /> :
            renderContent()}
         </div>

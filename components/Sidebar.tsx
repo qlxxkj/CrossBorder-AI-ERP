@@ -21,6 +21,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
   const profileRef = useRef<HTMLDivElement>(null);
 
   const userName = userEmail ? userEmail.split('@')[0] : 'User';
+  // 关键：这里直接检查 userProfile 中的 role
   const isAdmin = userProfile?.role === 'admin';
   
   const menuItems = [
@@ -45,7 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
     <div className="w-64 bg-slate-900 text-white h-screen flex flex-col fixed left-0 top-0 z-50 shadow-2xl">
       <div className="p-6 border-b border-slate-800 flex items-center justify-between">
         <button onClick={onLogoClick} className="text-xl font-black flex items-center gap-2 hover:opacity-80 transition-opacity">
-          <span className="bg-blue-600 px-2 py-0.5 rounded text-sm">ERP</span> AMZBot
+          <span className="bg-blue-600 px-2 py-0.5 rounded text-sm text-white">ERP</span> <span className="text-white">AMZBot</span>
         </button>
       </div>
 
@@ -67,7 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
         ))}
 
         {isAdmin && (
-          <div className="pt-6 mt-6 border-t border-slate-800">
+          <div className="pt-6 mt-6 border-t border-slate-800 animate-in fade-in slide-in-from-left-4 duration-500">
             <p className="px-4 py-2 text-[10px] font-black text-amber-500 uppercase tracking-[0.2em]">Management</p>
             <button
               onClick={() => setActiveTab('admin')}
@@ -87,7 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
       <div className="p-4 border-t border-slate-800 relative" ref={profileRef}>
         {isProfileOpen && (
           <div className="absolute bottom-full left-4 right-4 mb-2 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-2 duration-200 z-[60]">
-            <div className="p-4 border-b border-slate-700 bg-slate-800/50">
+            <div className="p-4 border-b border-slate-700 bg-slate-800/50 text-white">
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-black uppercase shadow-lg ${isAdmin ? 'bg-amber-500' : 'bg-blue-600'}`}>
                   {userName.charAt(0)}
@@ -109,7 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
                </div>
                <button 
                 onClick={() => { setActiveTab('billing'); setIsProfileOpen(false); }}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 text-white"
                >
                  <Sparkles size={14} /> {t('upgradePlan')}
                </button>
@@ -120,7 +121,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
               className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-700 transition-all font-bold text-xs"
             >
               <RefreshCcw size={16} />
-              <span>刷新系统权限</span>
+              <span>{lang === 'zh' ? '重载系统权限' : 'Reload Access'}</span>
             </button>
 
             <button 
