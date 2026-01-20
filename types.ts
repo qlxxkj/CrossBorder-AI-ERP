@@ -1,78 +1,53 @@
 
-export interface Category {
+export interface Organization {
   id: string;
   name: string;
-  user_id: string;
+  owner_id: string;
+  plan_type: 'Free' | 'Pro' | 'Elite';
+  credits_total: number;
+  credits_used: number;
   created_at: string;
-  updated_at: string;
 }
 
 export interface UserProfile {
   id: string;
-  plan_type: 'Free' | 'Pro' | 'Elite';
-  credits_total: number;
-  credits_used: number;
-  subscription_end_at?: string;
+  org_id: string | null;
+  role: 'super_admin' | 'tenant_admin' | 'user' | 'admin';
   is_suspended?: boolean;
-  role?: 'user' | 'admin';
   last_login_at?: string;
   created_at?: string;
-}
-
-export interface SubscriptionPlan {
-  id: 'Free' | 'Pro' | 'Elite';
-  name_en: string;
-  name_zh: string;
-  price_usd: number;
-  credits: number;
-  features_en: string[];
-  features_zh: string[];
-}
-
-export interface UsageLog {
-  id: string;
-  user_id: string;
-  model: string;
-  action: 'optimize' | 'translate';
-  credits_spent: number;
-  created_at: string;
-}
-
-export interface SourcingRecord {
-  id: string;
-  title: string;
-  price: string;
-  image: string;
-  url: string;
+  credits_total: number;
+  credits_used: number;
+  plan_type: 'Free' | 'Pro' | 'Elite';
 }
 
 export interface CleanedData {
   asin: string;
   title: string;
-  brand: string;
-  price: number;
-  strike_price?: number;
+  brand?: string;
+  price?: number;
   shipping?: number;
-  features: string[];
-  description: string;
-  main_image: string;
+  description?: string;
+  features?: string[];
+  search_keywords?: string;
+  main_image?: string;
   other_images?: string[];
-  reviews?: string;
-  ratings?: string;
-  category?: string;
-  BSR?: string;
   item_weight?: string;
-  product_dimensions?: string;
   item_weight_value?: string;
   item_weight_unit?: string;
   item_length?: string;
   item_width?: string;
   item_height?: string;
   item_size_unit?: string;
-  OEM_Part_Number?: string;
-  Date_First_Available?: string;
-  bought_in_past_month?: string;
-  sourcing_links?: string[];
+  product_dimensions?: string;
+  BSR?: string;
+  ratings?: string;
+  reviews?: string;
+  category?: string;
+  final_price?: number;
+  parent_asin?: string;
+  strike_price?: number;
+  coupon_amount?: string | null;
   updated_at?: string;
   [key: string]: any;
 }
@@ -82,19 +57,30 @@ export interface OptimizedData {
   optimized_features: string[];
   optimized_description: string;
   search_keywords: string;
-  optimized_price?: number;
-  optimized_shipping?: number;
   optimized_weight_value?: string;
   optimized_weight_unit?: string;
   optimized_length?: string;
   optimized_width?: string;
   optimized_height?: string;
   optimized_size_unit?: string;
+  optimized_price?: number;
+  optimized_shipping?: number;
 }
+
+export interface SourcingRecord {
+  id: string;
+  title: string;
+  price: string;
+  url: string;
+  image: string;
+}
+
+export type SourcingProduct = SourcingRecord;
 
 export interface Listing {
   id: string;
   user_id?: string;
+  org_id?: string; // 归属于组织
   asin: string;
   marketplace: string; 
   category_id?: string;
@@ -103,11 +89,18 @@ export interface Listing {
   updated_at?: string;
   status: 'collected' | 'optimizing' | 'optimized';
   cleaned: CleanedData;
-  raw?: any;
   optimized?: OptimizedData;
   translations?: Record<string, OptimizedData>;
   sourcing_data?: SourcingRecord[];
   exported_marketplaces?: string[];
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  user_id: string;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface PriceAdjustment {
@@ -130,7 +123,7 @@ export interface ExchangeRate {
 
 export interface FieldMapping {
   header: string;
-  source: 'listing' | 'custom' | 'random' | 'template_default';
+  source: 'custom' | 'listing' | 'random' | 'template_default';
   listingField?: string;
   defaultValue?: string;
   templateDefault?: string;
@@ -148,6 +141,17 @@ export interface ExportTemplate {
   created_at: string;
 }
 
+export interface SubscriptionPlan {
+  id: string;
+  name: string;
+  name_zh: string;
+  price_usd: number;
+  price_cny: number;
+  credits: number;
+  features: string[];
+  features_zh: string[];
+}
+
 export enum AppView {
   LANDING = 'LANDING',
   AUTH = 'AUTH',
@@ -157,7 +161,8 @@ export enum AppView {
   CATEGORIES = 'CATEGORIES',
   PRICING = 'PRICING',
   BILLING = 'BILLING',
-  ADMIN = 'ADMIN'
+  ADMIN = 'ADMIN', // 超级管理员视图
+  SYSTEM_MGMT = 'SYSTEM_MGMT' // 租户管理员视图
 }
 
 export type UILanguage = 'en' | 'zh' | 'ja' | 'de' | 'fr' | 'es';

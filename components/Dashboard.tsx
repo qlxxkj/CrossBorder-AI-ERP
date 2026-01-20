@@ -17,7 +17,8 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing, onRefresh, userProfile, onNavigate }) => {
   const t = useTranslation(lang);
   const [templateCount, setTemplateCount] = useState(0);
-  const isAdmin = userProfile?.role === 'admin';
+  // Corrected role check to match super_admin
+  const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin';
 
   useEffect(() => {
     const fetchTemplateCount = async () => {

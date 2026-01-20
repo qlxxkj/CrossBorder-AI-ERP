@@ -19,11 +19,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
 
-  // 强制响应语言变化
-  useEffect(() => {
-    console.log("AuthPage language updated:", uiLang);
-  }, [uiLang]);
-
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -34,9 +29,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang 
         const { error } = await supabase.auth.signUp({
           email,
           password,
-          options: {
-            emailRedirectTo: window.location.origin,
-          }
+          options: { emailRedirectTo: window.location.origin }
         });
         if (error) throw error;
         setMessage({ type: 'success', text: uiLang === 'zh' ? '请检查您的邮箱以获取确认链接！' : 'Check your email for confirmation!' });
@@ -58,9 +51,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang 
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider as any,
-        options: {
-          redirectTo: window.location.origin,
-        }
+        options: { redirectTo: window.location.origin }
       });
       if (error) throw error;
     } catch (error: any) {

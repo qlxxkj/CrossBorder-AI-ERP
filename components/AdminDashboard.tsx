@@ -128,7 +128,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang }) => {
                     <tr key={user.id} className={`group hover:bg-slate-50/50 transition-all ${user.is_suspended ? 'opacity-50 grayscale' : ''}`}>
                       <td className="p-8">
                         <div className="flex items-center gap-4">
-                           <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black ${user.role === 'admin' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
+                           <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black ${user.role === 'admin' || user.role === 'super_admin' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
                              {user.id.slice(0, 2).toUpperCase()}
                            </div>
                            <div>
@@ -192,25 +192,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang }) => {
              <div key={plan.id} className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm space-y-8 flex flex-col">
                 <div className="flex justify-between items-start">
                    <div>
-                     <h4 className="text-2xl font-black text-slate-900">{plan.name_zh}</h4>
+                     <h4 className="text-2xl font-black text-slate-900">{uiLang === 'zh' ? (plan.name_zh || plan.id) : (plan.name || plan.id)}</h4>
                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{plan.id}</p>
                    </div>
                    <div className="text-right">
-                     <p className="text-3xl font-black text-slate-900">${plan.price_usd}</p>
+                     <p className="text-3xl font-black text-slate-900">{uiLang === 'zh' ? `¥${plan.price_cny}` : `$${plan.price_usd}`}</p>
                    </div>
                 </div>
 
                 <div className="space-y-4 flex-1">
                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
                       <p className="text-[10px] font-black text-slate-400 uppercase">Included Credits</p>
-                      <p className="text-xl font-black text-indigo-600">{plan.credits}</p>
+                      <p className="text-xl font-black text-indigo-600">{(plan.credits || 0).toLocaleString()}</p>
                    </div>
                    
                    <div className="space-y-2">
                       <p className="text-[10px] font-black text-slate-400 uppercase ml-1">Plan Features</p>
-                      {plan.features_zh.map((f, i) => (
+                      {(uiLang === 'zh' ? (plan.features_zh || []) : (plan.features || [])).map((f, i) => (
                         <div key={i} className="flex items-center gap-2 text-xs font-bold text-slate-500">
-                          {/* Fix: Added missing Check icon import to fix line 213 error */}
                           <Check size={12} className="text-indigo-400" /> {f}
                         </div>
                       ))}
