@@ -110,7 +110,6 @@ const App: React.FC = () => {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-      // 深度修复退出逻辑：当事件为 SIGNED_OUT 或新会话不存在时，彻底重置
       if (!newSession) {
         setSession(null);
         setUserProfile(null);
@@ -145,6 +144,15 @@ const App: React.FC = () => {
       case 'admin': setView(AppView.ADMIN); break;
       case 'system': setView(AppView.SYSTEM_MGMT); break;
       default: setView(AppView.DASHBOARD);
+    }
+  };
+
+  const handleLandingLoginClick = () => {
+    if (session && userProfile) {
+      setView(AppView.DASHBOARD);
+      setActiveTab('dashboard');
+    } else {
+      setView(AppView.AUTH);
     }
   };
 
@@ -184,14 +192,17 @@ const App: React.FC = () => {
     );
   }
 
+  // Sidebar is hidden on LANDING and AUTH pages
+  const showSidebar = userProfile && session && view !== AppView.LANDING && view !== AppView.AUTH;
+
   return (
     <div className="flex min-h-screen bg-slate-50">
-      {userProfile && session && (
+      {showSidebar && (
         <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} lang={lang} userProfile={userProfile} session={session} onLogout={() => supabase.auth.signOut()} onLogoClick={() => setView(AppView.LANDING)} />
       )}
-      <main className={`${userProfile ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative`}>
+      <main className={`${showSidebar ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
-          {view === AppView.LANDING ? <LandingPage onLogin={() => setView(AppView.AUTH)} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
+          {view === AppView.LANDING ? <LandingPage onLogin={handleLandingLoginClick} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
            view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => setView(AppView.LANDING)} /> :
            renderContent()}
         </div>
