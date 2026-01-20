@@ -29,9 +29,14 @@ const App: React.FC = () => {
   const fetchListings = useCallback(async (orgId: string) => {
     if (!isSupabaseConfigured()) return;
     setIsSyncing(true);
-    const { data } = await supabase.from('listings').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
-    if (data) setListings(data);
-    setIsSyncing(false);
+    try {
+      const { data } = await supabase.from('listings').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
+      if (data) setListings(data);
+    } catch (e) {
+      console.error("Failed to fetch listings:", e);
+    } finally {
+      setIsSyncing(false);
+    }
   }, []);
 
   const fetchIdentity = useCallback(async (userId: string) => {
@@ -63,6 +68,7 @@ const App: React.FC = () => {
           credits_total: 100,
           credits_used: 0
         }]).select().single();
+        
         if (orgErr) throw orgErr;
 
         // 2. 创建用户 Profile
@@ -74,10 +80,14 @@ const App: React.FC = () => {
           credits_total: 100,
           credits_used: 0
         }]).select().single();
+        
         if (insProfileErr) throw insProfileErr;
         
         // 3. 数据迁移：将该用户之前的所有孤立 listing 关联到新组织
-        await supabase.from('listings').update({ org_id: newOrgId }).eq('user_id', userId).is('org_id', null);
+        // 使用非阻塞异步，防止迁移失败导致登录挂起
+        supabase.from('listings').update({ org_id: newOrgId }).eq('user_id', userId).is('org_id', null).then(({error}) => {
+          if (error) console.warn("Listings migration partial failure:", error);
+        });
         
         profile = newProfile;
         setOrg(newOrg);
@@ -87,29 +97,44 @@ const App: React.FC = () => {
       }
 
       setUserProfile(profile);
+      
       if (profile?.is_suspended) {
         alert("Account suspended.");
         await supabase.auth.signOut();
         return;
       }
       
-      if (profile?.org_id) fetchListings(profile.org_id);
+      if (profile?.org_id) {
+        await fetchListings(profile.org_id);
+      }
+      
       setView(AppView.DASHBOARD);
     } catch (err: any) {
       console.error("Identity verification failed:", err);
+      // 如果出现严重错误，回退到登录页
+      setView(AppView.AUTH);
     } finally {
+      // 核心修复点：确保无论如何都会结束加载状态
       setLoading(false);
     }
   }, [fetchListings]);
 
   useEffect(() => {
+    // 初始 Session 获取
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
-      if (cur) fetchIdentity(cur.user.id);
-      else setLoading(false);
+      if (cur) {
+        fetchIdentity(cur.user.id);
+      } else {
+        setLoading(false);
+      }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    // 状态变更监听
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      // 防止重复触发相同的 session
+      if (newSession?.user?.id === session?.user?.id && event !== 'SIGNED_IN') return;
+
       setSession(newSession);
       if (newSession) {
         setLoading(true);
@@ -121,6 +146,7 @@ const App: React.FC = () => {
         setLoading(false);
       }
     });
+    
     return () => subscription.unsubscribe();
   }, [fetchIdentity]);
 
@@ -128,7 +154,7 @@ const App: React.FC = () => {
     setActiveTab(tab);
     switch(tab) {
       case 'dashboard': setView(AppView.DASHBOARD); break;
-      case 'listings': setView(AppView.DASHBOARD); break; // Tab within Dashboard view context
+      case 'listings': setView(AppView.DASHBOARD); break;
       case 'templates': setView(AppView.TEMPLATES); break;
       case 'categories': setView(AppView.CATEGORIES); break;
       case 'pricing': setView(AppView.PRICING); break;
@@ -151,10 +177,9 @@ const App: React.FC = () => {
     if (view === AppView.PRICING) return <PricingManager uiLang={lang} />;
     if (view === AppView.BILLING) return <BillingCenter uiLang={lang} />;
     
-    // Default Dashboard Tabs
     if (activeTab === 'listings') {
       return <ListingsManager 
-        onSelectListing={(l) => { /* Handle listing selection */ }} 
+        onSelectListing={(l) => { /* Selection logic */ }} 
         listings={listings} 
         setListings={setListings} 
         lang={lang} 
@@ -172,12 +197,19 @@ const App: React.FC = () => {
     />;
   };
 
-  if (loading && session) return (
-    <div className="h-screen flex flex-col items-center justify-center bg-slate-50">
-      <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verifying Identity...</p>
-    </div>
-  );
+  // 渲染逻辑
+  if (loading) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-slate-50">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-indigo-100 rounded-full border-t-indigo-600 animate-spin"></div>
+        </div>
+        <p className="mt-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">
+          {session ? 'Synchronizing Identity...' : 'Initializing...'}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-50">
@@ -191,7 +223,7 @@ const App: React.FC = () => {
           onLogout={() => supabase.auth.signOut()}
         />
       )}
-      <main className={`${userProfile ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden`}>
+      <main className={`${userProfile ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
           {view === AppView.LANDING ? <LandingPage onLogin={() => setView(AppView.AUTH)} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => {}} /> :
            view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => {}} /> :
