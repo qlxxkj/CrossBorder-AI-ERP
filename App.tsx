@@ -54,7 +54,7 @@ const App: React.FC = () => {
 
       if (profileErr) throw profileErr;
 
-      // 如果没有 Profile，进行“平滑迁移”
+      // 如果没有 Profile，进行“实时平滑迁移” (针对老用户)
       if (!profile) {
         console.log("Legacy user detected. Migrating to RBAC structure...");
         const newOrgId = crypto.randomUUID();
@@ -83,11 +83,8 @@ const App: React.FC = () => {
         
         if (insProfileErr) throw insProfileErr;
         
-        // 3. 数据迁移：将该用户之前的所有孤立 listing 关联到新组织
-        // 使用非阻塞异步，防止迁移失败导致登录挂起
-        supabase.from('listings').update({ org_id: newOrgId }).eq('user_id', userId).is('org_id', null).then(({error}) => {
-          if (error) console.warn("Listings migration partial failure:", error);
-        });
+        // 3. 关联老数据：将之前孤立的 listing 关联到新组织
+        await supabase.from('listings').update({ org_id: newOrgId }).eq('user_id', userId).is('org_id', null);
         
         profile = newProfile;
         setOrg(newOrg);
@@ -111,28 +108,20 @@ const App: React.FC = () => {
       setView(AppView.DASHBOARD);
     } catch (err: any) {
       console.error("Identity verification failed:", err);
-      // 如果出现严重错误，回退到登录页
       setView(AppView.AUTH);
     } finally {
-      // 核心修复点：确保无论如何都会结束加载状态
       setLoading(false);
     }
   }, [fetchListings]);
 
   useEffect(() => {
-    // 初始 Session 获取
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
-      if (cur) {
-        fetchIdentity(cur.user.id);
-      } else {
-        setLoading(false);
-      }
+      if (cur) fetchIdentity(cur.user.id);
+      else setLoading(false);
     });
 
-    // 状态变更监听
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-      // 防止重复触发相同的 session
       if (newSession?.user?.id === session?.user?.id && event !== 'SIGNED_IN') return;
 
       setSession(newSession);
@@ -172,41 +161,39 @@ const App: React.FC = () => {
     if (view === AppView.SYSTEM_MGMT && userProfile?.role === 'tenant_admin') {
       return <SystemManagement uiLang={lang} orgId={userProfile.org_id!} />;
     }
-    if (view === AppView.TEMPLATES) return <TemplateManager uiLang={lang} />;
-    if (view === AppView.CATEGORIES) return <CategoryManager uiLang={lang} />;
-    if (view === AppView.PRICING) return <PricingManager uiLang={lang} />;
-    if (view === AppView.BILLING) return <BillingCenter uiLang={lang} />;
     
-    if (activeTab === 'listings') {
-      return <ListingsManager 
-        onSelectListing={(l) => { /* Selection logic */ }} 
-        listings={listings} 
-        setListings={setListings} 
-        lang={lang} 
-        refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} 
-      />;
+    // 视图分发
+    switch(view) {
+      case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
+      case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
+      case AppView.PRICING: return <PricingManager uiLang={lang} />;
+      case AppView.BILLING: return <BillingCenter uiLang={lang} />;
+      default:
+        if (activeTab === 'listings') {
+          return <ListingsManager 
+            onSelectListing={(l) => { /* Handle Detail View */ }} 
+            listings={listings} 
+            setListings={setListings} 
+            lang={lang} 
+            refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} 
+          />;
+        }
+        return <Dashboard 
+          listings={listings} 
+          lang={lang} 
+          userProfile={userProfile} 
+          onNavigate={handleTabChange} 
+          isSyncing={isSyncing}
+          onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)}
+        />;
     }
-    
-    return <Dashboard 
-      listings={listings} 
-      lang={lang} 
-      userProfile={userProfile} 
-      onNavigate={handleTabChange} 
-      isSyncing={isSyncing}
-      onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)}
-    />;
   };
 
-  // 渲染逻辑
   if (loading) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-slate-50">
-        <div className="relative">
-          <div className="w-16 h-16 border-4 border-indigo-100 rounded-full border-t-indigo-600 animate-spin"></div>
-        </div>
-        <p className="mt-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">
-          {session ? 'Synchronizing Identity...' : 'Initializing...'}
-        </p>
+      <div className="h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-400">
+        <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
+        <p className="text-[10px] font-black uppercase tracking-[0.3em]">Initializing System...</p>
       </div>
     );
   }
