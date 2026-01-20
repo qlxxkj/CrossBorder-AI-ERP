@@ -2,7 +2,8 @@
 import React from 'react';
 import { 
   ArrowRight, Bot, Zap, Globe, Download, Sparkles, Check, 
-  Database, LayoutDashboard, ShoppingCart, TrendingUp, Bell, User, Image as ImageIcon, Search
+  Database, LayoutDashboard, ShoppingCart, TrendingUp, Bell, User, Image as ImageIcon, Search,
+  Cpu, Languages, FileSpreadsheet, Box, Factory, MessageCircle, Github, Twitter, Linkedin
 } from 'lucide-react';
 import { UILanguage } from '../types';
 import { LanguageSwitcher } from './LanguageSwitcher';
@@ -18,8 +19,10 @@ interface LandingPageProps {
 export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onLogoClick, uiLang, onLanguageChange }) => {
   const t = useTranslation(uiLang);
   
+  const currentYear = new Date().getFullYear();
+
   return (
-    <div className="min-h-screen bg-white overflow-x-hidden selection:bg-blue-100 selection:text-blue-900">
+    <div className="min-h-screen bg-white overflow-x-hidden selection:bg-blue-100 selection:text-blue-900 scroll-smooth">
       {/* Navbar */}
       <nav className="border-b border-slate-100 fixed w-full bg-white/80 backdrop-blur-md z-[100]">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -141,6 +144,99 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onLogoClick, 
         </div>
       </section>
 
+      {/* Features Section */}
+      <section id="features" className="py-32 bg-slate-50/50">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-24">
+             <h2 className="text-4xl md:text-5xl font-black text-slate-900 mb-6 tracking-tight">{t('featuresTitle')}</h2>
+             <p className="text-lg text-slate-500 max-w-2xl mx-auto font-medium">{t('featuresSub')}</p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <FeatureCard 
+              icon={<Cpu className="text-blue-600" />} 
+              title={t('f1Title')} 
+              desc={t('f1Desc')} 
+            />
+            <FeatureCard 
+              icon={<Sparkles className="text-purple-600" />} 
+              title={t('f2Title')} 
+              desc={t('f2Desc')} 
+            />
+            <FeatureCard 
+              icon={<Languages className="text-indigo-600" />} 
+              title={t('f3Title')} 
+              desc={t('f3Desc')} 
+            />
+            <FeatureCard 
+              icon={<FileSpreadsheet className="text-emerald-600" />} 
+              title={t('f4Title')} 
+              desc={t('f4Desc')} 
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Sourcing Section */}
+      <section id="sourcing" className="py-32 overflow-hidden">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex flex-col lg:flex-row items-center gap-20">
+            <div className="flex-1 space-y-8">
+               <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-orange-50 text-orange-600 text-[10px] font-black uppercase tracking-widest border border-orange-100">
+                 1688 Visual Search
+               </div>
+               <h2 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight leading-[1.1]">
+                 {t('sourcingTitle')}
+               </h2>
+               <p className="text-lg text-slate-500 font-medium leading-relaxed">
+                 {t('sourcingSub')}
+               </p>
+               <div className="space-y-6">
+                 <div className="flex gap-4">
+                   <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white shrink-0"><ImageIcon size={20}/></div>
+                   <p className="text-slate-600 font-medium">{t('s1Desc')}</p>
+                 </div>
+                 <div className="flex gap-4">
+                   <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white shrink-0"><TrendingUp size={20}/></div>
+                   <p className="text-slate-600 font-medium">{t('s2Desc')}</p>
+                 </div>
+               </div>
+            </div>
+            <div className="flex-1 relative">
+               <div className="absolute -inset-10 bg-orange-500/10 rounded-full blur-[100px]"></div>
+               <div className="relative bg-white border border-slate-100 p-8 rounded-[3rem] shadow-2xl grid grid-cols-2 gap-4">
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="aspect-square bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden group">
+                      <img src={`https://picsum.photos/300/300?random=${i}`} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" />
+                    </div>
+                  ))}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                     <div className="bg-orange-600 text-white p-6 rounded-3xl shadow-2xl animate-bounce">
+                        <Search size={32} />
+                     </div>
+                  </div>
+               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* How It Works Section */}
+      <section id="how" className="py-32 bg-slate-900 text-white">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-24">
+             <h2 className="text-4xl md:text-5xl font-black mb-6 tracking-tight">{t('howItWorks')}</h2>
+          </div>
+
+          <div className="grid md:grid-cols-4 gap-12">
+            <StepCard number="01" title={t('step1Title')} desc={t('step1Desc')} />
+            <StepCard number="02" title={t('step2Title')} desc={t('step2Desc')} />
+            <StepCard number="03" title={t('step3Title')} desc={t('step3Desc')} />
+            <StepCard number="04" title={t('step4Title')} desc={t('step4Desc')} />
+          </div>
+        </div>
+      </section>
+
       {/* Pricing Section */}
       <section id="pricing" className="py-32 relative">
          <div className="max-w-7xl mx-auto px-6">
@@ -150,7 +246,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onLogoClick, 
             </div>
 
             <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-               {/* Free */}
+               {/* Starter */}
                <div className="p-12 bg-slate-50 rounded-[3rem] border border-slate-100 flex flex-col items-start text-left">
                   <h4 className="font-black text-slate-400 mb-2 uppercase tracking-widest text-xs">{t('planStarter')}</h4>
                   <div className="text-6xl font-black text-slate-900 mb-10 tracking-tighter">$0</div>
@@ -162,7 +258,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onLogoClick, 
                   <button onClick={onLogin} className="w-full py-5 bg-white text-slate-900 rounded-2xl font-black border border-slate-200 hover:bg-slate-100 transition-all shadow-sm">{t('freeForever')}</button>
                </div>
                
-               {/* Pro */}
+               {/* Growth */}
                <div className="p-12 bg-blue-600 rounded-[3rem] shadow-[0_40px_80px_-20px_rgba(37,99,235,0.4)] relative flex flex-col items-start text-left text-white scale-105 z-10">
                   <div className="absolute top-6 right-10 px-4 py-1.5 bg-white text-blue-600 text-[10px] font-black rounded-full shadow-lg tracking-widest uppercase">Popular Choice</div>
                   <h4 className="font-black text-blue-200 mb-2 uppercase tracking-widest text-xs">{t('planGrowth')}</h4>
@@ -192,21 +288,100 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onLogoClick, 
          </div>
       </section>
 
-      {/* Final CTA */}
-      <section className="py-32">
-         <div className="max-w-5xl mx-auto px-6">
-            <div className="bg-gradient-to-br from-blue-600 to-indigo-800 rounded-[4rem] p-20 text-center text-white relative overflow-hidden shadow-3xl">
-               <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 blur-[100px] rounded-full"></div>
-               <h2 className="text-5xl font-black mb-8 tracking-tighter">{uiLang === 'zh' ? '准备好开启高效出海了吗？' : 'Ready to dominate globally?'}</h2>
-               <p className="text-xl text-blue-100 mb-12 font-medium max-w-xl mx-auto leading-relaxed">
-                  {uiLang === 'zh' ? '加入全球数千名跨境大卖家的选择，用 AI 重塑铺货工作流。' : 'Join thousands of successful sellers using AI to reshape their commerce workflow.'}
+      {/* Footer */}
+      <footer className="bg-slate-50 border-t border-slate-200 pt-24 pb-12">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-12 mb-24">
+            <div className="space-y-6 col-span-1 lg:col-span-1">
+               <div className="flex items-center gap-3">
+                 <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black shadow-lg">A</div>
+                 <span className="text-2xl font-black text-slate-900">AMZBot</span>
+               </div>
+               <p className="text-slate-500 font-medium leading-relaxed max-w-xs">
+                 The intelligent ERP bridge for global Amazon sellers. Powered by next-gen AI.
                </p>
-               <button onClick={onLogin} className="px-12 py-5 bg-white text-blue-600 rounded-3xl font-black text-xl hover:bg-blue-50 transition-all shadow-2xl hover:scale-105 active:scale-95">
-                  {t('getStarted')}
-               </button>
+               <div className="flex gap-4">
+                 <SocialLink icon={<Github size={20}/>} href="#" />
+                 <SocialLink icon={<Twitter size={20}/>} href="#" />
+                 <SocialLink icon={<Linkedin size={20}/>} href="#" />
+               </div>
             </div>
-         </div>
-      </section>
+
+            <FooterGroup title={t('footerProduct')}>
+               <FooterLink href="#features">{t('features')}</FooterLink>
+               <FooterLink href="#sourcing">{t('sourcing')}</FooterLink>
+               <FooterLink href="#pricing">{t('pricing')}</FooterLink>
+               <FooterLink href="#">Chrome Extension</FooterLink>
+            </FooterGroup>
+
+            <FooterGroup title={t('footerCompany')}>
+               <FooterLink href="#">About Us</FooterLink>
+               <FooterLink href="#">Careers</FooterLink>
+               <FooterLink href="#">Blog</FooterLink>
+               <FooterLink href="#">Media Kit</FooterLink>
+            </FooterGroup>
+
+            <FooterGroup title={t('footerSupport')}>
+               <FooterLink href="#">Help Center</FooterLink>
+               <FooterLink href="#">API Docs</FooterLink>
+               <FooterLink href="#">System Status</FooterLink>
+               <FooterLink href="#">Community</FooterLink>
+            </FooterGroup>
+          </div>
+
+          <div className="pt-8 border-t border-slate-200 flex flex-col md:flex-row items-center justify-between gap-6">
+             <p className="text-slate-400 text-sm font-medium">
+               &copy; {currentYear} AMZBot ERP. {t('allRights')}
+             </p>
+             <div className="flex gap-8 text-xs font-black text-slate-400 uppercase tracking-widest">
+               <a href="#" className="hover:text-blue-600 transition-colors">Privacy Policy</a>
+               <a href="#" className="hover:text-blue-600 transition-colors">Terms of Service</a>
+               <a href="#" className="hover:text-blue-600 transition-colors">Cookies</a>
+             </div>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };
+
+const FeatureCard = ({ icon, title, desc }: any) => (
+  <div className="p-10 bg-white border border-slate-100 rounded-[2.5rem] shadow-sm hover:shadow-2xl hover:border-blue-200 transition-all group">
+    <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform">
+      {icon}
+    </div>
+    <h3 className="text-xl font-black text-slate-900 mb-4">{title}</h3>
+    <p className="text-slate-500 font-medium leading-relaxed">{desc}</p>
+  </div>
+);
+
+const StepCard = ({ number, title, desc }: any) => (
+  <div className="space-y-6">
+    <div className="text-6xl font-black text-white/10 tracking-tighter">{number}</div>
+    <h3 className="text-xl font-black">{title}</h3>
+    <p className="text-slate-400 font-medium leading-relaxed">{desc}</p>
+  </div>
+);
+
+const FooterGroup = ({ title, children }: any) => (
+  <div className="space-y-6">
+    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</h4>
+    <ul className="space-y-4">
+      {children}
+    </ul>
+  </div>
+);
+
+const FooterLink = ({ href, children }: any) => (
+  <li>
+    <a href={href} className="text-slate-600 font-bold text-sm hover:text-blue-600 transition-colors">
+      {children}
+    </a>
+  </li>
+);
+
+const SocialLink = ({ icon, href }: any) => (
+  <a href={href} className="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:shadow-lg transition-all">
+    {icon}
+  </a>
+);
