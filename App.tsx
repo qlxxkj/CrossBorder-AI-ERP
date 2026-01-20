@@ -26,63 +26,79 @@ const App: React.FC = () => {
   const [listings, setListings] = useState<Listing[]>([]);
 
   const fetchIdentity = useCallback(async (userId: string) => {
-    if (!isSupabaseConfigured()) return;
-
-    // 1. 获取用户档案 (使用 maybeSingle 避免 406)
-    let { data: profile, error: profileErr } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (profileErr) console.error("Profile Fetch Error:", profileErr);
-
-    if (!profile) {
-      console.log("No profile found. Initializing new tenant organization...");
-      // 创建新组织
-      const newOrgId = crypto.randomUUID();
-      const { data: newOrg } = await supabase.from('organizations').insert([{
-        id: newOrgId,
-        name: `Org_${userId.slice(0, 5)}`,
-        owner_id: userId,
-        plan_type: 'Free',
-        credits_total: 100,
-        credits_used: 0
-      }]).select().single();
-
-      // 创建租户管理员档案
-      const { data: newProfile } = await supabase.from('user_profiles').insert([{
-        id: userId,
-        org_id: newOrgId,
-        role: 'tenant_admin',
-        plan_type: 'Free',
-        credits_total: 100,
-        credits_used: 0
-      }]).select().single();
-      
-      profile = newProfile;
-      setOrg(newOrg);
-    } else {
-      // 获取关联组织信息
-      if (profile.org_id) {
-        const { data: orgData } = await supabase
-          .from('organizations')
-          .select('*')
-          .eq('id', profile.org_id)
-          .maybeSingle();
-        setOrg(orgData);
-      }
-    }
-
-    setUserProfile(profile);
-    if (profile?.is_suspended) {
-      alert("Account suspended.");
-      await supabase.auth.signOut();
+    if (!isSupabaseConfigured()) {
+      setLoading(false);
       return;
     }
-    
-    // 如果已经登录且有档案，跳转到控制面板
-    setView(AppView.DASHBOARD);
+
+    try {
+      // 1. 获取用户档案
+      let { data: profile, error: profileErr } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profileErr) throw profileErr;
+
+      if (!profile) {
+        console.log("No profile found. Initializing new tenant organization...");
+        // 创建新组织
+        const newOrgId = crypto.randomUUID();
+        const { data: newOrg, error: orgErr } = await supabase.from('organizations').insert([{
+          id: newOrgId,
+          name: `Org_${userId.slice(0, 5)}`,
+          owner_id: userId,
+          plan_type: 'Free',
+          credits_total: 100,
+          credits_used: 0
+        }]).select().single();
+
+        if (orgErr) throw orgErr;
+
+        // 创建租户管理员档案
+        const { data: newProfile, error: insProfileErr } = await supabase.from('user_profiles').insert([{
+          id: userId,
+          org_id: newOrgId,
+          role: 'tenant_admin',
+          plan_type: 'Free',
+          credits_total: 100,
+          credits_used: 0
+        }]).select().single();
+        
+        if (insProfileErr) throw insProfileErr;
+        
+        profile = newProfile;
+        setOrg(newOrg);
+      } else {
+        // 获取关联组织信息
+        if (profile.org_id) {
+          const { data: orgData } = await supabase
+            .from('organizations')
+            .select('*')
+            .eq('id', profile.org_id)
+            .maybeSingle();
+          setOrg(orgData);
+        }
+      }
+
+      setUserProfile(profile);
+      
+      if (profile?.is_suspended) {
+        alert("Account suspended.");
+        await supabase.auth.signOut();
+        return;
+      }
+      
+      // 只有在成功获取身份后才跳转
+      setView(AppView.DASHBOARD);
+    } catch (err: any) {
+      console.error("Identity verification failed:", err);
+      // 如果报错是因为数据库 RLS 限制或表不存在，我们至少应该让 loading 停止
+      // 并在控制台打印详细错误，方便调试
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -93,9 +109,12 @@ const App: React.FC = () => {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      // 只有在 session 真正改变时才触发重新获取
       setSession(newSession);
-      if (newSession) fetchIdentity(newSession.user.id);
-      else { 
+      if (newSession) {
+        setLoading(true);
+        fetchIdentity(newSession.user.id);
+      } else { 
         setView(AppView.LANDING); 
         setUserProfile(null); 
         setOrg(null); 
@@ -136,6 +155,12 @@ const App: React.FC = () => {
     <div className="h-screen flex flex-col items-center justify-center bg-slate-50">
       <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verifying Identity...</p>
+      <button 
+        onClick={() => { setLoading(false); setView(AppView.LANDING); }} 
+        className="mt-8 text-[10px] font-bold text-slate-300 hover:text-indigo-500 transition-colors uppercase tracking-widest"
+      >
+        Cancel and return
+      </button>
     </div>
   );
 
