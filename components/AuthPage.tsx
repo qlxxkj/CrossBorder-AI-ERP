@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Mail, Lock, Loader2, ArrowLeft, MessageCircle } from 'lucide-react';
 import { UILanguage } from '../types';
@@ -19,6 +19,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
 
+  // 强制响应语言变化
+  useEffect(() => {
+    console.log("AuthPage language updated:", uiLang);
+  }, [uiLang]);
+
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -34,7 +39,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang 
           }
         });
         if (error) throw error;
-        setMessage({ type: 'success', text: 'Check your email for the confirmation link!' });
+        setMessage({ type: 'success', text: uiLang === 'zh' ? '请检查您的邮箱以获取确认链接！' : 'Check your email for confirmation!' });
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email,
@@ -69,7 +74,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang 
         <ArrowLeft size={18} className="mr-2" /> {t('back')}
       </button>
 
-      <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden">
+      <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-300">
         <div className="p-10">
           <div className="text-center mb-10">
             <button 
