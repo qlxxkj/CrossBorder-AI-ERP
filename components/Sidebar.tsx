@@ -1,6 +1,9 @@
-
-import React from 'react';
-import { LayoutDashboard, List, Tags, Coins, Layout, ShieldCheck, Settings, Users, LogOut } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  LayoutDashboard, List, Tags, Coins, Layout, ShieldCheck, 
+  Settings, Users, LogOut, ChevronRight, Crown, Zap, 
+  User, CreditCard, ArrowUpRight, ChevronUp
+} from 'lucide-react';
 import { UILanguage, UserProfile } from '../types';
 
 interface SidebarProps {
@@ -8,51 +11,150 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   lang: UILanguage;
   userProfile: UserProfile;
+  session: any;
   onLogout: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang, userProfile, onLogout }) => {
-  const isSuper = userProfile.role === 'super_admin';
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang, userProfile, session, onLogout }) => {
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const isSuper = userProfile.role === 'super_admin' || userProfile.role === 'admin';
   const isTenantAdmin = userProfile.role === 'tenant_admin';
 
+  const userEmail = session?.user?.email || 'User';
+  const emailPrefix = userEmail.split('@')[0];
+  const creditsLeft = (userProfile.credits_total || 0) - (userProfile.credits_used || 0);
+
+  const navItems = [
+    { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: lang === 'zh' ? '仪表盘' : 'Dashboard' },
+    { id: 'listings', icon: <List size={18} />, label: lang === 'zh' ? '产品管理' : 'Listings' },
+    { id: 'categories', icon: <Tags size={18} />, label: lang === 'zh' ? '类目管理' : 'Categories' },
+    { id: 'pricing', icon: <Coins size={18} />, label: lang === 'zh' ? '定价中心' : 'Pricing' },
+    { id: 'templates', icon: <Layout size={18} />, label: lang === 'zh' ? '模板管理' : 'Templates' },
+  ];
+
   return (
-    <div className="w-64 bg-slate-900 text-white h-screen fixed left-0 top-0 flex flex-col p-4">
-      <div className="p-4 mb-8 font-black text-xl flex items-center gap-2">
-        <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-sm">A</div>
-        AMZBot
+    <div className="w-64 bg-slate-900 text-white h-screen fixed left-0 top-0 flex flex-col p-4 shadow-2xl z-50">
+      <div className="p-4 mb-8 flex items-center gap-3">
+        <div className="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center text-lg font-black shadow-lg shadow-blue-900/40">A</div>
+        <span className="font-black text-xl tracking-tight uppercase">AMZBot</span>
       </div>
 
-      <nav className="flex-1 space-y-2">
-        <p className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Main</p>
-        <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl ${activeTab === 'dashboard' ? 'bg-blue-600' : 'text-slate-400 hover:bg-slate-800'}`}>
-          <LayoutDashboard size={18} /> <span>概览</span>
-        </button>
-        <button onClick={() => setActiveTab('listings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl ${activeTab === 'listings' ? 'bg-blue-600' : 'text-slate-400 hover:bg-slate-800'}`}>
-          <List size={18} /> <span>产品</span>
-        </button>
+      <nav className="flex-1 space-y-1">
+        <p className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Core Modules</p>
+        {navItems.map(item => (
+          <button 
+            key={item.id}
+            onClick={() => setActiveTab(item.id)} 
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 ${
+              activeTab === item.id 
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            {item.icon} <span className="text-sm font-bold">{item.label}</span>
+          </button>
+        ))}
 
         {isTenantAdmin && (
           <>
-            <p className="px-4 pt-6 text-[10px] font-black text-slate-500 uppercase tracking-widest">Management</p>
-            <button onClick={() => setActiveTab('system')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl ${activeTab === 'system' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-              <Settings size={18} /> <span>系统管理</span>
+            <p className="px-4 pt-8 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Administration</p>
+            <button 
+              onClick={() => setActiveTab('system')} 
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
+                activeTab === 'system' 
+                  ? 'bg-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Settings size={18} /> <span className="text-sm font-bold">{lang === 'zh' ? '系统配置' : 'System'}</span>
             </button>
           </>
         )}
 
         {isSuper && (
           <>
-            <p className="px-4 pt-6 text-[10px] font-black text-amber-500 uppercase tracking-widest">Super Admin</p>
-            <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl ${activeTab === 'admin' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-              <ShieldCheck size={18} /> <span>运营后台</span>
+            <p className="px-4 pt-8 text-[10px] font-black text-amber-500 uppercase tracking-widest mb-4">Global Ops</p>
+            <button 
+              onClick={() => setActiveTab('admin')} 
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
+                activeTab === 'admin' 
+                  ? 'bg-amber-600 text-white shadow-lg' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <ShieldCheck size={18} /> <span className="text-sm font-bold">{lang === 'zh' ? '管理后台' : 'Admin'}</span>
             </button>
           </>
         )}
       </nav>
 
-      <button onClick={onLogout} className="mt-auto flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl">
-        <LogOut size={18} /> <span>退出登录</span>
-      </button>
+      {/* User Interaction Area */}
+      <div className="mt-auto relative pt-4 border-t border-slate-800">
+        {/* User Popover Menu */}
+        {showUserMenu && (
+          <div className="absolute bottom-full left-0 w-full mb-4 bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-2 duration-300">
+            <div className="p-5 border-b border-slate-700 bg-slate-900/50">
+               <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-black">
+                     {emailPrefix.slice(0, 1).toUpperCase()}
+                  </div>
+                  <div className="overflow-hidden">
+                     <p className="text-sm font-black truncate">{emailPrefix}</p>
+                     <p className="text-[10px] text-slate-500 truncate">{userEmail}</p>
+                  </div>
+               </div>
+               <div className="space-y-3">
+                  <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+                    <span className="text-slate-500">Plan</span>
+                    <span className="text-amber-400 flex items-center gap-1"><Crown size={10}/> {userProfile.plan_type}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+                    <span className="text-slate-500">Credits</span>
+                    <span className="text-emerald-400">{creditsLeft} / {userProfile.credits_total}</span>
+                  </div>
+               </div>
+            </div>
+            
+            <div className="p-2">
+               <button 
+                onClick={() => { setActiveTab('billing'); setShowUserMenu(false); }}
+                className="w-full flex items-center justify-between p-3 text-xs font-black uppercase text-slate-300 hover:bg-slate-700 hover:text-white rounded-xl transition-all"
+               >
+                 <div className="flex items-center gap-2"><CreditCard size={14}/> {lang === 'zh' ? '升级方案' : 'Upgrade Plan'}</div>
+                 <ArrowUpRight size={14}/>
+               </button>
+               <button 
+                onClick={onLogout}
+                className="w-full flex items-center gap-2 p-3 text-xs font-black uppercase text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
+               >
+                 <LogOut size={14}/> {lang === 'zh' ? '退出登录' : 'Sign Out'}
+               </button>
+            </div>
+          </div>
+        )}
+
+        {/* User Pill Trigger */}
+        <button 
+          onClick={() => setShowUserMenu(!showUserMenu)}
+          className={`w-full p-2 rounded-2xl border transition-all flex items-center gap-3 ${
+            showUserMenu ? 'bg-slate-800 border-slate-700 shadow-inner' : 'bg-transparent border-transparent hover:bg-slate-800'
+          }`}
+        >
+          <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg overflow-hidden shrink-0">
+             {emailPrefix.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="flex-1 text-left overflow-hidden">
+            <p className="text-xs font-black truncate">{emailPrefix}</p>
+            <div className="flex items-center gap-1 mt-0.5">
+               <span className="text-[8px] font-black bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded uppercase">{userProfile.plan_type}</span>
+               <span className="text-[8px] font-black text-slate-500 uppercase flex items-center gap-0.5">
+                 <Zap size={8} className="text-amber-500" /> {creditsLeft}
+               </span>
+            </div>
+          </div>
+          {showUserMenu ? <ChevronUp size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-500" />}
+        </button>
+      </div>
     </div>
   );
 };

@@ -24,6 +24,15 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const fetchListings = useCallback(async (orgId: string) => {
+    if (!isSupabaseConfigured()) return;
+    setIsSyncing(true);
+    const { data } = await supabase.from('listings').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
+    if (data) setListings(data);
+    setIsSyncing(false);
+  }, []);
 
   const fetchIdentity = useCallback(async (userId: string) => {
     if (!isSupabaseConfigured()) {
@@ -32,7 +41,6 @@ const App: React.FC = () => {
     }
 
     try {
-      // 1. 获取用户档案
       let { data: profile, error: profileErr } = await supabase
         .from('user_profiles')
         .select('*')
@@ -41,10 +49,12 @@ const App: React.FC = () => {
 
       if (profileErr) throw profileErr;
 
+      // 如果没有 Profile，进行“平滑迁移”
       if (!profile) {
-        console.log("No profile found. Initializing new tenant organization...");
-        // 创建新组织
+        console.log("Legacy user detected. Migrating to RBAC structure...");
         const newOrgId = crypto.randomUUID();
+        
+        // 1. 创建新组织
         const { data: newOrg, error: orgErr } = await supabase.from('organizations').insert([{
           id: newOrgId,
           name: `Org_${userId.slice(0, 5)}`,
@@ -53,10 +63,9 @@ const App: React.FC = () => {
           credits_total: 100,
           credits_used: 0
         }]).select().single();
-
         if (orgErr) throw orgErr;
 
-        // 创建租户管理员档案
+        // 2. 创建用户 Profile
         const { data: newProfile, error: insProfileErr } = await supabase.from('user_profiles').insert([{
           id: userId,
           org_id: newOrgId,
@@ -65,41 +74,33 @@ const App: React.FC = () => {
           credits_total: 100,
           credits_used: 0
         }]).select().single();
-        
         if (insProfileErr) throw insProfileErr;
+        
+        // 3. 数据迁移：将该用户之前的所有孤立 listing 关联到新组织
+        await supabase.from('listings').update({ org_id: newOrgId }).eq('user_id', userId).is('org_id', null);
         
         profile = newProfile;
         setOrg(newOrg);
-      } else {
-        // 获取关联组织信息
-        if (profile.org_id) {
-          const { data: orgData } = await supabase
-            .from('organizations')
-            .select('*')
-            .eq('id', profile.org_id)
-            .maybeSingle();
-          setOrg(orgData);
-        }
+      } else if (profile.org_id) {
+        const { data: orgData } = await supabase.from('organizations').select('*').eq('id', profile.org_id).maybeSingle();
+        setOrg(orgData);
       }
 
       setUserProfile(profile);
-      
       if (profile?.is_suspended) {
         alert("Account suspended.");
         await supabase.auth.signOut();
         return;
       }
       
-      // 只有在成功获取身份后才跳转
+      if (profile?.org_id) fetchListings(profile.org_id);
       setView(AppView.DASHBOARD);
     } catch (err: any) {
       console.error("Identity verification failed:", err);
-      // 如果报错是因为数据库 RLS 限制或表不存在，我们至少应该让 loading 停止
-      // 并在控制台打印详细错误，方便调试
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchListings]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
@@ -109,7 +110,6 @@ const App: React.FC = () => {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      // 只有在 session 真正改变时才触发重新获取
       setSession(newSession);
       if (newSession) {
         setLoading(true);
@@ -126,9 +126,17 @@ const App: React.FC = () => {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    if (tab === 'admin') setView(AppView.ADMIN);
-    else if (tab === 'system') setView(AppView.SYSTEM_MGMT);
-    else setView(AppView.DASHBOARD);
+    switch(tab) {
+      case 'dashboard': setView(AppView.DASHBOARD); break;
+      case 'listings': setView(AppView.DASHBOARD); break; // Tab within Dashboard view context
+      case 'templates': setView(AppView.TEMPLATES); break;
+      case 'categories': setView(AppView.CATEGORIES); break;
+      case 'pricing': setView(AppView.PRICING); break;
+      case 'billing': setView(AppView.BILLING); break;
+      case 'admin': setView(AppView.ADMIN); break;
+      case 'system': setView(AppView.SYSTEM_MGMT); break;
+      default: setView(AppView.DASHBOARD);
+    }
   };
 
   const renderContent = () => {
@@ -138,40 +146,48 @@ const App: React.FC = () => {
     if (view === AppView.SYSTEM_MGMT && userProfile?.role === 'tenant_admin') {
       return <SystemManagement uiLang={lang} orgId={userProfile.org_id!} />;
     }
+    if (view === AppView.TEMPLATES) return <TemplateManager uiLang={lang} />;
+    if (view === AppView.CATEGORIES) return <CategoryManager uiLang={lang} />;
+    if (view === AppView.PRICING) return <PricingManager uiLang={lang} />;
+    if (view === AppView.BILLING) return <BillingCenter uiLang={lang} />;
     
-    switch (activeTab) {
-      case 'dashboard': 
-        return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
-      case 'listings': 
-        return <ListingsManager onSelectListing={() => {}} listings={listings} setListings={setListings} lang={lang} refreshListings={() => {}} />;
-      case 'billing': 
-        return <BillingCenter uiLang={lang} />;
-      default: 
-        return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
+    // Default Dashboard Tabs
+    if (activeTab === 'listings') {
+      return <ListingsManager 
+        onSelectListing={(l) => { /* Handle listing selection */ }} 
+        listings={listings} 
+        setListings={setListings} 
+        lang={lang} 
+        refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} 
+      />;
     }
+    
+    return <Dashboard 
+      listings={listings} 
+      lang={lang} 
+      userProfile={userProfile} 
+      onNavigate={handleTabChange} 
+      isSyncing={isSyncing}
+      onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)}
+    />;
   };
 
   if (loading && session) return (
     <div className="h-screen flex flex-col items-center justify-center bg-slate-50">
       <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verifying Identity...</p>
-      <button 
-        onClick={() => { setLoading(false); setView(AppView.LANDING); }} 
-        className="mt-8 text-[10px] font-bold text-slate-300 hover:text-indigo-500 transition-colors uppercase tracking-widest"
-      >
-        Cancel and return
-      </button>
     </div>
   );
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      {userProfile && (
+      {userProfile && session && (
         <Sidebar 
           activeTab={activeTab} 
           setActiveTab={handleTabChange} 
           lang={lang} 
           userProfile={userProfile}
+          session={session}
           onLogout={() => supabase.auth.signOut()}
         />
       )}
