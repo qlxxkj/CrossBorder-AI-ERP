@@ -26,7 +26,7 @@ const App: React.FC = () => {
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
 
-  // 1. 语言切换与同步逻辑
+  // 1. 语言切换与同步逻辑 - 核心：确保持久化
   const handleLanguageChange = (newLang: UILanguage) => {
     console.log("Switching language to:", newLang);
     setLang(newLang);
@@ -42,20 +42,19 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // 2. 深度修复：自动创建缺失的用户档案
+  // 2. 获取用户档案 - 修复 TS2339 错误
   const fetchUserProfile = useCallback(async (userId: string) => {
     if (!isSupabaseConfigured()) return;
     
-    // 尝试获取档案
     const { data, error } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('id', userId)
       .single();
     
-    if (error && (error.code === 'PGRST116' || error.status === 406)) {
-      console.warn("Profile missing (PGRST116), creating a new one for user:", userId);
-      // 如果不存在，自动创建一个初始档案
+    // PGRST116 是 Supabase 找不到单行数据时的标准错误码
+    if (error && error.code === 'PGRST116') {
+      console.warn("Profile missing (PGRST116), creating default one...");
       const { data: newData, error: createError } = await supabase
         .from('user_profiles')
         .insert([{ 
@@ -70,23 +69,27 @@ const App: React.FC = () => {
       
       if (!createError && newData) {
         setUserProfile(newData);
-        console.log("New Profile Created. Role is currently 'user'. Please re-run your SQL UPDATE now.");
+        console.log("Auto-created profile for user. Role:", newData.role);
+      } else {
+        console.error("Failed to auto-create profile:", createError);
       }
       return;
     }
 
     if (data) {
       if (data.is_suspended) {
-        alert("账户已被停用 / Account suspended.");
+        alert(lang === 'zh' ? "账户已被停用" : "Account suspended.");
         await supabase.auth.signOut();
         return;
       }
       setUserProfile(data);
-      console.log("UserProfile Sync SUCCESS. Role:", data.role);
-      // 更新最后登录时间
+      console.log("User Access Level:", data.role);
+      // 更新最后活跃时间
       await supabase.from('user_profiles').update({ last_login_at: new Date().toISOString() }).eq('id', userId);
+    } else if (error) {
+      console.error("Profile Fetch Error:", error.message);
     }
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -136,7 +139,7 @@ const App: React.FC = () => {
       if (userProfile?.role === 'admin') {
         setView(AppView.ADMIN);
       } else {
-        alert(lang === 'zh' ? "需要管理员权限，请确保数据库 role 字段已改为 'admin' 并刷新。" : "Admin role required.");
+        alert(lang === 'zh' ? "需要管理员权限。" : "Admin role required.");
         setActiveTab('dashboard');
       }
     } else {
@@ -169,7 +172,7 @@ const App: React.FC = () => {
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white">
       <Loader2 className="animate-spin text-indigo-600" size={48} />
-      <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Initializing AMZBot Environment...</p>
+      <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Fueling AMZBot...</p>
     </div>
   );
 
