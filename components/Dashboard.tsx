@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { CheckCircle, TrendingUp, Package, Sparkles, Globe, Clock, Zap, RefreshCcw, Loader2, Layout, ShieldCheck, ArrowRight } from 'lucide-react';
+import { CheckCircle, TrendingUp, Package, Sparkles, Globe, Clock, Zap, RefreshCcw, Loader2, Layout, ShieldCheck, ArrowRight, AlertTriangle } from 'lucide-react';
 import { Listing, UILanguage, UserProfile } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -17,6 +17,7 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing, onRefresh, userProfile, onNavigate }) => {
   const t = useTranslation(lang);
   const [templateCount, setTemplateCount] = useState(0);
+  const isAdmin = userProfile?.role === 'admin';
 
   useEffect(() => {
     const fetchTemplateCount = async () => {
@@ -35,7 +36,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+    <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
+      {/* 管理员权限显著提醒 */}
+      {isAdmin && (
+        <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 rounded-[2.5rem] shadow-2xl shadow-amber-200 text-white flex flex-col md:flex-row items-center justify-between gap-6 animate-in slide-in-from-top-4 duration-500">
+           <div className="flex items-center gap-5">
+              <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
+                 <ShieldCheck size={32} />
+              </div>
+              <div>
+                 <h3 className="text-xl font-black tracking-tight">{lang === 'zh' ? '检测到管理员权限' : 'Administrator Privileges Detected'}</h3>
+                 <p className="text-amber-100 text-sm font-bold opacity-90">{lang === 'zh' ? '您可以管理全站用户数据、订阅套餐和系统配置。' : 'You can manage all users, subscription plans, and system configs.'}</p>
+              </div>
+           </div>
+           <button 
+             onClick={() => onNavigate?.('admin')}
+             className="px-8 py-3 bg-white text-orange-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-amber-50 transition-all shadow-xl flex items-center gap-2 group"
+           >
+             {lang === 'zh' ? '立即进入管理后台' : 'Enter Admin Console'}
+             <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+           </button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-2">
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">
@@ -45,15 +68,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
         </div>
         
         <div className="flex items-center gap-4">
-          {userProfile?.role === 'admin' && (
-            <button 
-              onClick={() => onNavigate?.('admin')}
-              className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-600 shadow-xl shadow-amber-200 transition-all active:scale-95"
-            >
-              <ShieldCheck size={16} />
-              {lang === 'zh' ? '管理后台入口' : 'Admin Console'}
-            </button>
-          )}
           {onRefresh && (
             <button 
               onClick={onRefresh} 

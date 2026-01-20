@@ -96,7 +96,7 @@ const App: React.FC = () => {
     setActiveTab(tab);
     if (tab === 'admin') {
       setView(AppView.ADMIN);
-    } else if (view === AppView.ADMIN || view === AppView.LISTING_DETAIL) {
+    } else {
       setView(AppView.DASHBOARD);
     }
   };
@@ -116,6 +116,9 @@ const App: React.FC = () => {
       case 'pricing': return <PricingManager uiLang={lang} />;
       case 'templates': return <TemplateManager uiLang={lang} />;
       case 'billing': return <BillingCenter uiLang={lang} />;
+      case 'admin': 
+        if (userProfile?.role === 'admin') return <AdminDashboard uiLang={lang} />;
+        return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
       default: return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
     }
   };

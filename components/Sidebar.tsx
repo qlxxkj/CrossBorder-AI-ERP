@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Package, LogOut, LayoutDashboard, Settings, Layout, List, Tags, Coins, CreditCard, User, ChevronRight, Crown, Sparkles, Mail, ShieldCheck } from 'lucide-react';
+import { Package, LogOut, LayoutDashboard, Settings, Layout, List, Tags, Coins, CreditCard, User, ChevronRight, Crown, Sparkles, Mail, ShieldCheck, RefreshCcw } from 'lucide-react';
 import { UILanguage, UserProfile } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '../lib/supabaseClient';
@@ -21,6 +21,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
   const profileRef = useRef<HTMLDivElement>(null);
 
   const userName = userEmail ? userEmail.split('@')[0] : 'User';
+  const isAdmin = userProfile?.role === 'admin';
   
   const menuItems = [
     { id: 'dashboard', label: lang === 'zh' ? '概览' : 'Dashboard', icon: <LayoutDashboard size={20} /> },
@@ -28,13 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
     { id: 'categories', label: lang === 'zh' ? '分类管理' : 'Categories', icon: <Tags size={20} /> },
     { id: 'pricing', label: lang === 'zh' ? '定价中心' : 'Pricing Center', icon: <Coins size={20} /> },
     { id: 'templates', label: t('templates'), icon: <Layout size={20} /> },
-    { id: 'settings', label: t('settings'), icon: <Settings size={20} /> },
   ];
-
-  // 管理员入口
-  if (userProfile?.role === 'admin') {
-    menuItems.push({ id: 'admin', label: lang === 'zh' ? '管理后台' : 'Admin Console', icon: <ShieldCheck size={20} /> });
-  }
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -47,7 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
   }, []);
 
   return (
-    <div className="w-64 bg-slate-900 text-white h-screen flex flex-col fixed left-0 top-0 z-50">
+    <div className="w-64 bg-slate-900 text-white h-screen flex flex-col fixed left-0 top-0 z-50 shadow-2xl">
       <div className="p-6 border-b border-slate-800 flex items-center justify-between">
         <button onClick={onLogoClick} className="text-xl font-black flex items-center gap-2 hover:opacity-80 transition-opacity">
           <span className="bg-blue-600 px-2 py-0.5 rounded text-sm">ERP</span> AMZBot
@@ -55,6 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
       </div>
 
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
+        <p className="px-4 py-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Main Menu</p>
         {menuItems.map((item) => (
           <button
             key={item.id}
@@ -69,37 +65,63 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
             <span className="font-bold text-sm">{item.label}</span>
           </button>
         ))}
+
+        {isAdmin && (
+          <div className="pt-6 mt-6 border-t border-slate-800">
+            <p className="px-4 py-2 text-[10px] font-black text-amber-500 uppercase tracking-[0.2em]">Management</p>
+            <button
+              onClick={() => setActiveTab('admin')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeTab === 'admin' 
+                  ? 'bg-amber-500 text-white shadow-lg shadow-amber-900/50 scale-105' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-amber-400'
+              }`}
+            >
+              <ShieldCheck size={20} />
+              <span className="font-bold text-sm">{lang === 'zh' ? '运营管理后台' : 'Admin Console'}</span>
+            </button>
+          </div>
+        )}
       </nav>
 
-      {/* 用户资料面板 */}
       <div className="p-4 border-t border-slate-800 relative" ref={profileRef}>
         {isProfileOpen && (
           <div className="absolute bottom-full left-4 right-4 mb-2 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-2 duration-200 z-[60]">
             <div className="p-4 border-b border-slate-700 bg-slate-800/50">
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">{t('personalInfo')}</p>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-black uppercase">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-black uppercase shadow-lg ${isAdmin ? 'bg-amber-500' : 'bg-blue-600'}`}>
                   {userName.charAt(0)}
                 </div>
                 <div className="flex-1 overflow-hidden">
-                  <p className="text-sm font-black truncate">{userName}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-black truncate">{userName}</p>
+                    {isAdmin && <span className="bg-amber-500/20 text-amber-500 text-[8px] px-1.5 py-0.5 rounded font-black border border-amber-500/30">ADMIN</span>}
+                  </div>
                   <p className="text-[10px] text-slate-400 truncate flex items-center gap-1"><Mail size={10} /> {userEmail}</p>
                 </div>
               </div>
             </div>
 
-            <div className="p-4 border-b border-slate-700">
-               <div className="flex items-center justify-between mb-2">
+            <div className="p-4 border-b border-slate-700 space-y-3">
+               <div className="flex items-center justify-between">
                  <span className="text-xs font-bold text-slate-300 flex items-center gap-2"><Crown size={14} className="text-amber-400" /> {userProfile?.plan_type || 'Free'}</span>
                  <span className="text-[10px] font-black text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">{userProfile ? (userProfile.credits_total - userProfile.credits_used) : 0} {t('credits')}</span>
                </div>
                <button 
                 onClick={() => { setActiveTab('billing'); setIsProfileOpen(false); }}
-                className="w-full mt-2 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2"
                >
                  <Sparkles size={14} /> {t('upgradePlan')}
                </button>
             </div>
+
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-700 transition-all font-bold text-xs"
+            >
+              <RefreshCcw size={16} />
+              <span>刷新系统权限</span>
+            </button>
 
             <button 
               onClick={onLogout}
@@ -114,18 +136,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
         <button 
           onClick={() => setIsProfileOpen(!isProfileOpen)}
           className={`w-full flex items-center gap-3 p-3 rounded-2xl transition-all ${
-            isProfileOpen ? 'bg-slate-800 ring-1 ring-slate-700 shadow-inner' : 'hover:bg-slate-800'
+            isProfileOpen ? 'bg-slate-800 ring-1 ring-slate-700 shadow-inner' : 'hover:bg-slate-800 border border-transparent hover:border-slate-700'
           }`}
         >
-          <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-blue-400 shrink-0">
-            <User size={20} />
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${isAdmin ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' : 'bg-slate-800 border-slate-700 text-blue-400'}`}>
+            {isAdmin ? <ShieldCheck size={20} /> : <User size={20} />}
           </div>
           <div className="flex-1 text-left overflow-hidden">
-            <p className="text-xs font-black truncate text-slate-100">{userName}</p>
-            <p className="text-[10px] font-bold text-slate-500 truncate flex items-center gap-1">
-              <span className="text-amber-500 uppercase">{userProfile?.plan_type || 'Free'}</span>
-              <span className="opacity-30">|</span>
-              <span>{userProfile ? (userProfile.credits_total - userProfile.credits_used) : 0} Credits</span>
+            <p className="text-xs font-black truncate text-slate-100 flex items-center gap-1.5">
+              {userName}
+              {isAdmin && <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse"></span>}
+            </p>
+            <p className="text-[10px] font-bold text-slate-500 truncate uppercase tracking-tighter">
+              {isAdmin ? 'System Administrator' : `${userProfile?.plan_type || 'Free'} Member`}
             </p>
           </div>
           <ChevronRight size={14} className={`text-slate-600 transition-transform ${isProfileOpen ? 'rotate-90' : ''}`} />
