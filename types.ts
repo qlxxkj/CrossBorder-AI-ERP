@@ -7,18 +7,40 @@ export interface Organization {
   credits_total: number;
   credits_used: number;
   created_at: string;
+  // 新增字段
+  address?: string;
+  contact_name?: string;
+  contact_phone?: string;
 }
 
 export interface UserProfile {
   id: string;
   org_id: string | null;
   role: 'super_admin' | 'tenant_admin' | 'user' | 'admin';
+  email?: string; // 新增 Email
   is_suspended?: boolean;
   last_login_at?: string;
   created_at?: string;
   credits_total: number;
   credits_used: number;
   plan_type: 'Free' | 'Pro' | 'Elite';
+}
+
+export interface RolePermission {
+  menu_id: string;
+  can_create: boolean;
+  can_read: boolean;
+  can_update: boolean;
+  can_delete: boolean;
+}
+
+export interface Role {
+  id: string;
+  org_id: string;
+  name: string;
+  description?: string;
+  permissions: RolePermission[];
+  created_at: string;
 }
 
 export interface CleanedData {

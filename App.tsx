@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { ListingsManager } from './components/ListingsManager';
@@ -17,6 +18,7 @@ import { Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.LANDING);
+  const viewRef = useRef(view); // 使用 Ref 追踪最新 view
   const [activeTab, setActiveTab] = useState('dashboard');
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -25,6 +27,8 @@ const App: React.FC = () => {
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  useEffect(() => { viewRef.current = view; }, [view]);
 
   const fetchListings = useCallback(async (orgId: string) => {
     if (!isSupabaseConfigured()) return;
@@ -54,13 +58,10 @@ const App: React.FC = () => {
 
       if (profileErr) throw profileErr;
 
-      // 如果没有 Profile，进行“实时平滑迁移” (针对老用户)
       if (!profile) {
         console.log("Legacy user detected. Migrating to RBAC structure...");
         const newOrgId = crypto.randomUUID();
-        
-        // 1. 创建新组织
-        const { data: newOrg, error: orgErr } = await supabase.from('organizations').insert([{
+        const { data: newOrg } = await supabase.from('organizations').insert([{
           id: newOrgId,
           name: `Org_${userId.slice(0, 5)}`,
           owner_id: userId,
@@ -69,23 +70,17 @@ const App: React.FC = () => {
           credits_used: 0
         }]).select().single();
         
-        if (orgErr) throw orgErr;
-
-        // 2. 创建用户 Profile
-        const { data: newProfile, error: insProfileErr } = await supabase.from('user_profiles').insert([{
+        const { data: newProfile } = await supabase.from('user_profiles').insert([{
           id: userId,
           org_id: newOrgId,
           role: 'tenant_admin',
+          email: session?.user?.email,
           plan_type: 'Free',
           credits_total: 100,
           credits_used: 0
         }]).select().single();
         
-        if (insProfileErr) throw insProfileErr;
-        
-        // 3. 关联老数据：将之前孤立的 listing 关联到新组织
         await supabase.from('listings').update({ org_id: newOrgId }).eq('user_id', userId).is('org_id', null);
-        
         profile = newProfile;
         setOrg(newOrg);
       } else if (profile.org_id) {
@@ -105,14 +100,17 @@ const App: React.FC = () => {
         await fetchListings(profile.org_id);
       }
       
-      setView(AppView.DASHBOARD);
+      // 核心修复：仅当用户处于 Landing/Auth 时才强制切到 Dashboard
+      if (viewRef.current === AppView.LANDING || viewRef.current === AppView.AUTH) {
+        setView(AppView.DASHBOARD);
+      }
     } catch (err: any) {
       console.error("Identity verification failed:", err);
       setView(AppView.AUTH);
     } finally {
       setLoading(false);
     }
-  }, [fetchListings]);
+  }, [fetchListings, session]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
@@ -159,10 +157,9 @@ const App: React.FC = () => {
       return <AdminDashboard uiLang={lang} />;
     }
     if (view === AppView.SYSTEM_MGMT && userProfile?.role === 'tenant_admin') {
-      return <SystemManagement uiLang={lang} orgId={userProfile.org_id!} />;
+      return <SystemManagement uiLang={lang} orgId={userProfile.org_id!} orgData={org} onOrgUpdate={setOrg} />;
     }
     
-    // 视图分发
     switch(view) {
       case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
       case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
@@ -171,7 +168,7 @@ const App: React.FC = () => {
       default:
         if (activeTab === 'listings') {
           return <ListingsManager 
-            onSelectListing={(l) => { /* Handle Detail View */ }} 
+            onSelectListing={(l) => { /* Selection */ }} 
             listings={listings} 
             setListings={setListings} 
             lang={lang} 
