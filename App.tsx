@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { ListingsManager } from './components/ListingsManager';
@@ -13,7 +13,7 @@ import { BillingCenter } from './components/BillingCenter';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AppView, Listing, UILanguage, UserProfile } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.LANDING);
@@ -25,7 +25,6 @@ const App: React.FC = () => {
   const [isInitialFetch, setIsInitialFetch] = useState(false);
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
-  const [initError, setInitError] = useState<string | null>(null);
 
   useEffect(() => {
     const savedLang = localStorage.getItem('app_lang') as UILanguage;
@@ -34,7 +33,7 @@ const App: React.FC = () => {
 
   const fetchUserProfile = async (userId: string) => {
     if (!isSupabaseConfigured()) return;
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('id', userId)
@@ -42,19 +41,17 @@ const App: React.FC = () => {
     
     if (data) {
       if (data.is_suspended) {
-        alert("Your account is suspended. Contact support.");
+        alert("账户已被停用，请联系客服。");
         await supabase.auth.signOut();
         return;
       }
       setUserProfile(data);
-      // 更新最后登录时间
       await supabase.from('user_profiles').update({ last_login_at: new Date().toISOString() }).eq('id', userId);
     }
   };
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
-      setInitError("Supabase configuration is missing.");
       setLoading(false);
       return;
     }
@@ -67,9 +64,6 @@ const App: React.FC = () => {
         fetchUserProfile(currentSession.user.id);
       }
       setLoading(false);
-    }).catch(err => {
-      console.error("Auth init error:", err);
-      setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
@@ -81,7 +75,6 @@ const App: React.FC = () => {
       } else if (event === 'SIGNED_OUT') {
         setView(AppView.LANDING);
         setListings([]);
-        setSelectedListing(null);
         setUserProfile(null);
       }
     });
@@ -89,119 +82,61 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleLanguageChange = (newLang: UILanguage) => {
-    setLang(newLang);
-    localStorage.setItem('app_lang', newLang);
-  };
-
   const fetchListings = useCallback(async (userId?: string) => {
     const uid = userId || session?.user?.id;
     if (!isSupabaseConfigured() || !uid) return;
-    
     setIsInitialFetch(true);
     try {
-      const { data, error } = await supabase
-        .from('listings')
-        .select('*')
-        .eq('user_id', uid)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
+      const { data } = await supabase.from('listings').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       setListings(data || []);
-    } catch (e) {
-      console.error("Fetch failed:", e);
-    } finally {
-      setIsInitialFetch(false);
-    }
+    } catch (e) { console.error(e); } finally { setIsInitialFetch(false); }
   }, [session]);
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    if (view === AppView.LISTING_DETAIL || view === AppView.ADMIN) {
+    if (tab === 'admin') {
+      setView(AppView.ADMIN);
+    } else if (view === AppView.ADMIN || view === AppView.LISTING_DETAIL) {
       setView(AppView.DASHBOARD);
     }
   };
-
-  const handleLoginClick = () => {
-    if (session) setView(AppView.DASHBOARD);
-    else setView(AppView.AUTH);
-  };
-
-  if (loading) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-white">
-      <div className="w-16 h-16 border-4 border-indigo-600/20 border-t-indigo-600 rounded-full animate-spin"></div>
-      <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Initializing AMZBot</p>
-    </div>
-  );
 
   const renderContent = () => {
     if (view === AppView.ADMIN && userProfile?.role === 'admin') {
       return <AdminDashboard uiLang={lang} />;
     }
     if (view === AppView.LISTING_DETAIL && selectedListing) {
-      return (
-        <ListingDetail 
-          listing={selectedListing} 
-          onBack={() => { setView(AppView.DASHBOARD); fetchListings(); }}
-          onUpdate={(updated) => {
-            setListings(prev => prev.map(l => l.id === updated.id ? updated : l));
-            setSelectedListing(updated);
-          }}
-          onNext={() => {
-            const idx = listings.findIndex(l => l.id === selectedListing.id);
-            if (idx === -1) return;
-            const next = listings[(idx + 1) % listings.length];
-            setSelectedListing(next);
-          }}
-          uiLang={lang}
-        />
-      );
+      return <ListingDetail listing={selectedListing} onBack={() => { setView(AppView.DASHBOARD); fetchListings(); }} onUpdate={(u) => setListings(prev => prev.map(l => l.id === u.id ? u : l))} onNext={() => {}} uiLang={lang} />;
     }
 
     switch (activeTab) {
-      case 'dashboard': return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
-      case 'listings': return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => fetchListings()} isInitialLoading={isInitialFetch} />;
+      case 'dashboard': return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} userProfile={userProfile} onNavigate={handleTabChange} />;
+      case 'listings': return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => fetchListings()} />;
       case 'categories': return <CategoryManager uiLang={lang} />;
       case 'pricing': return <PricingManager uiLang={lang} />;
       case 'templates': return <TemplateManager uiLang={lang} />;
       case 'billing': return <BillingCenter uiLang={lang} />;
-      case 'admin': 
-        if (userProfile?.role === 'admin') {
-          setView(AppView.ADMIN);
-          return null;
-        }
-        return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
-      default: return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
+      default: return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
     }
   };
+
+  if (loading) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-white">
+      <Loader2 className="animate-spin text-indigo-600" size={48} />
+      <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Fueling AMZBot...</p>
+    </div>
+  );
 
   return (
     <div className="flex min-h-screen bg-slate-50">
       {view !== AppView.LANDING && view !== AppView.AUTH && (
-        <Sidebar 
-          onLogout={handleLogout} 
-          onLogoClick={() => setView(AppView.LANDING)} 
-          activeTab={activeTab} 
-          setActiveTab={handleTabChange} 
-          lang={lang} 
-          userEmail={session?.user?.email}
-          userProfile={userProfile}
-        />
+        <Sidebar onLogout={() => supabase.auth.signOut()} onLogoClick={() => setView(AppView.LANDING)} activeTab={activeTab} setActiveTab={handleTabChange} lang={lang} userEmail={session?.user?.email} userProfile={userProfile} />
       )}
-      
-      <main className={`${view !== AppView.LANDING && view !== AppView.AUTH ? 'ml-64' : 'w-full'} flex-1 flex flex-col h-screen overflow-hidden`}>
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
-           {view === AppView.LANDING ? (
-             <LandingPage onLogin={handleLoginClick} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} onLanguageChange={handleLanguageChange} />
-           ) : view === AppView.AUTH ? (
-             <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} />
-           ) : (
-             renderContent()
-           )}
+      <main className={`${view !== AppView.LANDING && view !== AppView.AUTH ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden`}>
+        <div className="h-full overflow-y-auto custom-scrollbar">
+          {view === AppView.LANDING ? <LandingPage onLogin={() => setView(AppView.AUTH)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} onLanguageChange={(l) => setLang(l)} /> :
+           view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} onLogoClick={() => setView(AppView.LANDING)} uiLang={lang} /> :
+           renderContent()}
         </div>
       </main>
     </div>
