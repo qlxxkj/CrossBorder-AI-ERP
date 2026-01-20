@@ -10,6 +10,7 @@ import { TemplateManager } from './components/TemplateManager';
 import { CategoryManager } from './components/CategoryManager';
 import { PricingManager } from './components/PricingManager';
 import { BillingCenter } from './components/BillingCenter';
+import { AdminDashboard } from './components/AdminDashboard';
 import { AppView, Listing, UILanguage, UserProfile } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { AlertTriangle, Loader2 } from 'lucide-react';
@@ -26,13 +27,11 @@ const App: React.FC = () => {
   const [listings, setListings] = useState<Listing[]>([]);
   const [initError, setInitError] = useState<string | null>(null);
 
-  // 语言初始化
   useEffect(() => {
     const savedLang = localStorage.getItem('app_lang') as UILanguage;
     if (savedLang) setLang(savedLang);
   }, []);
 
-  // 获取用户资料
   const fetchUserProfile = async (userId: string) => {
     if (!isSupabaseConfigured()) return;
     const { data, error } = await supabase
@@ -40,10 +39,19 @@ const App: React.FC = () => {
       .select('*')
       .eq('id', userId)
       .single();
-    if (data) setUserProfile(data);
+    
+    if (data) {
+      if (data.is_suspended) {
+        alert("Your account is suspended. Contact support.");
+        await supabase.auth.signOut();
+        return;
+      }
+      setUserProfile(data);
+      // 更新最后登录时间
+      await supabase.from('user_profiles').update({ last_login_at: new Date().toISOString() }).eq('id', userId);
+    }
   };
 
-  // 身份验证监听器
   useEffect(() => {
     if (!isSupabaseConfigured()) {
       setInitError("Supabase configuration is missing.");
@@ -51,7 +59,6 @@ const App: React.FC = () => {
       return;
     }
 
-    // 获取初始 Session
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       setSession(currentSession);
       if (currentSession) {
@@ -65,10 +72,8 @@ const App: React.FC = () => {
       setLoading(false);
     });
 
-    // 监听状态变化
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
-      
       if (event === 'SIGNED_IN' && newSession) {
         setView(AppView.DASHBOARD);
         fetchListings(newSession.user.id);
@@ -116,29 +121,27 @@ const App: React.FC = () => {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    if (view === AppView.LISTING_DETAIL) {
+    if (view === AppView.LISTING_DETAIL || view === AppView.ADMIN) {
       setView(AppView.DASHBOARD);
     }
   };
 
   const handleLoginClick = () => {
-    if (session) {
-      setView(AppView.DASHBOARD);
-    } else {
-      setView(AppView.AUTH);
-    }
+    if (session) setView(AppView.DASHBOARD);
+    else setView(AppView.AUTH);
   };
 
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white">
-      <div className="relative">
-        <div className="w-16 h-16 border-4 border-indigo-600/20 border-t-indigo-600 rounded-full animate-spin"></div>
-      </div>
+      <div className="w-16 h-16 border-4 border-indigo-600/20 border-t-indigo-600 rounded-full animate-spin"></div>
       <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Initializing AMZBot</p>
     </div>
   );
 
   const renderContent = () => {
+    if (view === AppView.ADMIN && userProfile?.role === 'admin') {
+      return <AdminDashboard uiLang={lang} />;
+    }
     if (view === AppView.LISTING_DETAIL && selectedListing) {
       return (
         <ListingDetail 
@@ -166,6 +169,12 @@ const App: React.FC = () => {
       case 'pricing': return <PricingManager uiLang={lang} />;
       case 'templates': return <TemplateManager uiLang={lang} />;
       case 'billing': return <BillingCenter uiLang={lang} />;
+      case 'admin': 
+        if (userProfile?.role === 'admin') {
+          setView(AppView.ADMIN);
+          return null;
+        }
+        return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
       default: return <Dashboard listings={listings} lang={lang} isSyncing={isInitialFetch} onRefresh={() => fetchListings()} />;
     }
   };

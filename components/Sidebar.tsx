@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Package, LogOut, LayoutDashboard, Settings, Layout, List, Tags, Coins, CreditCard, User, ChevronRight, Crown, Sparkles, Mail } from 'lucide-react';
+import { Package, LogOut, LayoutDashboard, Settings, Layout, List, Tags, Coins, CreditCard, User, ChevronRight, Crown, Sparkles, Mail, ShieldCheck } from 'lucide-react';
 import { UILanguage, UserProfile } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '../lib/supabaseClient';
@@ -22,7 +22,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
 
   const userName = userEmail ? userEmail.split('@')[0] : 'User';
   
-  // 原有的主菜单项（移除 billing）
   const menuItems = [
     { id: 'dashboard', label: lang === 'zh' ? '概览' : 'Dashboard', icon: <LayoutDashboard size={20} /> },
     { id: 'listings', label: t('listings'), icon: <List size={20} /> },
@@ -32,7 +31,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
     { id: 'settings', label: t('settings'), icon: <Settings size={20} /> },
   ];
 
-  // 监听点击外部关闭个人菜单
+  // 管理员入口
+  if (userProfile?.role === 'admin') {
+    menuItems.push({ id: 'admin', label: lang === 'zh' ? '管理后台' : 'Admin Console', icon: <ShieldCheck size={20} /> });
+  }
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
@@ -68,12 +71,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
         ))}
       </nav>
 
-      {/* 用户资料面板区域 */}
+      {/* 用户资料面板 */}
       <div className="p-4 border-t border-slate-800 relative" ref={profileRef}>
-        {/* 弹出菜单 */}
         {isProfileOpen && (
           <div className="absolute bottom-full left-4 right-4 mb-2 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-2 duration-200 z-[60]">
-            {/* 个人信息头部 */}
             <div className="p-4 border-b border-slate-700 bg-slate-800/50">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">{t('personalInfo')}</p>
               <div className="flex items-center gap-3">
@@ -87,7 +88,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
               </div>
             </div>
 
-            {/* 套餐状态 */}
             <div className="p-4 border-b border-slate-700">
                <div className="flex items-center justify-between mb-2">
                  <span className="text-xs font-bold text-slate-300 flex items-center gap-2"><Crown size={14} className="text-amber-400" /> {userProfile?.plan_type || 'Free'}</span>
@@ -101,7 +101,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
                </button>
             </div>
 
-            {/* 退出按钮 */}
             <button 
               onClick={onLogout}
               className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 transition-all font-bold text-xs"
@@ -112,7 +111,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout, onLogoClick, activeT
           </div>
         )}
 
-        {/* 底部悬浮触发器 */}
         <button 
           onClick={() => setIsProfileOpen(!isProfileOpen)}
           className={`w-full flex items-center gap-3 p-3 rounded-2xl transition-all ${

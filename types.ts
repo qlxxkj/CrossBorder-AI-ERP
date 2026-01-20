@@ -13,6 +13,29 @@ export interface UserProfile {
   credits_total: number;
   credits_used: number;
   subscription_end_at?: string;
+  is_suspended?: boolean;
+  role?: 'user' | 'admin';
+  last_login_at?: string;
+  created_at?: string;
+}
+
+export interface SubscriptionPlan {
+  id: 'Free' | 'Pro' | 'Elite';
+  name_en: string;
+  name_zh: string;
+  price_usd: number;
+  credits: number;
+  features_en: string[];
+  features_zh: string[];
+}
+
+export interface UsageLog {
+  id: string;
+  user_id: string;
+  model: string;
+  action: 'optimize' | 'translate';
+  credits_spent: number;
+  created_at: string;
 }
 
 export interface SourcingRecord {
@@ -59,7 +82,6 @@ export interface OptimizedData {
   optimized_features: string[];
   optimized_description: string;
   search_keywords: string;
-  // 本地化价格与物流
   optimized_price?: number;
   optimized_shipping?: number;
   optimized_weight_value?: string;
@@ -88,7 +110,6 @@ export interface Listing {
   exported_marketplaces?: string[];
 }
 
-// Fix: Added missing PriceAdjustment interface to resolve import errors in Pricing and Export modules
 export interface PriceAdjustment {
   id: string;
   user_id: string;
@@ -99,7 +120,6 @@ export interface PriceAdjustment {
   created_at: string;
 }
 
-// Fix: Added missing ExchangeRate interface to resolve import errors in Pricing and Export modules
 export interface ExchangeRate {
   id: string;
   user_id: string;
@@ -108,7 +128,6 @@ export interface ExchangeRate {
   created_at: string;
 }
 
-// Fix: Added missing FieldMapping interface to resolve import errors in Template Manager
 export interface FieldMapping {
   header: string;
   source: 'listing' | 'custom' | 'random' | 'template_default';
@@ -118,7 +137,6 @@ export interface FieldMapping {
   randomType?: 'alphanumeric' | 'ean13';
 }
 
-// Fix: Added missing ExportTemplate interface to resolve import errors in Template and Export modules
 export interface ExportTemplate {
   id: string;
   user_id: string;
@@ -138,7 +156,8 @@ export enum AppView {
   TEMPLATES = 'TEMPLATES',
   CATEGORIES = 'CATEGORIES',
   PRICING = 'PRICING',
-  BILLING = 'BILLING'
+  BILLING = 'BILLING',
+  ADMIN = 'ADMIN'
 }
 
 export type UILanguage = 'en' | 'zh' | 'ja' | 'de' | 'fr' | 'es';
