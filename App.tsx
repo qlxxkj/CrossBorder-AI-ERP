@@ -4,7 +4,6 @@ import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { ListingsManager } from './components/ListingsManager';
 import { LandingPage } from './components/LandingPage';
-import { ListingDetail } from './components/ListingDetail';
 import { AuthPage } from './components/AuthPage.tsx';
 import { TemplateManager } from './components/TemplateManager';
 import { CategoryManager } from './components/CategoryManager';
@@ -17,17 +16,19 @@ import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
+  // 核心视图状态，默认为 LANDING，但 loading 为 true 会阻塞渲染
   const [view, setView] = useState<AppView>(AppView.LANDING);
-  const viewRef = useRef(view); // 使用 Ref 追踪最新 view
   const [activeTab, setActiveTab] = useState('dashboard');
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [org, setOrg] = useState<Organization | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // 初始加载状态
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // 记录最新的视图状态以便在 identity 检查中使用
+  const viewRef = useRef(view);
   useEffect(() => { viewRef.current = view; }, [view]);
 
   const fetchListings = useCallback(async (orgId: string) => {
@@ -37,13 +38,13 @@ const App: React.FC = () => {
       const { data } = await supabase.from('listings').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
       if (data) setListings(data);
     } catch (e) {
-      console.error("Failed to fetch listings:", e);
+      console.error("Fetch listings error:", e);
     } finally {
       setIsSyncing(false);
     }
   }, []);
 
-  const fetchIdentity = useCallback(async (userId: string) => {
+  const fetchIdentity = useCallback(async (userId: string, currentSession: any) => {
     if (!isSupabaseConfigured()) {
       setLoading(false);
       return;
@@ -58,23 +59,23 @@ const App: React.FC = () => {
 
       if (profileErr) throw profileErr;
 
+      // 自动迁移逻辑 (Legacy User Fix)
       if (!profile) {
-        console.log("Legacy user detected. Migrating to RBAC structure...");
         const newOrgId = crypto.randomUUID();
-        const { data: newOrg } = await supabase.from('organizations').insert([{
+        await supabase.from('organizations').insert([{
           id: newOrgId,
           name: `Org_${userId.slice(0, 5)}`,
           owner_id: userId,
           plan_type: 'Free',
           credits_total: 100,
           credits_used: 0
-        }]).select().single();
+        }]);
         
         const { data: newProfile } = await supabase.from('user_profiles').insert([{
           id: userId,
           org_id: newOrgId,
           role: 'tenant_admin',
-          email: session?.user?.email,
+          email: currentSession?.user?.email,
           plan_type: 'Free',
           credits_total: 100,
           credits_used: 0
@@ -82,54 +83,50 @@ const App: React.FC = () => {
         
         await supabase.from('listings').update({ org_id: newOrgId }).eq('user_id', userId).is('org_id', null);
         profile = newProfile;
-        setOrg(newOrg);
-      } else if (profile.org_id) {
+      }
+
+      if (profile?.org_id) {
         const { data: orgData } = await supabase.from('organizations').select('*').eq('id', profile.org_id).maybeSingle();
         setOrg(orgData);
+        await fetchListings(profile.org_id);
       }
 
       setUserProfile(profile);
-      
-      if (profile?.is_suspended) {
-        alert("Account suspended.");
-        await supabase.auth.signOut();
-        return;
-      }
-      
-      if (profile?.org_id) {
-        await fetchListings(profile.org_id);
-      }
-      
-      // 核心修复：仅当用户处于 Landing/Auth 时才强制切到 Dashboard
+
+      // 关键：先设置视图，再结束 Loading
       if (viewRef.current === AppView.LANDING || viewRef.current === AppView.AUTH) {
         setView(AppView.DASHBOARD);
+        setActiveTab('dashboard');
       }
-    } catch (err: any) {
-      console.error("Identity verification failed:", err);
+    } catch (err) {
+      console.error("Identity error:", err);
       setView(AppView.AUTH);
     } finally {
       setLoading(false);
     }
-  }, [fetchListings, session]);
+  }, [fetchListings]);
 
   useEffect(() => {
+    // 初始会话检查
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
-      if (cur) fetchIdentity(cur.user.id);
+      if (cur) fetchIdentity(cur.user.id, cur);
       else setLoading(false);
     });
 
+    // 会话监听
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      // 避免重复触发导致的闪烁
       if (newSession?.user?.id === session?.user?.id && event !== 'SIGNED_IN') return;
 
       setSession(newSession);
       if (newSession) {
-        setLoading(true);
-        fetchIdentity(newSession.user.id);
-      } else { 
-        setView(AppView.LANDING); 
-        setUserProfile(null); 
-        setOrg(null); 
+        setLoading(true); // 重新进入加载状态
+        fetchIdentity(newSession.user.id, newSession);
+      } else {
+        setUserProfile(null);
+        setOrg(null);
+        setView(AppView.LANDING);
         setLoading(false);
       }
     });
@@ -156,8 +153,8 @@ const App: React.FC = () => {
     if (view === AppView.ADMIN && (userProfile?.role === 'super_admin' || userProfile?.role === 'admin')) {
       return <AdminDashboard uiLang={lang} />;
     }
-    if (view === AppView.SYSTEM_MGMT && userProfile?.role === 'tenant_admin') {
-      return <SystemManagement uiLang={lang} orgId={userProfile.org_id!} orgData={org} onOrgUpdate={setOrg} />;
+    if (view === AppView.SYSTEM_MGMT) {
+      return <SystemManagement uiLang={lang} orgId={userProfile?.org_id || ''} orgData={org} onOrgUpdate={setOrg} />;
     }
     
     switch(view) {
@@ -167,30 +164,24 @@ const App: React.FC = () => {
       case AppView.BILLING: return <BillingCenter uiLang={lang} />;
       default:
         if (activeTab === 'listings') {
-          return <ListingsManager 
-            onSelectListing={(l) => { /* Selection */ }} 
-            listings={listings} 
-            setListings={setListings} 
-            lang={lang} 
-            refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} 
-          />;
+          return <ListingsManager onSelectListing={() => {}} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
         }
-        return <Dashboard 
-          listings={listings} 
-          lang={lang} 
-          userProfile={userProfile} 
-          onNavigate={handleTabChange} 
-          isSyncing={isSyncing}
-          onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)}
-        />;
+        return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
     }
   };
 
+  // 全局加载遮罩
   if (loading) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-400">
-        <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-        <p className="text-[10px] font-black uppercase tracking-[0.3em]">Initializing System...</p>
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-white space-y-6">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-indigo-100 rounded-full animate-pulse"></div>
+          <Loader2 className="absolute inset-0 m-auto animate-spin text-indigo-600" size={32} />
+        </div>
+        <div className="flex flex-col items-center gap-1">
+           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Authenticating Session</p>
+           <p className="text-[8px] font-bold text-slate-300 uppercase italic">AMZBot Core Engine</p>
+        </div>
       </div>
     );
   }
@@ -198,14 +189,7 @@ const App: React.FC = () => {
   return (
     <div className="flex min-h-screen bg-slate-50">
       {userProfile && session && (
-        <Sidebar 
-          activeTab={activeTab} 
-          setActiveTab={handleTabChange} 
-          lang={lang} 
-          userProfile={userProfile}
-          session={session}
-          onLogout={() => supabase.auth.signOut()}
-        />
+        <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} lang={lang} userProfile={userProfile} session={session} onLogout={() => supabase.auth.signOut()} />
       )}
       <main className={`${userProfile ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
