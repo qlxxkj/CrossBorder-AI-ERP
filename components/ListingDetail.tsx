@@ -30,6 +30,9 @@ type AIEngine = 'gemini' | 'openai' | 'deepseek';
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const CORS_PROXY = 'https://corsproxy.io/?';
 
+// Marketplace standards for units
+const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'NL', 'PL', 'SE', 'BE'];
+
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -90,31 +93,47 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
-  // Improved Helper: Ensures fallback to cleaned data for US site prices
+  // Helper: Correct source selection with regional fallback for units
   const getFieldValue = (optField: string, cleanField: string) => {
+    const isMetric = METRIC_MARKETS.includes(activeMarket);
+    
+    const getDefaultUnit = (field: string) => {
+      if (field.includes('weight')) return isMetric ? 'kg' : 'lb';
+      if (field.includes('size') || field.includes('unit')) return isMetric ? 'cm' : 'in';
+      return '';
+    };
+
     if (activeMarket === 'US') {
-      // 1. Try Optimized value
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
-      if (optVal !== undefined && optVal !== null && optVal !== '') return optVal;
+      if (optVal !== undefined && optVal !== null && (Array.isArray(optVal) ? optVal.length > 0 : optVal !== '')) {
+        return optVal;
+      }
       
-      // 2. Fallback to Cleaned value
       const cleanVal = (localListing.cleaned as any)[cleanField];
-      return (cleanVal !== undefined && cleanVal !== null) ? cleanVal : '';
+      if (cleanVal !== undefined && cleanVal !== null) return cleanVal;
+
+      // Type-specific defaults for US
+      if (optField.includes('unit')) return getDefaultUnit(optField);
+      if (optField.includes('features')) return ['', '', '', '', ''];
+      return '';
     }
 
-    // Non-US Market logic
+    // Check existing translation
     const trans = localListing.translations?.[activeMarket];
-    if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null && (trans as any)[optField] !== '') {
+    if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null && (Array.isArray((trans as any)[optField]) ? (trans as any)[optField].length > 0 : (trans as any)[optField] !== '')) {
       return (trans as any)[optField];
     }
 
-    // Dynamic price calculation fallback for translation sites
+    // Dynamic fallbacks for Non-US
     if (optField === 'optimized_price' || optField === 'optimized_shipping') {
       const sourceVal = localListing.cleaned[cleanField] || 0;
       const rate = exchangeRates.find(r => r.marketplace === activeMarket)?.rate || 1;
       const converted = sourceVal * rate;
       return activeMarket === 'JP' ? Math.round(converted) : parseFloat(converted.toFixed(2));
     }
+
+    if (optField.includes('unit')) return getDefaultUnit(optField);
+    if (optField.includes('features')) return ['', '', '', '', ''];
 
     return '';
   };
@@ -131,7 +150,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       }
     } else {
       const currentTranslations = { ...(nextListing.translations || {}) };
-      const currentTrans = currentTranslations[activeMarket] || { optimized_title: '', optimized_features: [], optimized_description: '', search_keywords: '' } as OptimizedData;
+      const currentTrans = currentTranslations[activeMarket] || { optimized_title: '', optimized_features: ['', '', '', '', ''], optimized_description: '', search_keywords: '' } as OptimizedData;
       currentTranslations[activeMarket] = { ...currentTrans, [field]: value };
       nextListing.translations = currentTranslations;
     }
@@ -231,7 +250,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         else trans = await translateListingWithAI(sourceData, mkt.code);
         
         const rate = exchangeRates.find(r => r.marketplace === mkt.code)?.rate || 1;
-        const isMetric = ['DE','FR','IT','ES','JP','NL','PL','SE'].includes(mkt.code);
+        const isMetric = METRIC_MARKETS.includes(mkt.code);
         
         currentTranslations[mkt.code] = {
           ...trans,
@@ -356,7 +375,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-amber-500" /> Weight</label>
                          <div className="flex gap-2">
                            <input type="text" value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
-                           <select value={getFieldValue('optimized_weight_unit', 'item_weight_unit') || 'lb'} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-40 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                           <select value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-40 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
                              <option value="lb">lb (Pounds)</option>
                              <option value="kg">kg (Kilograms)</option>
                              <option value="oz">oz (Ounces)</option>
@@ -372,7 +391,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                               <input placeholder="W" type="text" value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                               <input placeholder="H" type="text" value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                            </div>
-                           <select value={getFieldValue('optimized_size_unit', 'item_size_unit') || 'in'} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-40 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                           <select value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-40 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
                              <option value="in">in (Inches)</option>
                              <option value="cm">cm (Centimeters)</option>
                              <option value="mm">mm (Millimeters)</option>
@@ -392,19 +411,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       <div className="flex items-center justify-between ml-1">
                          <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullets)</label>
                          <button onClick={() => {
-                            const currentFeatures = getFieldValue('optimized_features', 'features') || [];
+                            const currentFeatures = getFieldValue('optimized_features', 'features');
                             updateField('optimized_features', [...currentFeatures, ""]);
                          }} className="p-1 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-all"><Plus size={16}/></button>
                       </div>
                       <div className="space-y-3">
-                         {(getFieldValue('optimized_features', 'features') || ['', '', '', '', '']).map((f: string, i: number) => (
+                         {getFieldValue('optimized_features', 'features').map((f: string, i: number) => (
                            <div key={i} className="flex gap-4 group">
                               <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-2 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
                               <div className="flex-1 space-y-1">
                                  <textarea 
                                    value={f || ''}
                                    onChange={(e) => {
-                                     const currentFeatures = [...(getFieldValue('optimized_features', 'features') || [])];
+                                     const currentFeatures = [...getFieldValue('optimized_features', 'features')];
                                      currentFeatures[i] = e.target.value;
                                      updateField('optimized_features', currentFeatures);
                                    }}
@@ -412,9 +431,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                    placeholder={`Bullet Point ${i+1}...`}
                                  />
                                  <div className="flex justify-between items-center px-1">
-                                    <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-slate-400'}`}>{(f || '').length} / 500</span>
+                                    <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-indigo-600'}`}>{(f || '').length} / 500</span>
                                     <button onClick={() => {
-                                      const currentFeatures = [...(getFieldValue('optimized_features', 'features') || [])].filter((_, idx) => idx !== i);
+                                      const currentFeatures = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
                                       updateField('optimized_features', currentFeatures);
                                     }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12}/></button>
                                  </div>
