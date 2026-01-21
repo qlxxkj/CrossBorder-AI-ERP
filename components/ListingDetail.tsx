@@ -118,13 +118,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return '';
     }
 
-    // Check existing translation
+    // Check existing translation (Important for non-US markets)
     const trans = localListing.translations?.[activeMarket];
-    if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null && (Array.isArray((trans as any)[optField]) ? (trans as any)[optField].length > 0 : (trans as any)[optField] !== '')) {
-      return (trans as any)[optField];
+    if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
+      const val = (trans as any)[optField];
+      // Only return if it's not an empty string or empty array (except for units which we handle below)
+      if (Array.isArray(val) ? val.length > 0 : val !== '') {
+        return val;
+      }
     }
 
-    // Dynamic fallbacks for Non-US
+    // Dynamic fallbacks for Non-US prices
     if (optField === 'optimized_price' || optField === 'optimized_shipping') {
       const sourceVal = localListing.cleaned[cleanField] || 0;
       const rate = exchangeRates.find(r => r.marketplace === activeMarket)?.rate || 1;
@@ -132,7 +136,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return activeMarket === 'JP' ? Math.round(converted) : parseFloat(converted.toFixed(2));
     }
 
+    // Fallback for units if not found in translations
     if (optField.includes('unit')) return getDefaultUnit(optField);
+    
+    // Always ensure features returns an array for mapping
     if (optField.includes('features')) return ['', '', '', '', ''];
 
     return '';
@@ -431,7 +438,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                    placeholder={`Bullet Point ${i+1}...`}
                                  />
                                  <div className="flex justify-between items-center px-1">
-                                    <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-indigo-600'}`}>{(f || '').length} / 500</span>
+                                    <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-slate-400'}`}>{(f || '').length} / 500</span>
                                     <button onClick={() => {
                                       const currentFeatures = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
                                       updateField('optimized_features', currentFeatures);
@@ -459,7 +466,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 </div>
              </div>
 
-             {/* Re-restored Sourcing Center */}
+             {/* Sourcing Center */}
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm p-10 space-y-8 mt-8">
                 <div className="flex items-center justify-between">
                    <div className="flex items-center gap-3">
