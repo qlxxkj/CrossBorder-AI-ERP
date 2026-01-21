@@ -22,11 +22,6 @@ interface ListingDetailProps {
   uiLang: UILanguage;
 }
 
-const formatNum = (val: any) => {
-  const n = parseFloat(String(val).replace(/[^0-9.]/g, ''));
-  return isNaN(n) ? '0' : parseFloat(n.toFixed(2)).toString();
-};
-
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
   const [activeTab, setActiveTab] = useState<'content' | 'sourcing' | 'logistics'>('content');
@@ -39,9 +34,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [showSourcingModal, setShowSourcingModal] = useState(false);
   const [showSourcingForm, setShowSourcingForm] = useState(false);
   
+  // 关键修复：使用 localListing 跟踪编辑状态
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [selectedImage, setSelectedImage] = useState<string>(listing.cleaned?.main_image || '');
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
+
+  // 关键修复：当外部 listing 改变时（如点击“下一个”），同步本地状态
+  useEffect(() => {
+    setLocalListing(listing);
+    setSelectedImage(listing.cleaned?.main_image || '');
+    setActiveMarket('US'); // 切换产品时重置回主站点
+  }, [listing]);
 
   useEffect(() => {
     fetchPricingData();
@@ -65,6 +68,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         sourcing_data: targetListing.sourcing_data || [],
         updated_at: new Date().toISOString()
       }).eq('id', targetListing.id);
+      
       if (error) throw error;
       onUpdate({ ...targetListing, updated_at: new Date().toISOString() });
       setLastSaved(new Date().toLocaleTimeString());
@@ -79,11 +83,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsOptimizing(true);
     try {
       const opt = await optimizeListingWithAI(localListing.cleaned!);
-      const updated = { ...localListing, status: 'optimized' as const, optimized: opt };
+      const updated: Listing = { ...localListing, status: 'optimized', optimized: opt };
       setLocalListing(updated);
       await syncToSupabase(updated);
-    } catch (e: any) { alert("Optimization failed: " + e.message); } 
-    finally { setIsOptimizing(false); }
+    } catch (e: any) { 
+      alert("Optimization failed: " + e.message); 
+    } finally { 
+      setIsOptimizing(false); 
+    }
   };
 
   const handleTranslate = async (mkt: string) => {
@@ -94,44 +101,63 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsTranslating(true);
     try {
       const trans = await translateListingWithAI(localListing.optimized, mkt);
-      const updated = {
+      const updated: Listing = {
         ...localListing,
-        translations: { ...localListing.translations, [mkt]: trans as any }
+        translations: { 
+          ...(localListing.translations || {}), 
+          [mkt]: trans as OptimizedData 
+        }
       };
       setLocalListing(updated);
       await syncToSupabase(updated);
-    } catch (e: any) { alert("Translation failed: " + e.message); }
-    finally { setIsTranslating(false); }
+    } catch (e: any) { 
+      alert("Translation failed: " + e.message); 
+    } finally { 
+      setIsTranslating(false); 
+    }
   };
 
-  const currentContent: OptimizedData | CleanedData = useMemo(() => {
+  // 修复：空状态保护，确保 currentContent 始终有值
+  const currentContent = useMemo(() => {
     if (activeMarket !== 'US') {
-      return localListing.translations?.[activeMarket] || { optimized_title: '', optimized_features: [], optimized_description: '', search_keywords: '' };
+      return localListing.translations?.[activeMarket] || { 
+        optimized_title: '', 
+        optimized_features: [], 
+        optimized_description: '', 
+        search_keywords: '' 
+      } as OptimizedData;
     }
     return localListing.optimized || localListing.cleaned;
   }, [localListing, activeMarket]);
 
+  // 修复：TS2345 核心修复
   const updateContent = (field: string, value: any) => {
+    const nextListing = { ...localListing };
+
     if (activeMarket === 'US') {
-      if (localListing.status === 'optimized' && localListing.optimized) {
-        const next = { ...localListing, optimized: { ...localListing.optimized, [field]: value } };
-        setLocalListing(next);
+      if (nextListing.status === 'optimized' && nextListing.optimized) {
+        nextListing.optimized = { ...nextListing.optimized, [field]: value };
       } else {
-        const next = { ...localListing, cleaned: { ...localListing.cleaned, [field]: value } };
-        setLocalListing(next);
+        nextListing.cleaned = { ...nextListing.cleaned, [field]: value };
       }
     } else {
-      const currentTrans = localListing.translations?.[activeMarket] || {};
-      const next = {
-        ...localListing,
-        translations: { ...localListing.translations, [activeMarket]: { ...currentTrans, [field]: value } }
-      };
-      setLocalListing(next);
+      const currentTranslations = { ...(nextListing.translations || {}) };
+      const currentTrans = currentTranslations[activeMarket] || {
+        optimized_title: '',
+        optimized_features: [],
+        optimized_description: '',
+        search_keywords: ''
+      } as OptimizedData;
+      
+      currentTranslations[activeMarket] = { ...currentTrans, [field]: value };
+      nextListing.translations = currentTranslations;
     }
+    
+    setLocalListing(nextListing);
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter animate-in fade-in duration-500 pb-20 relative">
+    <div className="p-8 max-w-7xl mx-auto space-y-6 text-slate-900 font-inter animate-in fade-in duration-500 pb-20 relative min-h-screen">
       {showImageEditor && <ImageEditor imageUrl={selectedImage} onClose={() => setShowImageEditor(false)} onSave={(url) => { updateContent('main_image', url); setSelectedImage(url); setShowImageEditor(false); }} />}
       {showSourcingModal && <SourcingModal productImage={localListing.cleaned.main_image || ''} onClose={() => setShowSourcingModal(false)} onAddLink={(res) => { const next = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(next); syncToSupabase(next); setShowSourcingModal(false); }} />}
       {showSourcingForm && <SourcingFormModal onClose={() => setShowSourcingForm(false)} onSave={(res) => { const next = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(next); syncToSupabase(next); setShowSourcingForm(false); }} />}
@@ -233,7 +259,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          </div>
                          <textarea 
                           value={(currentContent as any).optimized_title || (currentContent as any).title || ''} 
-                          onChange={(e) => updateContent(activeMarket === 'US' ? 'optimized_title' : 'optimized_title', e.target.value)}
+                          onChange={(e) => updateContent(activeMarket === 'US' ? (localListing.status === 'optimized' ? 'optimized_title' : 'title') : 'optimized_title', e.target.value)}
                           className="w-full p-6 bg-slate-50 border border-slate-100 rounded-[2rem] font-bold text-lg leading-relaxed outline-none focus:bg-white focus:border-indigo-500 transition-all placeholder:italic min-h-[120px]" 
                          />
                       </section>
@@ -247,9 +273,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                  <textarea 
                                   value={f}
                                   onChange={(e) => {
-                                    const next = [...((currentContent as any).optimized_features || (currentContent as any).features || [])];
-                                    next[i] = e.target.value;
-                                    updateContent('optimized_features', next);
+                                    const features = [...((currentContent as any).optimized_features || (currentContent as any).features || [])];
+                                    features[i] = e.target.value;
+                                    updateContent(activeMarket === 'US' ? (localListing.status === 'optimized' ? 'optimized_features' : 'features') : 'optimized_features', features);
                                   }}
                                   className="flex-1 p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold leading-relaxed focus:bg-white focus:border-indigo-500 transition-all outline-none min-h-[80px]"
                                  />
@@ -262,7 +288,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><FileText size={14} /> HTML Description</label>
                          <textarea 
                           value={(currentContent as any).optimized_description || (currentContent as any).description || ''} 
-                          onChange={(e) => updateContent('optimized_description', e.target.value)}
+                          onChange={(e) => updateContent(activeMarket === 'US' ? (localListing.status === 'optimized' ? 'optimized_description' : 'description') : 'optimized_description', e.target.value)}
                           className="w-full p-8 bg-slate-50 border border-slate-100 rounded-[2.5rem] text-sm font-medium leading-loose outline-none focus:bg-white focus:border-indigo-500 transition-all min-h-[300px] font-mono text-slate-600" 
                          />
                       </section>
@@ -272,8 +298,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       <section className="space-y-6">
                         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={16} /> Net Weight</h4>
                         <div className="flex gap-4">
-                           <input type="text" value={(currentContent as any).optimized_weight_value || (currentContent as any).item_weight_value || ''} onChange={e => updateContent('optimized_weight_value', e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black outline-none" />
-                           <select value={(currentContent as any).optimized_weight_unit || (currentContent as any).item_weight_unit || 'lb'} onChange={e => updateContent('optimized_weight_unit', e.target.value)} className="bg-white border border-slate-200 rounded-2xl px-4 font-black uppercase text-xs">
+                           <input type="text" value={(currentContent as any).optimized_weight_value || (currentContent as any).item_weight_value || ''} onChange={e => updateContent(activeMarket === 'US' ? (localListing.status === 'optimized' ? 'optimized_weight_value' : 'item_weight_value') : 'optimized_weight_value', e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black outline-none" />
+                           <select value={(currentContent as any).optimized_weight_unit || (currentContent as any).item_weight_unit || 'lb'} onChange={e => updateContent(activeMarket === 'US' ? (localListing.status === 'optimized' ? 'optimized_weight_unit' : 'item_weight_unit') : 'optimized_weight_unit', e.target.value)} className="bg-white border border-slate-200 rounded-2xl px-4 font-black uppercase text-xs">
                               <option value="lb">LB</option>
                               <option value="kg">KG</option>
                               <option value="oz">OZ</option>
@@ -283,9 +309,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       <section className="space-y-6">
                         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Ruler size={16} /> Dimensions (L/W/H)</h4>
                         <div className="grid grid-cols-3 gap-3">
-                           <input type="text" placeholder="L" value={(currentContent as any).optimized_length || (currentContent as any).item_length || ''} onChange={e => updateContent('optimized_length', e.target.value)} className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-center" />
-                           <input type="text" placeholder="W" value={(currentContent as any).optimized_width || (currentContent as any).item_width || ''} onChange={e => updateContent('optimized_width', e.target.value)} className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-center" />
-                           <input type="text" placeholder="H" value={(currentContent as any).optimized_height || (currentContent as any).item_height || ''} onChange={e => updateContent('optimized_height', e.target.value)} className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-center" />
+                           <input type="text" placeholder="L" value={(currentContent as any).optimized_length || (currentContent as any).item_length || ''} onChange={e => updateContent(activeMarket === 'US' ? (localListing.status === 'optimized' ? 'optimized_length' : 'item_length') : 'optimized_length', e.target.value)} className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-center" />
+                           <input type="text" placeholder="W" value={(currentContent as any).optimized_width || (currentContent as any).item_width || ''} onChange={e => updateContent(activeMarket === 'US' ? (localListing.status === 'optimized' ? 'optimized_width' : 'item_width') : 'optimized_width', e.target.value)} className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-center" />
+                           <input type="text" placeholder="H" value={(currentContent as any).optimized_height || (currentContent as any).item_height || ''} onChange={e => updateContent(activeMarket === 'US' ? (localListing.status === 'optimized' ? 'optimized_height' : 'item_height') : 'optimized_height', e.target.value)} className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-center" />
                         </div>
                       </section>
                    </div>
