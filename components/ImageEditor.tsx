@@ -30,7 +30,7 @@ interface EditorObject {
   stroke: string;
   fill: string;
   strokeWidth: number;
-  fontSize?: number; // New decoupled property for text
+  fontSize?: number; 
   opacity: number; // 0 to 1
   text?: string;
 }
@@ -57,15 +57,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [isProcessing, setIsProcessing] = useState(false);
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [fillColor, setFillColor] = useState('#ffffff');
-  const [brushSize, setBrushSize] = useState(24); // Now acts as default fontSize for text or weight for lines
-  const [opacity, setOpacity] = useState(1); // 1.0 = 100%
+  
+  // Decoupled size states
+  const [strokeWidth, setStrokeWidth] = useState(5); // For shapes/lines
+  const [fontSize, setFontSize] = useState(40);      // For text (Standard px)
+  
+  const [opacity, setOpacity] = useState(1); 
   const [zoom, setZoom] = useState(1);
   
-  // Shape menu state
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [lastUsedShape, setLastUsedShape] = useState<'rect' | 'circle' | 'line'>('rect');
 
-  // Object system
   const [objects, setObjects] = useState<EditorObject[]>([]);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -79,6 +81,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const [history, setHistory] = useState<EditorState[]>([]);
 
+  // Derived state to determine which size property we are currently editing
+  const selectedObject = objects.find(o => o.id === selectedObjectId);
+  const isEditingText = selectedObject?.type === 'text' || (currentTool === 'text' && !selectedObject);
+
   // Sync controls when selected object changes
   useEffect(() => {
     if (selectedObjectId) {
@@ -86,14 +92,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       if (obj) {
         setStrokeColor(obj.stroke);
         setFillColor(obj.fill);
-        // If it's text, the slider represents font size, else it represents stroke width
-        setBrushSize(obj.type === 'text' ? (obj.fontSize || 24) : obj.strokeWidth);
         setOpacity(obj.opacity);
+        if (obj.type === 'text') {
+          setFontSize(obj.fontSize || 40);
+        } else {
+          setStrokeWidth(obj.strokeWidth);
+        }
       }
     }
   }, [selectedObjectId]);
 
-  // Real-time update functions
   const updateSelectedObjectProperty = (property: keyof EditorObject, value: any) => {
     if (selectedObjectId) {
       setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, [property]: value } : o));
@@ -322,7 +330,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.lineJoin = 'round';
         ctx.globalAlpha = opacity;
         ctx.strokeStyle = currentTool === 'ai-erase' ? 'rgba(255, 0, 0, 0.6)' : strokeColor;
-        ctx.lineWidth = brushSize;
+        ctx.lineWidth = strokeWidth;
       }
     }
   };
@@ -397,7 +405,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         rotation: 0,
         stroke: strokeColor,
         fill: fillColor,
-        strokeWidth: brushSize,
+        strokeWidth: strokeWidth,
         opacity: opacity
       };
       const nextObjects = [...objects, newObj];
@@ -414,13 +422,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           type: 'text',
           x: pos.x,
           y: pos.y,
-          width: text.length * brushSize * 0.6,
-          height: brushSize,
+          // Roughly estimate size for text box
+          width: text.length * fontSize * 0.6,
+          height: fontSize,
           rotation: 0,
           stroke: strokeColor,
           fill: fillColor,
-          strokeWidth: 1, // Default thin stroke for text
-          fontSize: brushSize, // Use decoupled font size
+          strokeWidth: 1, // Fix stroke weight for text to standard 1
+          fontSize: fontSize, 
           opacity: opacity,
           text: text
         };
@@ -542,9 +551,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.lineTo(obj.x + obj.width, obj.y + obj.height);
         ctx.stroke();
       } else if (obj.type === 'text' && obj.text) {
-        const fs = obj.fontSize || 24;
+        const fs = obj.fontSize || 40;
         ctx.font = `bold ${fs}px Inter, sans-serif`;
-        // Draw fill first, then stroke to prevent stroke from over-expanding inwards
         ctx.fillText(obj.text, obj.x, obj.y + obj.height);
         if (obj.stroke !== 'transparent' && obj.strokeWidth > 0) {
            ctx.strokeText(obj.text, obj.x, obj.y + obj.height);
@@ -575,10 +583,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const ShapeIcon = lastUsedShape === 'rect' ? Square : lastUsedShape === 'circle' ? Circle : Minus;
 
-  // Context-aware slider labels
-  const selectedObject = objects.find(o => o.id === selectedObjectId);
-  const isTextSelected = selectedObject?.type === 'text' || currentTool === 'text';
-
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter">
       <div className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between text-white shadow-xl z-20">
@@ -607,7 +611,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Palette size={20} />} label="Brush" />
           <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Eraser size={20} />} label="AI Erase" />
           
-          {/* Shapes Entry - Grouped Submenu */}
           <div className="relative group/shape">
             <ToolIcon 
               active={['rect', 'circle', 'line'].includes(currentTool)} 
@@ -681,7 +684,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                       height={Math.abs(selection.y1 - selection.y2)} 
                       stroke={strokeColor} 
                       fill={fillColor} 
-                      strokeWidth={brushSize} 
+                      strokeWidth={strokeWidth} 
                       strokeDasharray="5,5"
                     />
                   )}
@@ -693,7 +696,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                       ry={Math.abs(selection.y1 - selection.y2) / 2} 
                       stroke={strokeColor} 
                       fill={fillColor} 
-                      strokeWidth={brushSize} 
+                      strokeWidth={strokeWidth} 
                       strokeDasharray="5,5"
                     />
                   )}
@@ -704,7 +707,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                       x2={selection.x2} 
                       y2={selection.y2} 
                       stroke={strokeColor} 
-                      strokeWidth={brushSize} 
+                      strokeWidth={strokeWidth} 
                       strokeDasharray="5,5"
                     />
                   )}
@@ -728,7 +731,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                       fill={obj.fill} 
                       stroke={obj.stroke} 
                       strokeWidth={obj.strokeWidth} 
-                      style={{ font: `bold ${obj.fontSize || 24}px Inter, sans-serif` }}
+                      style={{ font: `bold ${obj.fontSize || 40}px Inter, sans-serif` }}
                     >
                       {obj.text}
                     </text>
@@ -765,21 +768,33 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 rounded-[2.5rem] shadow-2xl z-30 min-w-[700px]">
              <div className="flex flex-col gap-3 flex-1">
                <div className="flex justify-between">
-                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{isTextSelected ? 'Font Size' : 'Stroke / Size'}</span>
-                 <span className="text-[10px] font-black text-blue-400">{brushSize}px</span>
+                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                   {isEditingText ? 'Standard Font Size (px)' : 'Stroke Weight (px)'}
+                 </span>
+                 <span className="text-[10px] font-black text-blue-400">
+                   {isEditingText ? `${fontSize}px` : `${strokeWidth}px`}
+                 </span>
                </div>
                <input 
-                type="range" min={isTextSelected ? 8 : 1} max={isTextSelected ? 200 : 100} value={brushSize} 
+                type="range" 
+                min={isEditingText ? 12 : 1} 
+                max={isEditingText ? 150 : 50} 
+                value={isEditingText ? fontSize : strokeWidth} 
                 onChange={(e) => {
                   const v = parseInt(e.target.value);
-                  setBrushSize(v);
-                  if (selectedObject?.type === 'text') {
-                    updateSelectedObjectProperty('fontSize', v);
-                    // Also update bounding box roughly for text
-                    updateSelectedObjectProperty('width', (selectedObject.text?.length || 1) * v * 0.6);
-                    updateSelectedObjectProperty('height', v);
+                  if (isEditingText) {
+                    setFontSize(v);
+                    if (selectedObject?.type === 'text') {
+                      updateSelectedObjectProperty('fontSize', v);
+                      // Update estimated bbox
+                      updateSelectedObjectProperty('width', (selectedObject.text?.length || 1) * v * 0.6);
+                      updateSelectedObjectProperty('height', v);
+                    }
                   } else {
-                    updateSelectedObjectProperty('strokeWidth', v);
+                    setStrokeWidth(v);
+                    if (selectedObject && selectedObject.type !== 'text') {
+                      updateSelectedObjectProperty('strokeWidth', v);
+                    }
                   }
                 }} 
                 className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" 
