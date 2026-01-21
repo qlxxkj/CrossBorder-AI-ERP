@@ -35,7 +35,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMarket, setActiveMarket] = useState('US');
   
-  // Persistent AI Engine Selection
   const [engine, setEngine] = useState<AIEngine>(() => {
     const saved = localStorage.getItem('amzbot_preferred_engine');
     return (saved as AIEngine) || 'gemini';
@@ -46,7 +45,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   }, [engine]);
 
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
   const [isStandardizing, setIsStandardizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -92,35 +90,47 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
-  // Image Utilities
-  const processImageStandardization = async (url: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = `${CORS_PROXY}${encodeURIComponent(url)}`;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1600;
-        canvas.height = 1600;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return reject("Canvas failure");
+  // Helper to get value from correct source
+  const getFieldValue = (optField: string, cleanField: string) => {
+    if (activeMarket === 'US') {
+      const val = localListing.status === 'optimized' && localListing.optimized 
+        ? (localListing.optimized as any)[optField] 
+        : (localListing.cleaned as any)[cleanField];
+      return (val !== undefined && val !== null) ? val : '';
+    }
+    const transVal = (localListing.translations?.[activeMarket] as any)?.[optField];
+    return (transVal !== undefined && transVal !== null) ? transVal : '';
+  };
 
-        // Background White
-        ctx.fillStyle = "#FFFFFF";
-        ctx.fillRect(0, 0, 1600, 1600);
+  const updateField = (field: string, value: any) => {
+    const nextListing = { ...localListing };
+    // Map UI generic field names back to specific structure fields
+    const fieldMapping: Record<string, string> = {
+      'price': 'price',
+      'shipping': 'shipping',
+      'optimized_price': 'optimized_price',
+      'optimized_shipping': 'optimized_shipping',
+      'main_image': 'main_image'
+    };
 
-        // Calculate scaling for 1500x1500 box
-        const scale = Math.min(1500 / img.width, 1500 / img.height);
-        const w = img.width * scale;
-        const h = img.height * scale;
-        const x = (1600 - w) / 2;
-        const y = (1600 - h) / 2;
+    const targetField = fieldMapping[field] || field;
 
-        ctx.drawImage(img, x, y, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.9));
-      };
-      img.onerror = () => reject("Image load error");
-    });
+    if (activeMarket === 'US') {
+      if (nextListing.status === 'optimized' && nextListing.optimized) {
+        nextListing.optimized = { ...nextListing.optimized, [targetField]: value };
+      } else {
+        // Fallback or collected status: update cleaned data
+        // For logistics and content fields that start with optimized_, strip prefix if updating cleaned
+        const cleanKey = targetField.replace('optimized_', '');
+        nextListing.cleaned = { ...nextListing.cleaned, [cleanKey]: value };
+      }
+    } else {
+      const currentTranslations = { ...(nextListing.translations || {}) };
+      const currentTrans = currentTranslations[activeMarket] || { optimized_title: '', optimized_features: [], optimized_description: '', search_keywords: '' } as OptimizedData;
+      currentTranslations[activeMarket] = { ...currentTrans, [targetField]: value };
+      nextListing.translations = currentTranslations;
+    }
+    setLocalListing(nextListing);
   };
 
   const handleBatchStandardize = async () => {
@@ -130,14 +140,33 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const allImgs = [nextListing.cleaned.main_image, ...(nextListing.cleaned.other_images || [])].filter(Boolean) as string[];
       const processed: string[] = [];
 
+      const processImage = async (url: string): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.src = `${CORS_PROXY}${encodeURIComponent(url)}`;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1600; canvas.height = 1600;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return reject("Canvas failure");
+            ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, 1600, 1600);
+            const scale = Math.min(1500 / img.width, 1500 / img.height);
+            const w = img.width * scale; const h = img.height * scale;
+            ctx.drawImage(img, (1600 - w) / 2, (1600 - h) / 2, w, h);
+            resolve(canvas.toDataURL('image/jpeg', 0.9));
+          };
+          img.onerror = () => reject("Image load error");
+        });
+      };
+
       for (const url of allImgs) {
-        const newUrl = await processImageStandardization(url);
+        const newUrl = await processImage(url);
         processed.push(newUrl);
       }
 
       nextListing.cleaned.main_image = processed[0];
       nextListing.cleaned.other_images = processed.slice(1);
-      
       setLocalListing(nextListing);
       setPreviewImage(processed[0]);
       await syncToSupabase(nextListing);
@@ -158,44 +187,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const response = await fetch(`${CORS_PROXY}${encodeURIComponent(IMAGE_HOST_DOMAIN + '/upload')}`, { method: 'POST', body: formDataBody });
       const data = await response.json();
       const url = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
-      
       const nextListing = { ...localListing };
       nextListing.cleaned.other_images = [...(nextListing.cleaned.other_images || []), url];
       setLocalListing(nextListing);
       await syncToSupabase(nextListing);
-    } catch (err) {
-      alert("Upload failed");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const setAsMainImage = async (url: string) => {
-    const nextListing = { ...localListing };
-    const currentMain = nextListing.cleaned.main_image;
-    const others = (nextListing.cleaned.other_images || []).filter(u => u !== url);
-    
-    nextListing.cleaned.main_image = url;
-    if (currentMain) others.push(currentMain);
-    nextListing.cleaned.other_images = others;
-
-    setLocalListing(nextListing);
-    setPreviewImage(url);
-    await syncToSupabase(nextListing);
-  };
-
-  const deleteImage = async (url: string) => {
-    const nextListing = { ...localListing };
-    if (nextListing.cleaned.main_image === url) {
-      const firstOther = nextListing.cleaned.other_images?.[0];
-      nextListing.cleaned.main_image = firstOther || '';
-      nextListing.cleaned.other_images = nextListing.cleaned.other_images?.slice(1) || [];
-      setPreviewImage(nextListing.cleaned.main_image);
-    } else {
-      nextListing.cleaned.other_images = nextListing.cleaned.other_images?.filter(u => u !== url) || [];
-    }
-    setLocalListing(nextListing);
-    await syncToSupabase(nextListing);
+    } catch (err) { alert("Upload failed"); } 
+    finally { setIsSaving(false); }
   };
 
   const handleOptimize = async () => {
@@ -205,45 +202,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       if (engine === 'openai') opt = await optimizeListingWithOpenAI(localListing.cleaned!);
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(localListing.cleaned!);
       else opt = await optimizeListingWithAI(localListing.cleaned!);
-
       const updated: Listing = { ...localListing, status: 'optimized', optimized: opt };
       setLocalListing(updated);
       await syncToSupabase(updated);
-    } catch (e: any) { alert(`AI Optimization (${engine}) failed: ` + e.message); } 
+    } catch (e: any) { alert(`AI Optimization failed: ` + e.message); } 
     finally { setIsOptimizing(false); }
-  };
-
-  const performTranslate = async (mkt: string): Promise<OptimizedData | null> => {
-    const sourceData = localListing.optimized || {
-        optimized_title: localListing.cleaned.title,
-        optimized_features: localListing.cleaned.features || [],
-        optimized_description: localListing.cleaned.description || '',
-        search_keywords: localListing.cleaned.search_keywords || ''
-    } as OptimizedData;
-
-    try {
-      let trans: Partial<OptimizedData>;
-      if (engine === 'openai') trans = await translateListingWithOpenAI(sourceData, mkt);
-      else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceData, mkt);
-      else trans = await translateListingWithAI(sourceData, mkt);
-      
-      const rate = exchangeRates.find(r => r.marketplace === mkt)?.rate || 1;
-      const isMetric = ['DE','FR','IT','ES','JP','NL','PL','SE'].includes(mkt);
-      
-      const nextTrans: OptimizedData = {
-        ...trans,
-        optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
-        optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2)),
-        optimized_weight_value: isMetric ? (parseFloat(localListing.cleaned.item_weight_value || '0') * 0.45359).toFixed(2) : localListing.cleaned.item_weight_value,
-        optimized_weight_unit: isMetric ? 'kg' : 'lb',
-        optimized_length: isMetric ? (parseFloat(localListing.cleaned.item_length || '0') * 2.54).toFixed(2) : localListing.cleaned.item_length,
-        optimized_width: isMetric ? (parseFloat(localListing.cleaned.item_width || '0') * 2.54).toFixed(2) : localListing.cleaned.item_width,
-        optimized_height: isMetric ? (parseFloat(localListing.cleaned.item_height || '0') * 2.54).toFixed(2) : localListing.cleaned.item_height,
-        optimized_size_unit: isMetric ? 'cm' : 'in',
-      } as OptimizedData;
-
-      return nextTrans;
-    } catch (e) { return null; }
   };
 
   const handleBatchTranslate = async () => {
@@ -252,8 +215,34 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const currentTranslations = { ...(nextListing.translations || {}) };
     for (const mkt of AMAZON_MARKETPLACES) {
       if (mkt.code === 'US') continue;
-      const res = await performTranslate(mkt.code);
-      if (res) currentTranslations[mkt.code] = res;
+      try {
+        const sourceData = localListing.optimized || {
+          optimized_title: localListing.cleaned.title,
+          optimized_features: localListing.cleaned.features || [],
+          optimized_description: localListing.cleaned.description || '',
+          search_keywords: localListing.cleaned.search_keywords || ''
+        } as OptimizedData;
+        
+        let trans: Partial<OptimizedData>;
+        if (engine === 'openai') trans = await translateListingWithOpenAI(sourceData, mkt.code);
+        else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceData, mkt.code);
+        else trans = await translateListingWithAI(sourceData, mkt.code);
+        
+        const rate = exchangeRates.find(r => r.marketplace === mkt.code)?.rate || 1;
+        const isMetric = ['DE','FR','IT','ES','JP','NL','PL','SE'].includes(mkt.code);
+        
+        currentTranslations[mkt.code] = {
+          ...trans,
+          optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
+          optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2)),
+          optimized_weight_value: isMetric ? (parseFloat(localListing.cleaned.item_weight_value || '0') * 0.45359).toFixed(2) : localListing.cleaned.item_weight_value,
+          optimized_weight_unit: isMetric ? 'kg' : 'lb',
+          optimized_length: isMetric ? (parseFloat(localListing.cleaned.item_length || '0') * 2.54).toFixed(2) : localListing.cleaned.item_length,
+          optimized_width: isMetric ? (parseFloat(localListing.cleaned.item_width || '0') * 2.54).toFixed(2) : localListing.cleaned.item_width,
+          optimized_height: isMetric ? (parseFloat(localListing.cleaned.item_height || '0') * 2.54).toFixed(2) : localListing.cleaned.item_height,
+          optimized_size_unit: isMetric ? 'cm' : 'in',
+        } as OptimizedData;
+      } catch (e) {}
     }
     nextListing.translations = currentTranslations;
     setLocalListing(nextListing);
@@ -261,37 +250,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsBatchTranslating(false);
   };
 
-  const updateField = (field: string, value: any) => {
-    const nextListing = { ...localListing };
-    if (activeMarket === 'US') {
-      if (nextListing.optimized && nextListing.status === 'optimized') {
-        nextListing.optimized = { ...nextListing.optimized, [field]: value };
-      } else {
-        nextListing.cleaned = { ...nextListing.cleaned, [field]: value };
-      }
-    } else {
-      const currentTranslations = { ...(nextListing.translations || {}) };
-      const currentTrans = currentTranslations[activeMarket] || { optimized_title: '', optimized_features: [], optimized_description: '', search_keywords: '' } as OptimizedData;
-      currentTranslations[activeMarket] = { ...currentTrans, [field]: value };
-      nextListing.translations = currentTranslations;
-    }
-    setLocalListing(nextListing);
-  };
-
-  const currentContent = useMemo(() => {
-    if (activeMarket !== 'US') {
-      return localListing.translations?.[activeMarket] || { 
-        optimized_title: '', optimized_features: [], optimized_description: '', search_keywords: '' 
-      } as OptimizedData;
-    }
-    return localListing.optimized || localListing.cleaned;
-  }, [localListing, activeMarket]);
-
   const allImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].filter(Boolean) as string[];
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 font-inter overflow-hidden">
-      {/* Top Toolbar */}
       <header className="flex-shrink-0 bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between shadow-sm z-50">
         <div className="flex items-center gap-6">
           <button onClick={onBack} className="group flex items-center text-slate-500 hover:text-slate-900 font-black text-xs uppercase tracking-widest transition-all">
@@ -307,8 +269,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         
         <div className="flex gap-3">
           <button onClick={handleOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-6 py-2.5 rounded-2xl font-black text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-all uppercase shadow-sm">
-            {isOptimizing ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} 
-            AI Optimize
+            {isOptimizing ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} AI Optimize
           </button>
           <button onClick={() => syncToSupabase(localListing)} disabled={isSaving} className="flex items-center gap-2 px-8 py-2.5 rounded-2xl font-black text-xs text-white bg-slate-900 hover:bg-black shadow-xl active:scale-95 transition-all uppercase tracking-widest">
             {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} {t('save')}
@@ -319,11 +280,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
       </header>
 
-      {/* Main Container */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          
-          {/* Left Media */}
           <div className="lg:col-span-4 space-y-6 sticky top-0">
              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
                 <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
@@ -342,8 +300,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                      <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
                         <img src={img} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                           <button onClick={(e) => { e.stopPropagation(); setAsMainImage(img); }} className="p-1 text-white hover:text-amber-400" title="Set as Main"><Star size={12} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} /></button>
-                           <button onClick={(e) => { e.stopPropagation(); deleteImage(img); }} className="p-1 text-white hover:text-red-400" title="Delete"><Trash2 size={12} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); setLocalListing(p => ({...p, cleaned: {...p.cleaned, main_image: img}})); setPreviewImage(img); }} className="p-1 text-white hover:text-amber-400" title="Set as Main"><Star size={12} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); setLocalListing(p => ({...p, cleaned: {...p.cleaned, other_images: (p.cleaned.other_images || []).filter(u => u !== img)}})); }} className="p-1 text-white hover:text-red-400" title="Delete"><Trash2 size={12} /></button>
                         </div>
                      </div>
                    ))}
@@ -353,29 +311,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAddImage} />
                 </div>
              </div>
-             
-             <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white space-y-6 shadow-2xl">
-                <div className="flex items-center justify-between">
-                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Optimization Info</p>
-                   {lastSaved && <p className="text-[9px] text-emerald-400 font-bold uppercase">Synced @ {lastSaved}</p>}
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                   <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
-                      <p className="text-[9px] text-slate-500 font-black uppercase">Market</p>
-                      <p className="font-black text-sm mt-1">{localListing.marketplace}</p>
-                   </div>
-                   <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
-                      <p className="text-[9px] text-slate-500 font-black uppercase">Status</p>
-                      <p className="font-black text-sm mt-1 uppercase text-indigo-400">{localListing.status}</p>
-                   </div>
-                </div>
-             </div>
           </div>
 
-          {/* Right Editor */}
           <div className="lg:col-span-8 space-y-8">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
-                {/* Market Tabs */}
                 <div className="px-10 py-6 border-b border-slate-50 bg-slate-50/50 flex flex-col md:flex-row items-center justify-between gap-6">
                    <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-inner overflow-x-auto custom-scrollbar no-scrollbar">
                       <button onClick={() => setActiveMarket('US')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 US Master</button>
@@ -383,22 +322,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         <button key={m.code} onClick={() => setActiveMarket(m.code)} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>{m.flag} {m.code}</button>
                       ))}
                    </div>
-                   
-                   <button onClick={handleBatchTranslate} disabled={isBatchTranslating} className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 shrink-0">
-                      {isBatchTranslating ? <Loader2 size={14} className="animate-spin" /> : <Languages size={14} />} 
-                      Batch Translate All
+                   <button onClick={handleBatchTranslate} disabled={isBatchTranslating} className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shrink-0">
+                      {isBatchTranslating ? <Loader2 size={14} className="animate-spin" /> : <Languages size={14} />} Batch Translate All
                    </button>
                 </div>
 
                 <div className="p-10 space-y-10">
-                   {/* Row 1: Finance */}
                    <div className="grid grid-cols-2 gap-8 items-end">
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={14} className="text-emerald-500" /> Price ({activeMarket})</label>
                          <input 
                            type="number" step="0.01" 
-                           value={activeMarket === 'US' ? (localListing.status === 'optimized' ? (currentContent as OptimizedData).optimized_price : localListing.cleaned.price) : (currentContent as OptimizedData).optimized_price || ''}
-                           onChange={(e) => updateField(activeMarket === 'US' ? (localListing.status === 'optimized' ? 'optimized_price' : 'price') : 'optimized_price', parseFloat(e.target.value))}
+                           value={getFieldValue('optimized_price', 'price')}
+                           onChange={(e) => updateField('optimized_price', parseFloat(e.target.value))}
                            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl focus:bg-white focus:border-emerald-500 outline-none transition-all" 
                          />
                       </div>
@@ -406,20 +342,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Truck size={14} className="text-blue-500" /> Shipping Cost</label>
                          <input 
                            type="number" step="0.01" 
-                           value={activeMarket === 'US' ? (localListing.status === 'optimized' ? (currentContent as OptimizedData).optimized_shipping : localListing.cleaned.shipping) : (currentContent as OptimizedData).optimized_shipping || ''}
-                           onChange={(e) => updateField(activeMarket === 'US' ? (localListing.status === 'optimized' ? 'optimized_shipping' : 'shipping') : 'optimized_shipping', parseFloat(e.target.value))}
+                           value={getFieldValue('optimized_shipping', 'shipping')}
+                           onChange={(e) => updateField('optimized_shipping', parseFloat(e.target.value))}
                            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl focus:bg-white focus:border-blue-500 outline-none transition-all" 
                          />
                       </div>
                    </div>
 
-                   {/* Row 2: Logistics Specs */}
                    <div className="grid grid-cols-2 gap-8 items-end">
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-amber-500" /> Weight</label>
                          <div className="flex gap-2">
-                           <input type="text" value={(currentContent as any).optimized_weight_value || (currentContent as any).item_weight_value || ''} onChange={e => updateField('optimized_weight_value', e.target.value)} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
-                           <select value={(currentContent as any).optimized_weight_unit || (currentContent as any).item_weight_unit || 'lb'} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-24 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                           <input type="text" value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
+                           <select value={getFieldValue('optimized_weight_unit', 'item_weight_unit') || 'lb'} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-32 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
                              <option value="lb">lb (Pounds)</option>
                              <option value="kg">kg (Kilograms)</option>
                              <option value="oz">oz (Ounces)</option>
@@ -431,11 +366,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Ruler size={14} className="text-indigo-500" /> Dimensions (L / W / H)</label>
                          <div className="flex gap-2">
                            <div className="grid grid-cols-3 gap-1 flex-1">
-                              <input placeholder="L" type="text" value={(currentContent as any).optimized_length || (currentContent as any).item_length || ''} onChange={e => updateField('optimized_length', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
-                              <input placeholder="W" type="text" value={(currentContent as any).optimized_width || (currentContent as any).item_width || ''} onChange={e => updateField('optimized_width', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
-                              <input placeholder="H" type="text" value={(currentContent as any).optimized_height || (currentContent as any).item_height || ''} onChange={e => updateField('optimized_height', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
+                              <input placeholder="L" type="text" value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
+                              <input placeholder="W" type="text" value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
+                              <input placeholder="H" type="text" value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                            </div>
-                           <select value={(currentContent as any).optimized_size_unit || (currentContent as any).item_size_unit || 'in'} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-24 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                           <select value={getFieldValue('optimized_size_unit', 'item_size_unit') || 'in'} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-32 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
                              <option value="in">in (Inches)</option>
                              <option value="cm">cm (Centimeters)</option>
                              <option value="mm">mm (Millimeters)</option>
@@ -444,46 +379,41 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </div>
                    </div>
 
-                   {/* Title */}
                    <EditSection 
-                    label="Product Title" 
-                    icon={<ImageIcon size={14}/>} 
-                    value={(currentContent as any).optimized_title || (currentContent as any).title || ''}
+                    label="Product Title" icon={<ImageIcon size={14}/>} 
+                    value={getFieldValue('optimized_title', 'title')}
                     onChange={v => updateField('optimized_title', v)}
-                    limit={200}
-                    className="text-xl font-black leading-snug"
+                    limit={200} className="text-xl font-black leading-snug"
                    />
 
-                   {/* Feature Bullets */}
                    <div className="space-y-4">
                       <div className="flex items-center justify-between ml-1">
                          <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullets)</label>
                          <button onClick={() => {
-                            const nextF = [...((currentContent as any).optimized_features || (currentContent as any).features || [])];
-                            nextF.push("");
-                            updateField('optimized_features', nextF);
+                            const currentFeatures = getFieldValue('optimized_features', 'features') || [];
+                            updateField('optimized_features', [...currentFeatures, ""]);
                          }} className="p-1 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-all"><Plus size={16}/></button>
                       </div>
                       <div className="space-y-3">
-                         {((currentContent as any).optimized_features || (currentContent as any).features || ['', '', '', '', '']).map((f: string, i: number) => (
+                         {(getFieldValue('optimized_features', 'features') || ['', '', '', '', '']).map((f: string, i: number) => (
                            <div key={i} className="flex gap-4 group">
                               <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-2 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
                               <div className="flex-1 space-y-1">
                                  <textarea 
                                    value={f}
                                    onChange={(e) => {
-                                     const nextF = [...((currentContent as any).optimized_features || (currentContent as any).features || [])];
-                                     nextF[i] = e.target.value;
-                                     updateField('optimized_features', nextF);
+                                     const currentFeatures = [...(getFieldValue('optimized_features', 'features') || [])];
+                                     currentFeatures[i] = e.target.value;
+                                     updateField('optimized_features', currentFeatures);
                                    }}
-                                   className={`w-full p-4 bg-slate-50 border rounded-2xl text-sm font-bold leading-relaxed focus:bg-white outline-none transition-all ${f.length > 500 ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200 focus:border-indigo-500'}`}
+                                   className={`w-full p-4 bg-slate-50 border rounded-2xl text-sm font-bold leading-relaxed focus:bg-white outline-none transition-all border-slate-200 focus:border-indigo-500`}
                                    placeholder={`Bullet Point ${i+1}...`}
                                  />
                                  <div className="flex justify-between items-center px-1">
                                     <span className={`text-[9px] font-black uppercase ${f.length > 500 ? 'text-red-500' : 'text-slate-300'}`}>{f.length} / 500</span>
                                     <button onClick={() => {
-                                      const nextF = [...((currentContent as any).optimized_features || (currentContent as any).features || [])].filter((_, idx) => idx !== i);
-                                      updateField('optimized_features', nextF);
+                                      const currentFeatures = [...(getFieldValue('optimized_features', 'features') || [])].filter((_, idx) => idx !== i);
+                                      updateField('optimized_features', currentFeatures);
                                     }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12}/></button>
                                  </div>
                               </div>
@@ -492,68 +422,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </div>
                    </div>
 
-                   {/* Description */}
                    <EditSection 
-                    label="Product Description (HTML)" 
-                    icon={<FileText size={14}/>} 
-                    value={(currentContent as any).optimized_description || (currentContent as any).description || ''}
+                    label="Product Description (HTML)" icon={<FileText size={14}/>} 
+                    value={getFieldValue('optimized_description', 'description')}
                     onChange={v => updateField('optimized_description', v)}
-                    limit={2000}
-                    isMono
-                    className="min-h-[250px] text-xs leading-loose"
+                    limit={2000} isMono className="min-h-[250px] text-xs leading-loose"
                    />
 
-                   {/* Keywords */}
                    <EditSection 
-                    label="Search Keywords" 
-                    icon={<Hash size={14}/>} 
-                    value={(currentContent as any).search_keywords || ''}
+                    label="Search Keywords" icon={<Hash size={14}/>} 
+                    value={getFieldValue('search_keywords', 'search_keywords')}
                     onChange={v => updateField('search_keywords', v)}
-                    limit={250}
-                    className="bg-amber-50/20 border-amber-100 focus:border-amber-400 text-sm font-bold"
+                    limit={250} className="bg-amber-50/20 border-amber-100 focus:border-amber-400 text-sm font-bold"
                    />
-                </div>
-             </div>
-
-             {/* Sourcing Center */}
-             <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm p-10 space-y-8">
-                <div className="flex items-center justify-between">
-                   <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center text-white shadow-xl"><Link2 size={24} /></div>
-                      <div>
-                        <h3 className="text-xl font-black text-slate-900 tracking-tight">Supply Chain Discovery</h3>
-                        <p className="text-xs text-slate-400 font-bold">Manage wholesale sources and manufacturer benchmarks.</p>
-                      </div>
-                   </div>
-                   <div className="flex gap-3">
-                      <button onClick={() => setShowSourcingModal(true)} className="flex items-center gap-2 px-6 py-2.5 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-orange-700 transition-all"><Search size={14} /> AI Visual Search</button>
-                      <button onClick={() => setShowSourcingForm({show: true, data: null})} className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"><Plus size={14} /> Manual Record</button>
-                   </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                   {(localListing.sourcing_data || []).map((s, idx) => (
-                     <div key={idx} className="group bg-slate-50 border border-slate-100 p-5 rounded-3xl flex items-center gap-5 relative hover:bg-white hover:shadow-2xl hover:border-orange-200 transition-all">
-                        <div className="w-16 h-16 bg-white rounded-xl overflow-hidden border border-slate-200 shrink-0">
-                           <img src={s.image} className="w-full h-full object-cover" />
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                           <p className="text-xs font-black text-slate-900 truncate">{s.title}</p>
-                           <p className="text-orange-600 font-black text-lg mt-0.5">{s.price}</p>
-                           <div className="flex items-center gap-3 mt-2">
-                              <a href={s.url} target="_blank" className="inline-flex items-center gap-1.5 text-[9px] font-black text-slate-400 hover:text-blue-600 uppercase tracking-widest transition-colors">Supplier <ExternalLink size={10} /></a>
-                              <button onClick={() => setShowSourcingForm({show: true, data: s})} className="text-[9px] font-black text-slate-400 hover:text-indigo-600 uppercase tracking-widest transition-colors">Edit</button>
-                           </div>
-                        </div>
-                        <button onClick={() => { 
-                          const next = { ...localListing, sourcing_data: (localListing.sourcing_data || []).filter((_, i) => i !== idx) }; 
-                          setLocalListing(next); syncToSupabase(next); 
-                        }} className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={14} /></button>
-                     </div>
-                   ))}
-                   {(localListing.sourcing_data || []).length === 0 && (
-                     <div className="col-span-2 py-16 bg-slate-50 border-2 border-dashed border-slate-100 rounded-[2.5rem] flex flex-col items-center justify-center opacity-30"><Link2 size={32} className="mb-3" /><p className="text-[10px] font-black uppercase tracking-widest">No sourcing data attached</p></div>
-                   )}
                 </div>
              </div>
           </div>
@@ -576,10 +457,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       )}
 
       {showSourcingModal && (
-        <SourcingModal 
-          productImage={previewImage} 
-          onClose={() => setShowSourcingModal(false)} 
-          onAddLink={(res) => {
+        <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={(res) => {
             const next = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] };
             setLocalListing(next); syncToSupabase(next); setShowSourcingModal(false);
           }}
@@ -591,19 +469,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   );
 };
 
-// Fix: Missing EngineBtn component used for AI model selection.
 const EngineBtn = ({ active, onClick, icon, label }: any) => (
-  <button 
-    onClick={onClick} 
-    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all ${
-      active ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
-    }`}
-  >
+  <button onClick={onClick} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all ${active ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
     {icon} {label}
   </button>
 );
 
-// Fix: Missing EditSection component used for Title, Description, and Keywords editing.
 const EditSection = ({ label, icon, value, onChange, limit, isMono, className }: any) => (
   <div className="space-y-3">
     <div className="flex items-center justify-between ml-1">
@@ -619,9 +490,7 @@ const EditSection = ({ label, icon, value, onChange, limit, isMono, className }:
     <textarea 
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={`w-full p-6 bg-slate-50 border rounded-[2rem] font-bold outline-none transition-all focus:bg-white ${
-        isMono ? 'font-mono' : ''
-      } ${value.length > (limit || 99999) ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200 focus:border-indigo-500'} ${className}`}
+      className={`w-full p-6 bg-slate-50 border rounded-[2rem] font-bold outline-none transition-all focus:bg-white ${isMono ? 'font-mono' : ''} ${value.length > (limit || 99999) ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200 focus:border-indigo-500'} ${className}`}
     />
   </div>
 );

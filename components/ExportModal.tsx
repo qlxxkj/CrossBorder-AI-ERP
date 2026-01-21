@@ -31,7 +31,7 @@ const formatExportVal = (val: any) => {
   return parseFloat(num.toFixed(2));
 };
 
-// New Helper: Convert abbreviations to Amazon-compliant full names with capitalization
+// Mapper: strictly Title Case full names for Amazon Templates
 const getFullUnitName = (unit: string) => {
   if (!unit) return "";
   const normalized = unit.toLowerCase().trim();
@@ -63,7 +63,8 @@ const getFullUnitName = (unit: string) => {
     'foot': 'Feet',
     'feet': 'Feet'
   };
-  return map[normalized] || unit.charAt(0).toUpperCase() + unit.slice(1);
+  // Fallback to capitalizing the first letter if not in map
+  return map[normalized] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
 };
 
 const IS_LATIN_MKT = (code: string) => [
@@ -104,9 +105,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const [exportStatus, setExportStatus] = useState('');
   const [mktSearch, setMktSearch] = useState('');
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     if (!isSupabaseConfigured()) return;
@@ -152,21 +151,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           .update({ exported_marketplaces: [...current, marketCode] })
           .eq('id', listing.id);
       }).filter(Boolean);
-      
       if (updates.length > 0) {
         await Promise.all(updates);
         if (onExportSuccess) onExportSuccess();
       }
-    } catch (e) {
-      console.error("Failed to update export history:", e);
-    }
+    } catch (e) {}
   };
 
   const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
-    let basePrice = 0;
-    let baseShipping = 0;
-    let needsRateConversion = true;
-
+    let basePrice = 0; let baseShipping = 0; let needsRateConversion = true;
     const translation = listing.translations?.[targetMkt];
     if (translation && (translation.optimized_price !== undefined)) {
       basePrice = translation.optimized_price;
@@ -176,33 +169,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       basePrice = Number(listing.cleaned.price) || 0;
       baseShipping = Number(listing.cleaned.shipping) || 0;
     }
-
     let currentTotal = basePrice + baseShipping;
-
     const applicableAdj = adjustments.filter(adj => {
       const mktMatch = adj.marketplace === 'ALL' || adj.marketplace === targetMkt;
       const catMatch = adj.category_id === 'ALL' || adj.category_id === listing.category_id;
       return mktMatch && catMatch;
     });
-
-    applicableAdj.forEach(adj => {
-      const multiplier = 1 + (Number(adj.percentage) / 100);
-      currentTotal *= multiplier;
-    });
-
+    applicableAdj.forEach(adj => { currentTotal *= (1 + (Number(adj.percentage) / 100)); });
     if (needsRateConversion && targetMkt !== 'US') {
       const rateEntry = exchangeRates.find(r => r.marketplace === targetMkt);
       const rate = rateEntry ? Number(rateEntry.rate) : 1;
       currentTotal *= rate;
     }
-
     if (targetMkt === 'JP') return Math.round(currentTotal);
     return parseFloat(currentTotal.toFixed(2));
   };
 
   const handleExportCSV = async () => {
-    setExporting(true);
-    setExportStatus('Generating CSV...');
+    setExporting(true); setExportStatus('Generating CSV...');
     try {
       const allKeys = new Set<string>();
       selectedListings.forEach(l => { Object.keys(l.cleaned).forEach(k => allKeys.add(k)); });
@@ -216,19 +200,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         });
         return row;
       });
-
       const worksheet = XLSX.utils.json_to_sheet(csvData, { header: headers });
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Listings");
       const outData = XLSX.write(workbook, { bookType: 'csv', type: 'array' });
       const blob = new Blob([outData], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `AMZBot_Export_${Date.now()}.csv`;
-      link.click();
+      const link = document.createElement('a'); link.href = url;
+      link.download = `AMZBot_Export_${Date.now()}.csv`; link.click();
       URL.revokeObjectURL(url);
-      
       await updateExportHistory('CSV-RAW');
     } catch (err: any) { alert("CSV Export failed: " + err.message); } 
     finally { setExporting(false); onClose(); }
@@ -237,10 +217,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const handleExportTemplate = async () => {
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
     if (!selectedTemplate || !fileBinary) return;
-    
-    setExporting(true);
-    setExportStatus('Injecting Data...');
-
+    setExporting(true); setExportStatus('Injecting Data...');
     try {
       const bytes = safeDecode(fileBinary);
       const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true, cellNF: true, cellText: true });
@@ -261,7 +238,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           const colIdx = parseInt(mappingKey.replace('col_', ''));
           const mapping = selectedTemplate.mappings?.[mappingKey] as FieldMapping | undefined;
           if (!mapping || isNaN(colIdx)) return;
-
           let val: any = "";
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
@@ -269,34 +245,26 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'title') val = localOpt?.optimized_title || cleaned.title || '';
             else if (f === 'price') val = calculateFinalPrice(listing, targetMarket);
             else if (f === 'shipping') {
-                const trans = listing.translations?.[targetMarket];
-                if (trans && trans.optimized_shipping !== undefined) val = trans.optimized_shipping;
-                else {
-                    const rate = exchangeRates.find(r => r.marketplace === targetMarket)?.rate || 1;
-                    const calcShip = (cleaned.shipping || 0) * (targetMarket === 'US' ? 1 : rate);
-                    val = targetMarket === 'JP' ? Math.round(calcShip) : parseFloat(calcShip.toFixed(2));
-                }
+              const trans = listing.translations?.[targetMarket];
+              if (trans && trans.optimized_shipping !== undefined) val = trans.optimized_shipping;
+              else {
+                const rate = exchangeRates.find(r => r.marketplace === targetMarket)?.rate || 1;
+                const calcShip = (cleaned.shipping || 0) * (targetMarket === 'US' ? 1 : rate);
+                val = targetMarket === 'JP' ? Math.round(calcShip) : parseFloat(calcShip.toFixed(2));
+              }
             }
             else if (f === 'brand') val = cleaned.brand || '';
             else if (f === 'description') val = localOpt?.optimized_description || cleaned.description || '';
             else if (f === 'main_image') val = cleaned.main_image || '';
             else if (f === 'item_weight_value') val = formatExportVal(localOpt?.optimized_weight_value || cleaned.item_weight_value || '');
-            else if (f === 'item_weight_unit') {
-              const unit = localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '';
-              // Enhanced: Use full name for template export
-              val = IS_LATIN_MKT(targetMarket) ? getFullUnitName(unit) : unit;
-            }
+            else if (f === 'item_weight_unit') val = getFullUnitName(localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '');
             else if (f === 'item_length') val = formatExportVal(localOpt?.optimized_length || cleaned.item_length || '');
             else if (f === 'item_width') val = formatExportVal(localOpt?.optimized_width || cleaned.item_width || '');
             else if (f === 'item_height') val = formatExportVal(localOpt?.optimized_height || cleaned.item_height || '');
-            else if (f === 'item_size_unit') {
-              const unit = localOpt?.optimized_size_unit || cleaned.item_size_unit || '';
-              // Enhanced: Use full name for template export
-              val = IS_LATIN_MKT(targetMarket) ? getFullUnitName(unit) : unit;
-            }
-          } else if (mapping.source === 'custom') { val = mapping.defaultValue || ''; } 
-          else if (mapping.source === 'random') { val = generateRandomValue(mapping.randomType); }
-          else if (mapping.source === 'template_default') { val = mapping.templateDefault || ''; }
+            else if (f === 'item_size_unit') val = getFullUnitName(localOpt?.optimized_size_unit || cleaned.item_size_unit || '');
+          } else if (mapping.source === 'custom') val = mapping.defaultValue || '';
+          else if (mapping.source === 'random') val = generateRandomValue(mapping.randomType);
+          else if (mapping.source === 'template_default') val = mapping.templateDefault || '';
 
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
           sheet[cellRef] = { v: val, t: (typeof val === 'number') ? 'n' : 's' };
@@ -306,12 +274,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm', bookVBA: true, cellStyles: true });
       const blob = new Blob([outData], { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
       const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Localized_${targetMarket}_${Date.now()}.xlsm`;
-      link.click();
+      const link = document.createElement('a'); link.href = url;
+      link.download = `Localized_${targetMarket}_${Date.now()}.xlsm`; link.click();
       URL.revokeObjectURL(url);
-      
       await updateExportHistory(targetMarket);
     } catch (err: any) { alert("Template export failed: " + err.message); } 
     finally { setExporting(false); onClose(); }
@@ -326,64 +291,43 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           </h2>
           <button onClick={onClose} className="p-3 hover:bg-slate-100 rounded-full text-slate-400"><X size={28} /></button>
         </div>
-        
         <div className="p-10 space-y-10 flex-1 overflow-y-auto custom-scrollbar">
           <div className="bg-indigo-600 p-8 rounded-[2rem] shadow-2xl shadow-indigo-200 text-white flex items-center gap-6">
             <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-white backdrop-blur-md"><CheckCircle2 size={32} /></div>
-            <div>
-              <p className="text-xl font-black">{selectedListings.length} Items Selected</p>
-              <p className="text-xs font-bold text-indigo-100 opacity-80 uppercase tracking-widest mt-1">
-                Updating Localization History upon completion
-              </p>
-            </div>
+            <div><p className="text-xl font-black">{selectedListings.length} Items Selected</p><p className="text-xs font-bold text-indigo-100 opacity-80 uppercase tracking-widest mt-1">Updating Localization History upon completion</p></div>
           </div>
-
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
             <div className="lg:col-span-5 space-y-8">
                <div className="space-y-4 flex flex-col h-full">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Globe size={14} className="text-blue-500" /> Target Marketplace</label>
-                    <div className="relative group">
-                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-300" size={12} />
-                      <input type="text" placeholder="Search..." value={mktSearch} onChange={(e) => setMktSearch(e.target.value)} className="pl-7 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black outline-none" />
-                    </div>
-                  </div>
+                  <div className="flex items-center justify-between"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Globe size={14} className="text-blue-500" /> Target Marketplace</label></div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar p-1 bg-slate-50/50 rounded-3xl border border-slate-100">
                     {filteredMarketplaces.map(m => (
                       <button key={m.code} onClick={() => setTargetMarket(m.code)} className={`px-3 py-4 rounded-2xl border text-left transition-all ${targetMarket === m.code ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl scale-105 z-10' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'}`}>
-                        <div className="text-xl mb-1">{m.flag}</div>
-                        <div className="text-[10px] font-black uppercase tracking-tighter truncate">{m.code} - {m.name}</div>
+                        <div className="text-xl mb-1">{m.flag}</div><div className="text-[10px] font-black uppercase tracking-tighter truncate">{m.code} - {m.name}</div>
                       </button>
                     ))}
                   </div>
                </div>
             </div>
-
             <div className="lg:col-span-7 space-y-8">
                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-full">
                   <button onClick={handleExportCSV} className="p-8 bg-slate-50 border-2 border-slate-100 rounded-[2.5rem] flex flex-col items-center text-center group hover:border-indigo-500 transition-all hover:bg-white hover:shadow-2xl">
                      <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm mb-6"><FileText size={32} /></div>
                      <h3 className="font-black text-slate-900 uppercase tracking-widest mb-2">Default CSV</h3>
                      <p className="text-[10px] text-slate-400 font-bold Gabriel leading-relaxed">Raw data dump without marketplace formatting.</p>
-                     <div className="mt-auto px-6 py-2 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest">Download</div>
                   </button>
-
                   <div className="space-y-4 flex flex-col h-full">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileSpreadsheet size={14} className="text-emerald-500" /> Template Export</label>
                     <div className="space-y-3 flex-1 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar bg-slate-50/30 p-4 rounded-3xl border border-slate-100">
                       {filteredTemplates.length === 0 ? (
                         <div className="p-12 text-center bg-white rounded-3xl border-dashed border-2 border-slate-100 flex flex-col items-center gap-4">
-                          <AlertCircle size={32} className="text-slate-200" />
-                          <p className="text-[10px] font-black text-slate-300 uppercase leading-relaxed text-center">No Templates for {targetMarket}</p>
+                          <AlertCircle size={32} className="text-slate-200" /><p className="text-[10px] font-black text-slate-300 uppercase leading-relaxed text-center">No Templates for {targetMarket}</p>
                         </div>
                       ) : (
                         filteredTemplates.map(tmp => (
-                          <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`w-full flex items-center gap-4 p-5 rounded-2xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-white shadow-lg ring-1 ring-indigo-500/10' : 'border-slate-50 bg-white/70 hover:border-slate-200'}`}>
+                          <button key={tmp.id} onClick={() => setSelectedTemplate(tmp)} className={`w-full flex items-center gap-4 p-5 rounded-2xl border text-left transition-all ${selectedTemplate?.id === tmp.id ? 'border-indigo-500 bg-white shadow-lg' : 'border-slate-50 bg-white/70 hover:border-slate-200'}`}>
                             <div className={`p-2 rounded-lg ${selectedTemplate?.id === tmp.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}><FileSpreadsheet size={18} /></div>
-                            <div className="flex-1 overflow-hidden">
-                              <span className="font-black text-xs block truncate">{tmp.name}</span>
-                              <span className="text-[8px] font-bold text-slate-400 uppercase">Cat: {categories.find(c => c.id === tmp.category_id)?.name || 'Global'}</span>
-                            </div>
+                            <div className="flex-1 overflow-hidden"><span className="font-black text-xs block truncate">{tmp.name}</span></div>
                           </button>
                         ))
                       )}
@@ -393,13 +337,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             </div>
           </div>
         </div>
-
         <div className="p-10 bg-slate-50 border-t border-slate-100 flex justify-end gap-5">
           {exporting && <div className="mr-auto flex items-center gap-3 text-xs font-black text-indigo-600 uppercase animate-pulse"><Loader2 className="animate-spin" size={16} /> {exportStatus}</div>}
           <button onClick={onClose} className="px-10 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">Cancel</button>
-          <button disabled={!selectedTemplate || exporting} onClick={handleExportTemplate} className="px-14 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50">
-            {exporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} Localized Template (.XLSM)
-          </button>
+          <button disabled={!selectedTemplate || exporting} onClick={handleExportTemplate} className="px-14 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all disabled:opacity-50"><Download size={18} /> Localized Template (.XLSM)</button>
         </div>
       </div>
     </div>
