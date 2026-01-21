@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { ListingsManager } from './components/ListingsManager';
+import { ListingDetail } from './components/ListingDetail';
 import { LandingPage } from './components/LandingPage';
 import { AuthPage } from './components/AuthPage.tsx';
 import { TemplateManager } from './components/TemplateManager';
@@ -18,6 +19,7 @@ import { Loader2 } from 'lucide-react';
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.LANDING);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [org, setOrg] = useState<Organization | null>(null);
@@ -25,6 +27,7 @@ const App: React.FC = () => {
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
 
   const viewRef = useRef(view);
   useEffect(() => { viewRef.current = view; }, [view]);
@@ -134,6 +137,12 @@ const App: React.FC = () => {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
+    if (tab.startsWith('system:')) {
+      const sub = tab.split(':')[1] as any;
+      setSystemSubTab(sub);
+      setView(AppView.SYSTEM_MGMT);
+      return;
+    }
     switch(tab) {
       case 'dashboard': setView(AppView.DASHBOARD); break;
       case 'listings': setView(AppView.DASHBOARD); break;
@@ -145,6 +154,11 @@ const App: React.FC = () => {
       case 'system': setView(AppView.SYSTEM_MGMT); break;
       default: setView(AppView.DASHBOARD);
     }
+  };
+
+  const handleSelectListing = (listing: Listing) => {
+    setSelectedListing(listing);
+    setView(AppView.LISTING_DETAIL);
   };
 
   const handleLandingLoginClick = () => {
@@ -161,7 +175,7 @@ const App: React.FC = () => {
       return <AdminDashboard uiLang={lang} />;
     }
     if (view === AppView.SYSTEM_MGMT) {
-      return <SystemManagement uiLang={lang} orgId={userProfile?.org_id || ''} orgData={org} onOrgUpdate={setOrg} />;
+      return <SystemManagement uiLang={lang} orgId={userProfile?.org_id || ''} orgData={org} onOrgUpdate={setOrg} activeSubTab={systemSubTab} onSubTabChange={setSystemSubTab} />;
     }
     
     switch(view) {
@@ -169,9 +183,22 @@ const App: React.FC = () => {
       case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
       case AppView.PRICING: return <PricingManager uiLang={lang} />;
       case AppView.BILLING: return <BillingCenter uiLang={lang} />;
+      case AppView.LISTING_DETAIL:
+        return selectedListing ? (
+          <ListingDetail 
+            listing={selectedListing} 
+            onBack={() => setView(AppView.DASHBOARD)} 
+            onUpdate={(u) => { setListings(prev => prev.map(l => l.id === u.id ? u : l)); setSelectedListing(u); }}
+            onNext={() => {
+              const idx = listings.findIndex(l => l.id === selectedListing.id);
+              if (idx < listings.length - 1) handleSelectListing(listings[idx + 1]);
+            }}
+            uiLang={lang} 
+          />
+        ) : null;
       default:
         if (activeTab === 'listings') {
-          return <ListingsManager onSelectListing={() => {}} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
+          return <ListingsManager onSelectListing={handleSelectListing} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
         }
         return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
     }
@@ -192,7 +219,6 @@ const App: React.FC = () => {
     );
   }
 
-  // Sidebar is hidden on LANDING and AUTH pages
   const showSidebar = userProfile && session && view !== AppView.LANDING && view !== AppView.AUTH;
 
   return (

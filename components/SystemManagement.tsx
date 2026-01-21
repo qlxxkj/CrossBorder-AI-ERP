@@ -14,20 +14,23 @@ interface SystemManagementProps {
   orgId: string;
   orgData: Organization | null;
   onOrgUpdate: (org: Organization) => void;
+  activeSubTab?: 'users' | 'roles' | 'org';
+  onSubTabChange?: (tab: 'users' | 'roles' | 'org') => void;
 }
 
 const MENU_OPTIONS = [
   { id: 'dashboard', label: 'dashboard' },
   { id: 'listings', label: 'listings' },
-  { id: 'categories', label: 'categories' },
+  { id: 'categories', label: 'categoryMgmt' },
   { id: 'pricing', label: 'pricing' },
   { id: 'templates', label: 'templateManager' },
-  { id: 'system', label: 'systemMgmt' }
+  { id: 'sys:users', label: 'userMgmt' },
+  { id: 'sys:roles', label: 'roleMgmt' },
+  { id: 'sys:org', label: 'orgMgmt' },
 ];
 
-export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgId, orgData, onOrgUpdate }) => {
+export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgId, orgData, onOrgUpdate, activeSubTab = 'users', onSubTabChange }) => {
   const t = useTranslation(uiLang);
-  const [activeTab, setActiveTab] = useState<'org' | 'roles' | 'users'>('users');
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -45,9 +48,9 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
   });
 
   useEffect(() => {
-    if (activeTab === 'users') fetchMembers();
-    if (activeTab === 'roles') fetchRoles();
-  }, [activeTab, orgId]);
+    if (activeSubTab === 'users') fetchMembers();
+    if (activeSubTab === 'roles') fetchRoles();
+  }, [activeSubTab, orgId]);
 
   const fetchMembers = async () => {
     setLoading(true);
@@ -104,8 +107,6 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
   const handleResetPassword = async (userId: string) => {
     if (!window.confirm(t('resetWarning'))) return;
     setLoading(true);
-    // 注意：客户端 Supabase 不支持直接重置其他用户的密码。此处为 UI 模拟。
-    // 在真实生产中需调用 Supabase Edge Functions。
     setTimeout(() => {
       alert(uiLang === 'zh' ? "密码已重置为 000000（模拟成功）。" : "Password reset to 000000 (Simulated).");
       setLoading(false);
@@ -150,9 +151,9 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
           </div>
         </div>
         <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
-          <TabButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={<Users size={16}/>} label={t('userMgmt')} />
-          <TabButton active={activeTab === 'roles'} onClick={() => setActiveTab('roles')} icon={<Shield size={16}/>} label={t('roleMgmt')} />
-          <TabButton active={activeTab === 'org'} onClick={() => setActiveTab('org')} icon={<Building size={16}/>} label={t('orgMgmt')} />
+          <TabButton active={activeSubTab === 'users'} onClick={() => onSubTabChange?.('users')} icon={<Users size={16}/>} label={t('userMgmt')} />
+          <TabButton active={activeSubTab === 'roles'} onClick={() => onSubTabChange?.('roles')} icon={<Shield size={16}/>} label={t('roleMgmt')} />
+          <TabButton active={activeSubTab === 'org'} onClick={() => onSubTabChange?.('org')} icon={<Building size={16}/>} label={t('orgMgmt')} />
         </div>
       </div>
 
@@ -163,7 +164,7 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
           </div>
         )}
 
-        {activeTab === 'users' && (
+        {activeSubTab === 'users' && (
           <div className="p-10 space-y-8">
             <div className="flex justify-between items-center">
                <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight text-sm">
@@ -235,7 +236,7 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
           </div>
         )}
 
-        {activeTab === 'roles' && (
+        {activeSubTab === 'roles' && (
           <div className="p-10 space-y-8">
             <div className="flex justify-between items-center">
                <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight text-sm">
@@ -263,7 +264,7 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
           </div>
         )}
 
-        {activeTab === 'org' && (
+        {activeSubTab === 'org' && (
           <div className="p-10 space-y-12">
             <div className="flex justify-between items-center">
                <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight text-sm">

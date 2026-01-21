@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Search, CheckCircle, Trash2, Download, Package, 
   Loader2, Globe, ChevronLeft, ChevronRight, 
-  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink
+  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink, Edit3
 } from 'lucide-react';
 import { Listing, UILanguage, Category } from '../types';
 import { useTranslation } from '../lib/i18n';
@@ -136,14 +136,12 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     }
   };
 
-  // 生成对应的亚马逊跳转链接
   const getAmazonUrl = (asin: string, mktCode: string) => {
     const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
     const domain = mkt?.domain || 'amazon.com';
     return `https://${domain}/dp/${asin}`;
   };
 
-  // 渲染分发看板
   const renderDistributionStatus = (listing: Listing) => {
     const translations = listing.translations ? Object.keys(listing.translations) : [];
     const exports = listing.exported_marketplaces || [];
@@ -294,23 +292,25 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                         </span>
                       </td>
                       <td className="p-8">
-                        <a 
-                          href={getAmazonUrl(listing.asin, listing.marketplace)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="flex items-center gap-1 group/asin"
-                        >
-                          <span className="font-mono text-[11px] font-black text-slate-400 group-hover/asin:text-blue-600 transition-colors underline decoration-dotted decoration-slate-300">{listing.asin}</span>
-                          <ExternalLink size={10} className="text-slate-200 group-hover/asin:text-blue-500" />
-                        </a>
-                        <span className="block mt-1 text-[8px] font-black text-slate-300 uppercase">{mkt?.flag} {listing.marketplace}</span>
+                        <div className="flex flex-col gap-1">
+                          <a 
+                            href={getAmazonUrl(listing.asin, listing.marketplace)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-1 group/asin"
+                          >
+                            <span className="font-mono text-[11px] font-black text-slate-400 group-hover/asin:text-blue-600 transition-colors underline decoration-dotted decoration-slate-300">{listing.asin}</span>
+                            <ExternalLink size={10} className="text-slate-200 group-hover/asin:text-blue-500" />
+                          </a>
+                          <span className="block mt-1 text-[8px] font-black text-slate-300 uppercase">{mkt?.flag} {listing.marketplace}</span>
+                        </div>
                       </td>
                       <td className="p-8"><p className="text-xs font-bold text-slate-800 line-clamp-2 leading-relaxed">{title}</p></td>
                       <td className="p-8 text-right">
                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                          <button onClick={(e) => handleDelete(listing.id, e)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg transition-all"><Trash2 size={16} /></button>
-                          <ChevronRight size={16} className="text-slate-200" />
+                          <button onClick={(e) => { e.stopPropagation(); onSelectListing(listing); }} className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"><Edit3 size={18} /></button>
+                          <button onClick={(e) => handleDelete(listing.id, e)} className="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={18} /></button>
                         </div>
                       </td>
                     </tr>
@@ -397,16 +397,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                 <ChevronsRight size={18} />
               </button>
             </div>
-
-            <form onSubmit={handleJumpPage} className="flex items-center gap-2">
-              <span className="text-[10px] font-black text-slate-400 uppercase">Go to</span>
-              <input 
-                type="text" 
-                value={jumpPage}
-                onChange={(e) => setJumpPage(e.target.value)}
-                className="w-12 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-center outline-none focus:border-indigo-500"
-              />
-            </form>
           </div>
         </div>
       </div>

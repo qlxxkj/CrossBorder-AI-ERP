@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   LayoutDashboard, List, Tags, Coins, Layout, ShieldCheck, 
   Settings, LogOut, ChevronRight, Crown, Zap, 
-  CreditCard, ArrowUpRight, Mail
+  CreditCard, ArrowUpRight, Mail, ChevronDown, Building, Users, Shield
 } from 'lucide-react';
 import { UILanguage, UserProfile } from '../types';
 import { useTranslation } from '../lib/i18n';
@@ -21,6 +21,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang, userProfile, session, onLogout, onLogoClick }) => {
   const t = useTranslation(lang);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isSystemExpanded, setIsSystemExpanded] = useState(activeTab.startsWith('system'));
   const menuRef = useRef<HTMLDivElement>(null);
   
   const isSuper = userProfile.role === 'super_admin' || userProfile.role === 'admin';
@@ -43,9 +44,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
   const navItems = [
     { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: t('dashboard') },
     { id: 'listings', icon: <List size={18} />, label: t('listings') },
-    { id: 'categories', icon: <Tags size={18} />, label: t('categories') },
+    { id: 'categories', icon: <Tags size={18} />, label: t('categoryMgmt') },
     { id: 'pricing', icon: <Coins size={18} />, label: t('pricing') },
     { id: 'templates', icon: <Layout size={18} />, label: t('templateManager') },
+  ];
+
+  const systemSubItems = [
+    { id: 'system:org', icon: <Building size={16} />, label: t('orgMgmt') },
+    { id: 'system:roles', icon: <Shield size={16} />, label: t('roleMgmt') },
+    { id: 'system:users', icon: <Users size={16} />, label: t('userMgmt') },
   ];
 
   return (
@@ -56,7 +63,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
       </button>
 
       <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-1">
-        <p className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Core Modules</p>
         {navItems.map(item => (
           <button 
             key={item.id}
@@ -72,35 +78,51 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
         ))}
 
         {isTenantAdmin && (
-          <>
-            <p className="px-4 pt-8 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Administration</p>
+          <div className="space-y-1">
             <button 
-              onClick={() => setActiveTab('system')} 
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
-                activeTab === 'system' 
+              onClick={() => setIsSystemExpanded(!isSystemExpanded)} 
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+                activeTab.startsWith('system')
                   ? 'bg-indigo-600 text-white shadow-lg' 
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              <Settings size={18} /> <span className="text-sm font-bold">{t('systemMgmt')}</span>
+              <div className="flex items-center gap-3">
+                <Settings size={18} /> 
+                <span className="text-sm font-bold">{t('systemMgmt')}</span>
+              </div>
+              <ChevronDown size={14} className={`transition-transform duration-300 ${isSystemExpanded ? 'rotate-180' : ''}`} />
             </button>
-          </>
+            
+            {isSystemExpanded && (
+              <div className="pl-4 space-y-1 mt-1 animate-in slide-in-from-top-2 duration-300">
+                {systemSubItems.map(sub => (
+                  <button 
+                    key={sub.id}
+                    onClick={() => setActiveTab(sub.id)}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                      activeTab === sub.id ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    {sub.icon} {sub.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {isSuper && (
-          <>
-            <p className="px-4 pt-8 text-[10px] font-black text-amber-500 uppercase tracking-widest mb-4">Global Ops</p>
-            <button 
-              onClick={() => setActiveTab('admin')} 
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
-                activeTab === 'admin' 
-                  ? 'bg-amber-600 text-white shadow-lg' 
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <ShieldCheck size={18} /> <span className="text-sm font-bold">Admin Panel</span>
-            </button>
-          </>
+          <button 
+            onClick={() => setActiveTab('admin')} 
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'admin' 
+                ? 'bg-amber-600 text-white shadow-lg' 
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <ShieldCheck size={18} /> <span className="text-sm font-bold">Admin Panel</span>
+          </button>
         )}
       </nav>
 

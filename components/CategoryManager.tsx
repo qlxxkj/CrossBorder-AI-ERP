@@ -6,12 +6,14 @@ import {
 } from 'lucide-react';
 import { Category, UILanguage } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { useTranslation } from '../lib/i18n';
 
 interface CategoryManagerProps {
   uiLang: UILanguage;
 }
 
 export const CategoryManager: React.FC<CategoryManagerProps> = ({ uiLang }) => {
+  const t = useTranslation(uiLang);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
@@ -28,7 +30,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({ uiLang }) => {
   const fetchCategories = async () => {
     if (!isSupabaseConfigured()) return;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('categories')
       .select('*')
       .order('updated_at', { ascending: false });
@@ -124,7 +126,6 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({ uiLang }) => {
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500 pb-24">
-      {/* Header Section */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
           <div className="w-16 h-16 bg-slate-900 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl shadow-slate-200">
@@ -132,11 +133,11 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({ uiLang }) => {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">
-              {uiLang === 'zh' ? '分类管理' : 'Category Management'}
+              {t('categoryMgmt')}
             </h2>
             <p className="text-sm text-slate-400 font-bold uppercase tracking-widest flex items-center gap-2">
               <span className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></span>
-              {categories.length} {uiLang === 'zh' ? '个活跃分类' : 'Active Categories'}
+              {categories.length} {t('activeCat')}
             </p>
           </div>
         </div>
@@ -146,7 +147,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({ uiLang }) => {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
             <input 
               type="text"
-              placeholder={uiLang === 'zh' ? "搜索分类..." : "Search..."}
+              placeholder={t('searchCat')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all shadow-sm"
@@ -161,12 +162,11 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({ uiLang }) => {
             }`}
           >
             {isAdding ? <X size={18} /> : <Plus size={18} />}
-            {isAdding ? (uiLang === 'zh' ? '取消' : 'Cancel') : (uiLang === 'zh' ? '新增分类' : 'Add New')}
+            {isAdding ? t('back') : t('addNew')}
           </button>
         </div>
       </div>
 
-      {/* Add Form (Expandable) */}
       {isAdding && (
         <div className="bg-white p-8 rounded-[2.5rem] border-2 border-indigo-500/20 shadow-2xl shadow-indigo-500/5 animate-in slide-in-from-top-4 duration-300">
           <form onSubmit={handleAdd} className="flex flex-col md:flex-row gap-4">
@@ -187,22 +187,21 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({ uiLang }) => {
               className="px-10 py-5 bg-indigo-600 text-white rounded-3xl font-black text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-xl shadow-indigo-200"
             >
               {isSubmitting ? <Loader2 size={20} className="animate-spin" /> : <Check size={20} />}
-              {uiLang === 'zh' ? '确认创建' : 'Create Category'}
+              {t('createCat')}
             </button>
           </form>
         </div>
       )}
 
-      {/* Categories List */}
       <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
-                <th className="p-8">Category Name</th>
-                <th className="p-8">Created Date</th>
-                <th className="p-8">Last Modified</th>
-                <th className="p-8 text-right">Actions</th>
+                <th className="p-8">{t('catName')}</th>
+                <th className="p-8">{t('createdDate')}</th>
+                <th className="p-8">{t('lastModified')}</th>
+                <th className="p-8 text-right">{t('actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -287,25 +286,6 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({ uiLang }) => {
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* Tip Card */}
-      <div className="bg-slate-900 rounded-[3rem] p-10 flex flex-col md:flex-row items-center gap-8 text-white relative overflow-hidden group">
-        <div className="absolute -right-20 -top-20 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-1000"></div>
-        <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center flex-shrink-0 border border-white/5">
-          <AlertCircle size={32} className="text-indigo-400" />
-        </div>
-        <div className="flex-1 space-y-2">
-          <h4 className="font-black text-lg tracking-tight">Taxonomy Pro-Tip</h4>
-          <p className="text-sm text-slate-400 font-medium leading-relaxed max-w-2xl">
-            {uiLang === 'zh' 
-              ? '维护清晰的分类结构可以显著提高刊登效率。您可以将不同站点的同类模板关联到同一个分类中，实现多站点协同。' 
-              : 'Maintaining a clean taxonomy speeds up your workflow. You can link multiple marketplace templates to a single category for cross-border synergy.'}
-          </p>
-        </div>
-        <button className="px-8 py-3 bg-white/10 hover:bg-white/20 border border-white/5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all">
-          Learn More
-        </button>
       </div>
     </div>
   );
