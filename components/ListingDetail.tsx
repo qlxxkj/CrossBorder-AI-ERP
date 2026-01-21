@@ -90,25 +90,27 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
-  // Enhanced Helper: Handles Fallbacks and Currency Conversions for Price/Shipping
+  // Improved Helper: Ensures fallback to cleaned data for US site prices
   const getFieldValue = (optField: string, cleanField: string) => {
     if (activeMarket === 'US') {
-      const val = localListing.status === 'optimized' && localListing.optimized 
-        ? (localListing.optimized as any)[optField] 
-        : (localListing.cleaned as any)[cleanField];
-      return (val !== undefined && val !== null) ? val : '';
+      // 1. Try Optimized value
+      const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
+      if (optVal !== undefined && optVal !== null && optVal !== '') return optVal;
+      
+      // 2. Fallback to Cleaned value
+      const cleanVal = (localListing.cleaned as any)[cleanField];
+      return (cleanVal !== undefined && cleanVal !== null) ? cleanVal : '';
     }
 
-    // Check existing translation first
+    // Non-US Market logic
     const trans = localListing.translations?.[activeMarket];
-    if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
+    if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null && (trans as any)[optField] !== '') {
       return (trans as any)[optField];
     }
 
-    // Dynamic Fallback for Prices (Clean Price * Exchange Rate)
+    // Dynamic price calculation fallback for translation sites
     if (optField === 'optimized_price' || optField === 'optimized_shipping') {
-      const sourceKey = optField === 'optimized_price' ? 'price' : 'shipping';
-      const sourceVal = localListing.cleaned[sourceKey] || 0;
+      const sourceVal = localListing.cleaned[cleanField] || 0;
       const rate = exchangeRates.find(r => r.marketplace === activeMarket)?.rate || 1;
       const converted = sourceVal * rate;
       return activeMarket === 'JP' ? Math.round(converted) : parseFloat(converted.toFixed(2));
@@ -354,7 +356,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-amber-500" /> Weight</label>
                          <div className="flex gap-2">
                            <input type="text" value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
-                           <select value={getFieldValue('optimized_weight_unit', 'item_weight_unit') || 'lb'} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-32 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                           <select value={getFieldValue('optimized_weight_unit', 'item_weight_unit') || 'lb'} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-40 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
                              <option value="lb">lb (Pounds)</option>
                              <option value="kg">kg (Kilograms)</option>
                              <option value="oz">oz (Ounces)</option>
@@ -370,7 +372,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                               <input placeholder="W" type="text" value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                               <input placeholder="H" type="text" value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                            </div>
-                           <select value={getFieldValue('optimized_size_unit', 'item_size_unit') || 'in'} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-32 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                           <select value={getFieldValue('optimized_size_unit', 'item_size_unit') || 'in'} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-40 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
                              <option value="in">in (Inches)</option>
                              <option value="cm">cm (Centimeters)</option>
                              <option value="mm">mm (Millimeters)</option>
@@ -400,7 +402,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                               <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-2 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
                               <div className="flex-1 space-y-1">
                                  <textarea 
-                                   value={f}
+                                   value={f || ''}
                                    onChange={(e) => {
                                      const currentFeatures = [...(getFieldValue('optimized_features', 'features') || [])];
                                      currentFeatures[i] = e.target.value;
@@ -410,7 +412,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                    placeholder={`Bullet Point ${i+1}...`}
                                  />
                                  <div className="flex justify-between items-center px-1">
-                                    <span className={`text-[9px] font-black uppercase ${f.length > 500 ? 'text-red-500' : 'text-slate-300'}`}>{f.length} / 500</span>
+                                    <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-slate-400'}`}>{(f || '').length} / 500</span>
                                     <button onClick={() => {
                                       const currentFeatures = [...(getFieldValue('optimized_features', 'features') || [])].filter((_, idx) => idx !== i);
                                       updateField('optimized_features', currentFeatures);
@@ -435,6 +437,48 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     onChange={v => updateField('search_keywords', v)}
                     limit={250} className="bg-amber-50/20 border-amber-100 focus:border-amber-400 text-sm font-bold"
                    />
+                </div>
+             </div>
+
+             {/* Re-restored Sourcing Center */}
+             <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm p-10 space-y-8 mt-8">
+                <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center text-white shadow-xl"><Link2 size={24} /></div>
+                      <div>
+                        <h3 className="text-xl font-black text-slate-900 tracking-tight">Supply Chain Discovery</h3>
+                        <p className="text-xs text-slate-400 font-bold">Manage wholesale sources and manufacturer benchmarks.</p>
+                      </div>
+                   </div>
+                   <div className="flex gap-3">
+                      <button onClick={() => setShowSourcingModal(true)} className="flex items-center gap-2 px-6 py-2.5 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-orange-700 transition-all"><Search size={14} /> AI Visual Search</button>
+                      <button onClick={() => setShowSourcingForm({show: true, data: null})} className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"><Plus size={14} /> Manual Record</button>
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   {(localListing.sourcing_data || []).map((s, idx) => (
+                     <div key={idx} className="group bg-slate-50 border border-slate-100 p-5 rounded-3xl flex items-center gap-5 relative hover:bg-white hover:shadow-2xl hover:border-orange-200 transition-all">
+                        <div className="w-16 h-16 bg-white rounded-xl overflow-hidden border border-slate-200 shrink-0">
+                           <img src={s.image} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                           <p className="text-xs font-black text-slate-900 truncate">{s.title}</p>
+                           <p className="text-orange-600 font-black text-lg mt-0.5">{s.price}</p>
+                           <div className="flex items-center gap-3 mt-2">
+                              <a href={s.url} target="_blank" className="inline-flex items-center gap-1.5 text-[9px] font-black text-slate-400 hover:text-blue-600 uppercase tracking-widest transition-colors">Supplier <ExternalLink size={10} /></a>
+                              <button onClick={() => setShowSourcingForm({show: true, data: s})} className="text-[9px] font-black text-slate-400 hover:text-indigo-600 uppercase tracking-widest transition-colors">Edit</button>
+                           </div>
+                        </div>
+                        <button onClick={() => { 
+                          const next = { ...localListing, sourcing_data: (localListing.sourcing_data || []).filter((_, i) => i !== idx) }; 
+                          setLocalListing(next); syncToSupabase(next); 
+                        }} className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={14} /></button>
+                     </div>
+                   ))}
+                   {(localListing.sourcing_data || []).length === 0 && (
+                     <div className="col-span-2 py-16 bg-slate-50 border-2 border-dashed border-slate-100 rounded-[2.5rem] flex flex-col items-center justify-center opacity-30"><Link2 size={32} className="mb-3" /><p className="text-[10px] font-black uppercase tracking-widest">No sourcing data attached</p></div>
+                   )}
                 </div>
              </div>
           </div>
@@ -482,15 +526,15 @@ const EditSection = ({ label, icon, value, onChange, limit, isMono, className }:
         {icon} {label}
       </label>
       {limit && (
-        <span className={`text-[9px] font-black uppercase ${value.length > limit ? 'text-red-500' : 'text-slate-300'}`}>
-          {value.length} / {limit}
+        <span className={`text-[9px] font-black uppercase ${(value || '').length > limit ? 'text-red-500' : 'text-slate-400'}`}>
+          {(value || '').length} / {limit}
         </span>
       )}
     </div>
     <textarea 
-      value={value}
+      value={value || ''}
       onChange={(e) => onChange(e.target.value)}
-      className={`w-full p-6 bg-slate-50 border rounded-[2rem] font-bold outline-none transition-all focus:bg-white ${isMono ? 'font-mono' : ''} ${value.length > (limit || 99999) ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200 focus:border-indigo-500'} ${className}`}
+      className={`w-full p-6 bg-slate-50 border rounded-[2rem] font-bold outline-none transition-all focus:bg-white ${isMono ? 'font-mono' : ''} ${(value || '').length > (limit || 99999) ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200 focus:border-indigo-500'} ${className}`}
     />
   </div>
 );
