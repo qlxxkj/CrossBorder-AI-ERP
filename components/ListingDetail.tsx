@@ -51,6 +51,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMarket, setActiveMarket] = useState('US');
+  const lastListingId = useRef(listing.id);
   
   const [engine, setEngine] = useState<AIEngine>(() => {
     const saved = localStorage.getItem('amzbot_preferred_engine');
@@ -75,9 +76,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
 
   useEffect(() => {
+    // CRITICAL FIX: Only reset to US if the product ID actually changed.
+    // If it's just an update of the same product, keep current activeMarket.
+    if (lastListingId.current !== listing.id) {
+      setActiveMarket('US');
+      lastListingId.current = listing.id;
+    }
     setLocalListing(listing);
     setPreviewImage(listing.cleaned?.main_image || '');
-    setActiveMarket('US');
     fetchPricingData();
   }, [listing]);
 
@@ -100,27 +106,25 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         updated_at: new Date().toISOString()
       }).eq('id', targetListing.id);
       if (error) throw error;
+      // Note: App component will update this listing, triggering our useEffect above
       onUpdate({ ...targetListing, updated_at: new Date().toISOString() });
     } catch (e: any) { console.error("Auto-save failed:", e); } 
     finally { setIsSaving(false); }
   };
 
-  // Helper: Correct source selection with regional fallback for units
+  // Helper: Correct source selection with strict reading from DB
   const getFieldValue = (optField: string, cleanField: string) => {
-    const isMetric = METRIC_MARKETS.includes(activeMarket);
-    
-    // Strict logic for units as requested
+    // 1. Handle units strictly from database
     if (optField.includes('unit')) {
       if (activeMarket === 'US') {
-        const rawUnit = localListing.cleaned[cleanField];
-        return normalizeUnit(rawUnit);
+        return normalizeUnit(localListing.cleaned[cleanField]);
       } else {
         const trans = localListing.translations?.[activeMarket];
-        const transUnit = trans ? (trans as any)[optField] : null;
-        return normalizeUnit(transUnit);
+        return normalizeUnit(trans ? (trans as any)[optField] : '');
       }
     }
 
+    // 2. Handle US Master values
     if (activeMarket === 'US') {
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
       if (optVal !== undefined && optVal !== null && (Array.isArray(optVal) ? optVal.length > 0 : optVal !== '')) {
@@ -132,7 +136,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return '';
     }
 
-    // Non-US Market: Strictly read from translations
+    // 3. Handle Translation markets
     const trans = localListing.translations?.[activeMarket];
     if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
       const val = (trans as any)[optField];
@@ -141,7 +145,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       }
     }
 
-    // Dynamic price calculation fallback for translation sites
+    // Fallback for missing prices using exchange rate
     if (optField === 'optimized_price' || optField === 'optimized_shipping') {
       const sourceVal = localListing.cleaned[cleanField] || 0;
       const rate = exchangeRates.find(r => r.marketplace === activeMarket)?.rate || 1;
@@ -402,8 +406,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            />
                            <select 
                             value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} 
-                            onChange={e => updateField('optimized_weight_unit', e.target.value)} 
-                            onBlur={() => syncToSupabase(localListing)}
+                            onChange={e => { updateField('optimized_weight_unit', e.target.value); syncToSupabase({ ...localListing }); }} 
                             className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase"
                            >
                              <option value="Pounds">Pounds</option>
@@ -423,8 +426,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            </div>
                            <select 
                             value={getFieldValue('optimized_size_unit', 'item_size_unit')} 
-                            onChange={e => updateField('optimized_size_unit', e.target.value)} 
-                            onBlur={() => syncToSupabase(localListing)}
+                            onChange={e => { updateField('optimized_size_unit', e.target.value); syncToSupabase({ ...localListing }); }}
                             className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase"
                            >
                              <option value="Inches">Inches</option>
@@ -468,11 +470,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                    placeholder={`Bullet Point ${i+1}...`}
                                  />
                                  <div className="flex justify-between items-center px-1">
-                                    <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-indigo-600'}`}>{(f || '').length} / 500</span>
+                                    <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-slate-400'}`}>{(f || '').length} / 500</span>
                                     <button onClick={() => {
                                       const currentFeatures = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
                                       updateField('optimized_features', currentFeatures);
-                                      syncToSupabase({...localListing, optimized: {...localListing.optimized, optimized_features: currentFeatures} as OptimizedData});
+                                      // Syncing here manually because clicking a trash button doesn't trigger onBlur on the textarea
+                                      const next = { ...localListing };
+                                      if (activeMarket === 'US') {
+                                        if (next.optimized) next.optimized.optimized_features = currentFeatures;
+                                      } else if (next.translations?.[activeMarket]) {
+                                        next.translations[activeMarket].optimized_features = currentFeatures;
+                                      }
+                                      syncToSupabase(next);
                                     }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12}/></button>
                                  </div>
                               </div>
