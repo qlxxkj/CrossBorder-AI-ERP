@@ -30,6 +30,7 @@ interface EditorObject {
   stroke: string;
   fill: string;
   strokeWidth: number;
+  fontSize?: number; // New decoupled property for text
   opacity: number; // 0 to 1
   text?: string;
 }
@@ -56,7 +57,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [isProcessing, setIsProcessing] = useState(false);
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [fillColor, setFillColor] = useState('#ffffff');
-  const [brushSize, setBrushSize] = useState(5);
+  const [brushSize, setBrushSize] = useState(24); // Now acts as default fontSize for text or weight for lines
   const [opacity, setOpacity] = useState(1); // 1.0 = 100%
   const [zoom, setZoom] = useState(1);
   
@@ -85,7 +86,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       if (obj) {
         setStrokeColor(obj.stroke);
         setFillColor(obj.fill);
-        setBrushSize(obj.strokeWidth);
+        // If it's text, the slider represents font size, else it represents stroke width
+        setBrushSize(obj.type === 'text' ? (obj.fontSize || 24) : obj.strokeWidth);
         setOpacity(obj.opacity);
       }
     }
@@ -212,7 +214,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         y: obj.y * scale + offsetY,
         width: obj.width * scale,
         height: obj.height * scale,
-        strokeWidth: obj.strokeWidth * scale
+        strokeWidth: obj.strokeWidth * scale,
+        fontSize: obj.fontSize ? obj.fontSize * scale : undefined
       }));
 
       canvas.width = targetSize;
@@ -411,12 +414,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           type: 'text',
           x: pos.x,
           y: pos.y,
-          width: text.length * brushSize * 3,
-          height: brushSize * 6,
+          width: text.length * brushSize * 0.6,
+          height: brushSize,
           rotation: 0,
           stroke: strokeColor,
           fill: fillColor,
-          strokeWidth: brushSize,
+          strokeWidth: 1, // Default thin stroke for text
+          fontSize: brushSize, // Use decoupled font size
           opacity: opacity,
           text: text
         };
@@ -434,7 +438,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const handleFill = () => {
     if (currentTool !== 'select-fill' || !selection) return;
     
-    // Core Fix: Convert Fill into a Rectangle Object so it can be re-edited/selected
     const newObj: EditorObject = {
       id: crypto.randomUUID(),
       type: 'rect',
@@ -539,9 +542,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.lineTo(obj.x + obj.width, obj.y + obj.height);
         ctx.stroke();
       } else if (obj.type === 'text' && obj.text) {
-        ctx.font = `bold ${obj.strokeWidth * 6}px Inter, sans-serif`;
-        ctx.fillText(obj.text, obj.x, obj.y);
-        ctx.strokeText(obj.text, obj.x, obj.y);
+        const fs = obj.fontSize || 24;
+        ctx.font = `bold ${fs}px Inter, sans-serif`;
+        // Draw fill first, then stroke to prevent stroke from over-expanding inwards
+        ctx.fillText(obj.text, obj.x, obj.y + obj.height);
+        if (obj.stroke !== 'transparent' && obj.strokeWidth > 0) {
+           ctx.strokeText(obj.text, obj.x, obj.y + obj.height);
+        }
       }
       ctx.restore();
     });
@@ -567,6 +574,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   }, [selectedObjectId, objects, saveToHistory, currentTool, selection, fillColor, opacity]);
 
   const ShapeIcon = lastUsedShape === 'rect' ? Square : lastUsedShape === 'circle' ? Circle : Minus;
+
+  // Context-aware slider labels
+  const selectedObject = objects.find(o => o.id === selectedObjectId);
+  const isTextSelected = selectedObject?.type === 'text' || currentTool === 'text';
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter">
@@ -713,11 +724,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                   {obj.type === 'text' && (
                     <text 
                       x={obj.x} 
-                      y={obj.y + obj.height/2} 
+                      y={obj.y + obj.height} 
                       fill={obj.fill} 
                       stroke={obj.stroke} 
-                      strokeWidth={obj.strokeWidth/4} 
-                      style={{ font: `bold ${obj.strokeWidth * 6}px Inter, sans-serif` }}
+                      strokeWidth={obj.strokeWidth} 
+                      style={{ font: `bold ${obj.fontSize || 24}px Inter, sans-serif` }}
                     >
                       {obj.text}
                     </text>
@@ -754,15 +765,22 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 rounded-[2.5rem] shadow-2xl z-30 min-w-[700px]">
              <div className="flex flex-col gap-3 flex-1">
                <div className="flex justify-between">
-                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Stroke / Font Size</span>
+                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{isTextSelected ? 'Font Size' : 'Stroke / Size'}</span>
                  <span className="text-[10px] font-black text-blue-400">{brushSize}px</span>
                </div>
                <input 
-                type="range" min="1" max="100" value={brushSize} 
+                type="range" min={isTextSelected ? 8 : 1} max={isTextSelected ? 200 : 100} value={brushSize} 
                 onChange={(e) => {
                   const v = parseInt(e.target.value);
                   setBrushSize(v);
-                  updateSelectedObjectProperty('strokeWidth', v);
+                  if (selectedObject?.type === 'text') {
+                    updateSelectedObjectProperty('fontSize', v);
+                    // Also update bounding box roughly for text
+                    updateSelectedObjectProperty('width', (selectedObject.text?.length || 1) * v * 0.6);
+                    updateSelectedObjectProperty('height', v);
+                  } else {
+                    updateSelectedObjectProperty('strokeWidth', v);
+                  }
                 }} 
                 className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" 
                />
