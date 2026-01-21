@@ -4,7 +4,7 @@ import {
   X, Eraser, Scissors, PaintBucket, Crop, Save, Undo, 
   Wand2, Loader2, Download, MousePointer2, Maximize, 
   Type, Square, Circle, Minus, Move, Palette, Trash2,
-  ZoomIn, ZoomOut, RotateCcw
+  ZoomIn, ZoomOut, RotateCcw, Box
 } from 'lucide-react';
 import { editImageWithAI } from '../services/geminiService';
 
@@ -14,7 +14,7 @@ interface ImageEditorProps {
   onSave: (newImageUrl: string) => void;
 }
 
-type Tool = 'select-fill' | 'brush' | 'ai-erase' | 'crop' | 'none';
+type Tool = 'select-fill' | 'brush' | 'ai-erase' | 'crop' | 'rect' | 'circle' | 'line' | 'text' | 'none';
 
 interface SelectionBox {
   x1: number;
@@ -32,14 +32,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [currentTool, setCurrentTool] = useState<Tool>('none');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [brushColor, setBrushColor] = useState('#ffffff');
-  const [brushSize, setBrushSize] = useState(20);
+  const [strokeColor, setStrokeColor] = useState('#000000');
+  const [fillColor, setFillColor] = useState('#ffffff');
+  const [brushSize, setBrushSize] = useState(5);
   const [history, setHistory] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
   const [isDrawing, setIsDrawing] = useState(false);
   const [selection, setSelection] = useState<SelectionBox | null>(null);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
-  const [currentPos, setCurrentPos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     const initCanvas = async () => {
@@ -147,52 +147,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     };
   };
 
-  const handleFill = useCallback(() => {
-    if (currentTool !== 'select-fill' || !selection) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
-    if (!ctx) return;
-    const x = Math.min(selection.x1, selection.x2);
-    const y = Math.min(selection.y1, selection.y2);
-    const w = Math.abs(selection.x1 - selection.x2);
-    const h = Math.abs(selection.y1 - selection.y2);
-    if (w < 1 || h < 1) return;
-    ctx.fillStyle = brushColor;
-    ctx.fillRect(x, y, w, h);
-    saveToHistory();
-    setSelection(null); 
-  }, [currentTool, selection, brushColor]);
-
-  const handleCrop = () => {
-    if (!selection) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
-    if (!ctx) return;
-    const x = Math.min(selection.x1, selection.x2);
-    const y = Math.min(selection.y1, selection.y2);
-    const w = Math.abs(selection.x1 - selection.x2);
-    const h = Math.abs(selection.y1 - selection.y2);
-    if (w < 5 || h < 5) return;
-    const imageData = ctx.getImageData(x, y, w, h);
-    canvas.width = w;
-    canvas.height = h;
-    ctx.putImageData(imageData, 0, 0);
-    saveToHistory();
-    setSelection(null);
-    setZoom(1);
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && currentTool === 'select-fill' && selection) {
-        handleFill();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTool, selection, handleFill]);
-
   const getMousePos = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -215,9 +169,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (currentTool === 'none') return;
     const pos = getMousePos(e);
     setStartPos(pos);
-    setCurrentPos(pos);
     setIsDrawing(true);
-    if (currentTool === 'select-fill' || currentTool === 'crop') {
+    if (currentTool === 'select-fill' || currentTool === 'crop' || currentTool === 'rect' || currentTool === 'circle' || currentTool === 'line') {
       setSelection({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y });
     }
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
@@ -227,20 +180,65 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.moveTo(pos.x, pos.y);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        ctx.strokeStyle = currentTool === 'ai-erase' ? 'rgba(255, 0, 0, 0.6)' : brushColor;
+        ctx.strokeStyle = currentTool === 'ai-erase' ? 'rgba(255, 0, 0, 0.6)' : strokeColor;
         ctx.lineWidth = brushSize;
       }
+    }
+  };
+
+  const drawShape = (ctx: CanvasRenderingContext2D, tool: Tool, start: {x: number, y: number}, end: {x: number, y: number}) => {
+    ctx.strokeStyle = strokeColor;
+    ctx.fillStyle = fillColor;
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+
+    if (tool === 'rect') {
+      const x = Math.min(start.x, end.x);
+      const y = Math.min(start.y, end.y);
+      const w = Math.abs(start.x - end.x);
+      const h = Math.abs(start.y - end.y);
+      ctx.beginPath();
+      ctx.rect(x, y, w, h);
+      ctx.fill();
+      ctx.stroke();
+    } else if (tool === 'circle') {
+      const rx = Math.abs(start.x - end.x);
+      const ry = Math.abs(start.y - end.y);
+      const r = Math.sqrt(rx*rx + ry*ry);
+      ctx.beginPath();
+      ctx.arc(start.x, start.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else if (tool === 'line') {
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
+      ctx.stroke();
     }
   };
 
   const handleMove = (e: React.MouseEvent | React.TouchEvent) => {
     if (!isDrawing) return;
     const pos = getMousePos(e);
-    setCurrentPos(pos);
-    if (currentTool === 'select-fill' || currentTool === 'crop') {
+    
+    if (['rect', 'circle', 'line'].includes(currentTool)) {
       setSelection(prev => prev ? { ...prev, x2: pos.x, y2: pos.y } : null);
-    }
-    if (currentTool === 'brush' || currentTool === 'ai-erase') {
+      // For shapes, we need a preview. 
+      // Simplest way for this architecture: redraw from history then draw current shape.
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
+      if (canvas && ctx && history.length > 0) {
+        const lastImg = new Image();
+        lastImg.src = history[history.length - 1];
+        lastImg.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(lastImg, 0, 0);
+          drawShape(ctx, currentTool, startPos, pos);
+        };
+      }
+    } else if (currentTool === 'select-fill' || currentTool === 'crop') {
+      setSelection(prev => prev ? { ...prev, x2: pos.x, y2: pos.y } : null);
+    } else if (currentTool === 'brush' || currentTool === 'ai-erase') {
       const ctx = canvasRef.current?.getContext('2d') as CanvasRenderingContext2D | null;
       if (ctx) {
         ctx.lineTo(pos.x, pos.y);
@@ -249,26 +247,66 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   };
 
-  const handleEnd = () => {
+  const handleEnd = (e: React.MouseEvent | React.TouchEvent) => {
     if (!isDrawing) return;
-    if (currentTool === 'brush') {
+    setIsDrawing(false);
+    
+    if (['rect', 'circle', 'line', 'brush'].includes(currentTool)) {
       saveToHistory();
     }
-    setIsDrawing(false);
+
+    if (currentTool === 'text') {
+      const pos = getMousePos(e);
+      const text = window.prompt("Enter text:");
+      if (text) {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
+        if (ctx) {
+          ctx.font = `bold ${brushSize * 5}px Inter, sans-serif`;
+          ctx.fillStyle = fillColor;
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = Math.max(1, brushSize / 2);
+          ctx.fillText(text, pos.x, pos.y);
+          ctx.strokeText(text, pos.x, pos.y);
+          saveToHistory();
+        }
+      }
+    }
   };
 
-  const handleSave = async () => {
+  const handleFill = () => {
+    if (currentTool !== 'select-fill' || !selection) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
+    if (!ctx) return;
+    const x = Math.min(selection.x1, selection.x2);
+    const y = Math.min(selection.y1, selection.y2);
+    const w = Math.abs(selection.x1 - selection.x2);
+    const h = Math.abs(selection.y1 - selection.y2);
+    ctx.fillStyle = fillColor;
+    ctx.fillRect(x, y, w, h);
+    saveToHistory();
+    setSelection(null); 
+  };
+
+  const handleCrop = () => {
+    if (!selection) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    setIsUploading(true);
-    try {
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-      onSave(dataUrl);
-    } catch (e) {
-      alert("Save failed due to cross-origin canvas security. Try refreshing.");
-    } finally {
-      setIsUploading(false);
-    }
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
+    if (!ctx) return;
+    const x = Math.min(selection.x1, selection.x2);
+    const y = Math.min(selection.y1, selection.y2);
+    const w = Math.abs(selection.x1 - selection.x2);
+    const h = Math.abs(selection.y1 - selection.y2);
+    if (w < 5 || h < 5) return;
+    const imageData = ctx.getImageData(x, y, w, h);
+    canvas.width = w;
+    canvas.height = h;
+    ctx.putImageData(imageData, 0, 0);
+    saveToHistory();
+    setSelection(null);
+    setZoom(1);
   };
 
   const runAIErase = async () => {
@@ -277,7 +315,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const canvas = canvasRef.current;
       if (!canvas) return;
       const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
-      const result = await editImageWithAI(base64, "Please erase the red highlighted areas cleanly and regenerate the background naturally.");
+      const result = await editImageWithAI(base64, "Please erase the red highlighted areas cleanly.");
       const img = new Image();
       img.src = `data:image/jpeg;base64,${result}`;
       img.onload = () => {
@@ -295,12 +333,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter">
-      {/* Header */}
       <div className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between text-white shadow-xl z-20">
         <div className="flex items-center gap-6">
-          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full transition-all text-slate-400 hover:text-white">
-            <X size={20} />
-          </button>
+          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-all"><X size={20} /></button>
           <div className="h-6 w-px bg-slate-800"></div>
           <h2 className="font-black tracking-tighter text-xl bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent uppercase">AI Media Lab</h2>
         </div>
@@ -311,186 +346,82 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             <span className="px-3 flex items-center text-[10px] font-black text-slate-300 w-16 justify-center">{(zoom * 100).toFixed(0)}%</span>
             <button onClick={() => setZoom(prev => Math.min(5, prev + 0.1))} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400"><ZoomIn size={16} /></button>
           </div>
-          
-          <button onClick={undo} disabled={history.length <= 1} className="p-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-xl text-slate-300 transition-all">
-            <Undo size={18} />
-          </button>
-          
-          <button onClick={standardize} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-black flex items-center gap-2 border border-slate-700">
-            <Maximize size={16} /> 1600*1600
-          </button>
-          
-          <button 
-            onClick={handleSave}
-            disabled={isUploading}
-            className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transform active:scale-95 transition-all disabled:opacity-50"
-          >
-            {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-            Save & Apply
-          </button>
+          <button onClick={undo} disabled={history.length <= 1} className="p-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-xl text-slate-300 transition-all"><Undo size={18} /></button>
+          <button onClick={standardize} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-black flex items-center gap-2 border border-slate-700"><Maximize size={16} /> 1600*1600</button>
+          <button onClick={() => onSave(canvasRef.current?.toDataURL('image/jpeg', 0.95) || '')} className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transform active:scale-95 transition-all"><Save size={16} /> Save & Apply</button>
         </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar Tools */}
-        <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-8 gap-8 z-20">
-          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelection(null); }} icon={<Palette size={22} />} label="Brush" />
-          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelection(null); }} icon={<Eraser size={22} />} label="AI Erase" />
-          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelection(null); }} icon={<Square size={22} />} label="Fill" />
-          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelection(null); }} icon={<Crop size={22} />} label="Crop" />
+        <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-6 gap-6 z-20 overflow-y-auto no-scrollbar">
+          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelection(null); }} icon={<Palette size={20} />} label="Brush" />
+          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelection(null); }} icon={<Eraser size={20} />} label="AI Erase" />
+          <ToolIcon active={currentTool === 'rect'} onClick={() => { setCurrentTool('rect'); setSelection(null); }} icon={<Square size={20} />} label="Rect" />
+          <ToolIcon active={currentTool === 'circle'} onClick={() => { setCurrentTool('circle'); setSelection(null); }} icon={<Circle size={20} />} label="Circle" />
+          <ToolIcon active={currentTool === 'line'} onClick={() => { setCurrentTool('line'); setSelection(null); }} icon={<Minus size={20} />} label="Line" />
+          <ToolIcon active={currentTool === 'text'} onClick={() => { setCurrentTool('text'); setSelection(null); }} icon={<Type size={20} />} label="Text" />
+          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelection(null); }} icon={<PaintBucket size={20} />} label="Fill" />
+          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelection(null); }} icon={<Scissors size={20} />} label="Crop" />
           
-          <div className="mt-auto flex flex-col items-center gap-6 pb-4">
-             <div className="relative group">
-               <input 
-                type="color" 
-                value={brushColor} 
-                onChange={(e) => setBrushColor(e.target.value)}
-                className="w-12 h-12 rounded-2xl cursor-pointer bg-slate-800 p-1 border border-slate-700 shadow-xl"
-               />
+          <div className="mt-auto flex flex-col gap-4 pb-4">
+             <div className="space-y-1">
+               <span className="text-[8px] font-black text-slate-500 uppercase text-center block">Stroke</span>
+               <input type="color" value={strokeColor} onChange={(e) => setStrokeColor(e.target.value)} className="w-10 h-10 rounded-xl cursor-pointer bg-slate-800 p-1 border border-slate-700" />
+             </div>
+             <div className="space-y-1">
+               <span className="text-[8px] font-black text-slate-500 uppercase text-center block">Fill</span>
+               <input type="color" value={fillColor} onChange={(e) => setFillColor(e.target.value)} className="w-10 h-10 rounded-xl cursor-pointer bg-slate-800 p-1 border border-slate-700" />
              </div>
           </div>
         </div>
 
-        {/* Workspace */}
-        <div 
-          ref={containerRef}
-          className="flex-1 bg-slate-950 overflow-auto flex items-center justify-center p-20 relative"
-          onWheel={(e) => {
-            if (e.ctrlKey) {
-              setZoom(z => Math.max(0.05, Math.min(5, z - e.deltaY * 0.001)));
-              e.preventDefault();
-            }
-          }}
-        >
-          <div 
-            className="relative shadow-2xl transition-transform duration-75 origin-center"
-            style={{ transform: `scale(${zoom})` }}
-          >
-            <div className="absolute inset-0 bg-white"></div>
-            <canvas
-              ref={canvasRef}
-              onMouseDown={handleStart}
-              onMouseMove={handleMove}
-              onMouseUp={handleEnd}
-              onMouseLeave={handleEnd}
-              className={`block relative ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}
-              style={{ cursor: currentTool === 'none' ? 'default' : 'crosshair' }}
-            />
+        <div ref={containerRef} className="flex-1 bg-slate-950 overflow-auto flex items-center justify-center p-20 relative">
+          <div className="relative shadow-2xl transition-transform duration-75 origin-center" style={{ transform: `scale(${zoom})` }}>
+            <canvas ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} className="block relative" style={{ cursor: currentTool === 'none' ? 'default' : 'crosshair' }} />
             {selection && (currentTool === 'select-fill' || currentTool === 'crop') && (
-               <div 
-                 className={`absolute pointer-events-none border-2 border-white`}
-                 style={{
-                   left: Math.min(selection.x1, selection.x2),
-                   top: Math.min(selection.y1, selection.y2),
-                   width: Math.abs(selection.x1 - selection.x2),
-                   height: Math.abs(selection.y1 - selection.y2),
-                 }}
-               >
-                 <div className="absolute inset-0 border-2 border-dashed animate-marching-ants"></div>
-                 <div className={`absolute inset-0 ${currentTool === 'crop' ? 'bg-blue-500/10' : 'bg-indigo-500/10'} backdrop-blur-[1px]`}></div>
+               <div className="absolute pointer-events-none border-2 border-white" style={{ left: Math.min(selection.x1, selection.x2), top: Math.min(selection.y1, selection.y2), width: Math.abs(selection.x1 - selection.x2), height: Math.abs(selection.y1 - selection.y2) }}>
+                 <div className="absolute inset-0 border-2 border-dashed border-black/50 animate-pulse"></div>
                </div>
             )}
           </div>
 
-          {/* Controls Panel */}
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-6 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-4 rounded-3xl shadow-2xl z-30 min-w-[400px]">
-             {currentTool === 'brush' || currentTool === 'ai-erase' ? (
-               <div className="flex items-center gap-6 w-full">
-                 <div className="flex flex-col gap-1 flex-1">
-                   <div className="flex justify-between">
-                     <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Brush Size</span>
-                     <span className="text-[10px] font-black text-blue-400">{brushSize}px</span>
-                   </div>
-                   <input 
-                     type="range" min="1" max="150" 
-                     value={brushSize} 
-                     onChange={(e) => setBrushSize(parseInt(e.target.value))}
-                     className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                   />
-                 </div>
-                 {currentTool === 'ai-erase' && (
-                   <button 
-                     onClick={runAIErase}
-                     disabled={isProcessing}
-                     className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-3 transition-all active:scale-95 disabled:opacity-50"
-                   >
-                     {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-                     AI ERASE
-                   </button>
-                 )}
+          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-4 rounded-3xl shadow-2xl z-30 min-w-[500px]">
+             <div className="flex flex-col gap-1 flex-1">
+               <div className="flex justify-between">
+                 <span className="text-[10px] font-black text-slate-500 uppercase">Size / Stroke Width</span>
+                 <span className="text-[10px] font-black text-blue-400">{brushSize}px</span>
                </div>
-             ) : currentTool === 'select-fill' ? (
-               <div className="flex items-center justify-between w-full px-4">
-                 <div className="flex flex-col">
-                   <span className="text-xs font-black text-white uppercase tracking-tighter">Fill Tool</span>
-                   <span className="text-[10px] text-slate-500 font-bold tracking-widest">PRESS DELETE TO FILL</span>
-                 </div>
-                 <button onClick={handleFill} disabled={!selection} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50">
-                   <PaintBucket size={16} /> FILL AREA
-                 </button>
-               </div>
-             ) : currentTool === 'crop' ? (
-               <div className="flex items-center justify-between w-full px-4">
-                 <div className="flex flex-col">
-                   <span className="text-xs font-black text-white uppercase tracking-tighter">Crop Tool</span>
-                   <span className="text-[10px] text-slate-500 font-bold tracking-widest">DRAG TO SELECT AREA</span>
-                 </div>
-                 <button onClick={handleCrop} disabled={!selection} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50">
-                   <Scissors size={16} /> CONFIRM CROP
-                 </button>
-               </div>
-             ) : (
-               <div className="w-full text-center px-10 py-1">
-                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
-                   Select a tool to enhance media
-                 </p>
-               </div>
+               <input type="range" min="1" max="100" value={brushSize} onChange={(e) => setBrushSize(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+             </div>
+             
+             {currentTool === 'ai-erase' && (
+               <button onClick={runAIErase} disabled={isProcessing} className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-3 transition-all active:scale-95 disabled:opacity-50">
+                 {isProcessing ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} />} AI ERASE
+               </button>
+             )}
+             {currentTool === 'select-fill' && (
+               <button onClick={handleFill} disabled={!selection} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black shadow-xl active:scale-95 transition-all">FILL AREA</button>
+             )}
+             {currentTool === 'crop' && (
+               <button onClick={handleCrop} disabled={!selection} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black shadow-xl active:scale-95 transition-all">CONFIRM CROP</button>
+             )}
+             {['rect', 'circle', 'line', 'text', 'brush', 'none'].includes(currentTool) && currentTool !== 'ai-erase' && (
+                <div className="px-10 text-[10px] font-black text-slate-500 uppercase tracking-widest">{currentTool === 'none' ? 'Select a tool' : `${currentTool} tool active`}</div>
              )}
           </div>
 
-          {(isProcessing || isUploading) && (
-            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/70 backdrop-blur-md">
-               <Loader2 size={40} className="text-indigo-500 animate-spin" />
-               <p className="mt-8 text-white font-black tracking-[0.3em] text-sm uppercase animate-pulse">
-                 {isUploading ? 'Saving...' : 'AI Processing...'}
-               </p>
-            </div>
-          )}
+          {isProcessing && <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/70 backdrop-blur-md"><Loader2 size={40} className="text-indigo-500 animate-spin" /><p className="mt-8 text-white font-black tracking-[0.3em] text-sm uppercase">AI Processing...</p></div>}
         </div>
       </div>
-
-      <style>{`
-        @keyframes marching-ants-animation {
-          0% { background-position: 0 0, 0 100%, 0 0, 100% 0; }
-          100% { background-position: 15px 0, -15px 100%, 0 -15px, 100% 15px; }
-        }
-        .animate-marching-ants {
-          background-image: linear-gradient(90deg, #fff 50%, transparent 50%), 
-                            linear-gradient(90deg, #fff 50%, transparent 50%), 
-                            linear-gradient(0deg, #fff 50%, transparent 50%), 
-                            linear-gradient(0deg, #fff 50%, transparent 50%);
-          background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
-          background-size: 15px 2px, 15px 2px, 2px 15px, 2px 15px;
-          animation: marching-ants-animation 0.5s infinite linear;
-        }
-      `}</style>
     </div>
   );
 };
 
-const ToolIcon = ({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
-  <button 
-    onClick={onClick}
-    className={`flex flex-col items-center gap-2 group transition-all relative ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}
-  >
-    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${
-        active 
-          ? 'bg-indigo-600/10 border border-indigo-500/50 shadow-lg' 
-          : 'bg-slate-800/50 hover:bg-slate-800 border border-transparent'
-    }`}>
+const ToolIcon = ({ active, onClick, icon, label }: any) => (
+  <button onClick={onClick} className={`flex flex-col items-center gap-1.5 group transition-all shrink-0 ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/10 border border-indigo-500/50 shadow-lg' : 'bg-slate-800/50 hover:bg-slate-800'}`}>
       {icon}
     </div>
-    <span className="text-[10px] font-black uppercase tracking-tighter">{label}</span>
-    {active && <div className="absolute -left-4 top-1/2 -translate-y-1/2 w-1 h-6 bg-indigo-500 rounded-full shadow-lg"></div>}
+    <span className="text-[8px] font-black uppercase tracking-tighter">{label}</span>
   </button>
 );

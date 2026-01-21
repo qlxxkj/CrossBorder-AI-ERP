@@ -34,7 +34,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMarket, setActiveMarket] = useState('US');
-  const [engine, setEngine] = useState<AIEngine>('gemini');
+  
+  // Persistent AI Engine Selection
+  const [engine, setEngine] = useState<AIEngine>(() => {
+    const saved = localStorage.getItem('amzbot_preferred_engine');
+    return (saved as AIEngine) || 'gemini';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('amzbot_preferred_engine', engine);
+  }, [engine]);
+
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
