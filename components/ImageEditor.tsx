@@ -23,7 +23,6 @@ interface SelectionBox {
   y2: number;
 }
 
-// 代理配置，用于绕过跨域限制加载图片
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onSave }) => {
@@ -37,25 +36,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [brushSize, setBrushSize] = useState(20);
   const [history, setHistory] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
-  
-  // Interaction state
   const [isDrawing, setIsDrawing] = useState(false);
   const [selection, setSelection] = useState<SelectionBox | null>(null);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [currentPos, setCurrentPos] = useState({ x: 0, y: 0 });
 
-  // 1. 深度修复：使用 Proxy 加载图片以避免 Canvas Taint (污染)
   useEffect(() => {
     const initCanvas = async () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      // Fix: cast to CanvasRenderingContext2D and fix typo in context options
       const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
       if (!ctx) return;
 
       setIsProcessing(true);
       try {
-        // 使用代理获取 Blob
         const proxyUrl = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
         const response = await fetch(proxyUrl);
         if (!response.ok) throw new Error("Failed to fetch image through proxy");
@@ -67,7 +61,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         img.onload = () => {
           canvas.width = img.width;
           canvas.height = img.height;
-          // Fix: ctx is now correctly typed as CanvasRenderingContext2D
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0);
           
@@ -81,25 +74,22 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           
           saveToHistory();
           setIsProcessing(false);
-          URL.revokeObjectURL(localUrl); // 释放内存
+          URL.revokeObjectURL(localUrl);
         };
       } catch (err) {
         console.warn("Proxy load failed, falling back to direct load:", err);
-        // 回退到直接加载（可能会导致保存失败，但能看到图）
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.src = imageUrl;
         img.onload = () => {
           canvas.width = img.width;
           canvas.height = img.height;
-          // Fix: cast to CanvasRenderingContext2D
           (ctx as CanvasRenderingContext2D).drawImage(img, 0, 0);
           saveToHistory();
           setIsProcessing(false);
         };
       }
     };
-
     initCanvas();
   }, [imageUrl]);
 
@@ -115,9 +105,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const newHistory = [...history];
     newHistory.pop(); 
     const last = newHistory[newHistory.length - 1];
-    
     const canvas = canvasRef.current;
-    // Fix: cast to CanvasRenderingContext2D
     const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
     if (canvas && ctx && last) {
       const img = new Image();
@@ -135,7 +123,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const standardize = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
     const currentData = canvas.toDataURL();
     const tempImg = new Image();
     tempImg.src = currentData;
@@ -144,21 +131,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const safeArea = 1500;
       canvas.width = targetSize;
       canvas.height = targetSize;
-      // Fix: cast to CanvasRenderingContext2D
       const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-      
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, targetSize, targetSize);
-
       const scale = Math.min(safeArea / tempImg.width, safeArea / tempImg.height);
       const drawW = tempImg.width * scale;
       const drawH = tempImg.height * scale;
       const x = (targetSize - drawW) / 2;
       const y = (targetSize - drawH) / 2;
-
       ctx.drawImage(tempImg, x, y, drawW, drawH);
       saveToHistory();
-      
       if (containerRef.current) {
         setZoom(Math.min((containerRef.current.clientHeight - 120) / 1600, 1));
       }
@@ -168,17 +150,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const handleFill = useCallback(() => {
     if (currentTool !== 'select-fill' || !selection) return;
     const canvas = canvasRef.current;
-    // Fix: cast to CanvasRenderingContext2D
     const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
     if (!ctx) return;
-
     const x = Math.min(selection.x1, selection.x2);
     const y = Math.min(selection.y1, selection.y2);
     const w = Math.abs(selection.x1 - selection.x2);
     const h = Math.abs(selection.y1 - selection.y2);
-
     if (w < 1 || h < 1) return;
-
     ctx.fillStyle = brushColor;
     ctx.fillRect(x, y, w, h);
     saveToHistory();
@@ -189,17 +167,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!selection) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    // Fix: cast to CanvasRenderingContext2D
     const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
     if (!ctx) return;
-
     const x = Math.min(selection.x1, selection.x2);
     const y = Math.min(selection.y1, selection.y2);
     const w = Math.abs(selection.x1 - selection.x2);
     const h = Math.abs(selection.y1 - selection.y2);
-
     if (w < 5 || h < 5) return;
-
     const imageData = ctx.getImageData(x, y, w, h);
     canvas.width = w;
     canvas.height = h;
@@ -223,7 +197,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    
     let clientX, clientY;
     if ('touches' in e) {
       clientX = e.touches[0].clientX;
@@ -232,7 +205,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       clientX = e.clientX;
       clientY = e.clientY;
     }
-    
     return {
       x: (clientX - rect.left) / zoom,
       y: (clientY - rect.top) / zoom
@@ -245,14 +217,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setStartPos(pos);
     setCurrentPos(pos);
     setIsDrawing(true);
-
-    // 修复：只有在特定工具下才创建选框，防止画笔干扰
     if (currentTool === 'select-fill' || currentTool === 'crop') {
       setSelection({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y });
     }
-
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
-      // Fix: cast to CanvasRenderingContext2D
       const ctx = canvasRef.current?.getContext('2d') as CanvasRenderingContext2D | null;
       if (ctx) {
         ctx.beginPath();
@@ -269,14 +237,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!isDrawing) return;
     const pos = getMousePos(e);
     setCurrentPos(pos);
-
-    // 修复：画笔模式下不更新选框
     if (currentTool === 'select-fill' || currentTool === 'crop') {
       setSelection(prev => prev ? { ...prev, x2: pos.x, y2: pos.y } : null);
     }
-
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
-      // Fix: cast to CanvasRenderingContext2D
       const ctx = canvasRef.current?.getContext('2d') as CanvasRenderingContext2D | null;
       if (ctx) {
         ctx.lineTo(pos.x, pos.y);
@@ -296,14 +260,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const handleSave = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
     setIsUploading(true);
     try {
-      // 导出 JPEG 提高上传兼容性
       const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
       onSave(dataUrl);
     } catch (e) {
-      alert("保存失败：可能是由于跨域限制导致画布无法读取。已尝试使用代理修复，请刷新重试。");
+      alert("Save failed due to cross-origin canvas security. Try refreshing.");
     } finally {
       setIsUploading(false);
     }
@@ -316,11 +278,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       if (!canvas) return;
       const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
       const result = await editImageWithAI(base64, "Please erase the red highlighted areas cleanly and regenerate the background naturally.");
-      
       const img = new Image();
       img.src = `data:image/jpeg;base64,${result}`;
       img.onload = () => {
-        // Fix: cast to CanvasRenderingContext2D
         const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
@@ -328,13 +288,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         setIsProcessing(false);
       };
     } catch (e: any) {
-      alert("AI 擦除失败: " + e.message);
+      alert("AI Erase failed: " + e.message);
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[60] bg-slate-950 flex flex-col font-inter">
+    <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter">
       {/* Header */}
       <div className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between text-white shadow-xl z-20">
         <div className="flex items-center gap-6">
@@ -363,10 +323,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <button 
             onClick={handleSave}
             disabled={isUploading}
-            className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg shadow-indigo-900/40 flex items-center gap-2 transform active:scale-95 transition-all disabled:opacity-50"
+            className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transform active:scale-95 transition-all disabled:opacity-50"
           >
             {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-            保存并应用到 Listing
+            Save & Apply
           </button>
         </div>
       </div>
@@ -374,10 +334,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar Tools */}
         <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-8 gap-8 z-20">
-          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelection(null); }} icon={<Palette size={24} />} label="画笔" />
-          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelection(null); }} icon={<Eraser size={24} />} label="AI 擦除" />
-          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelection(null); }} icon={<Square size={24} />} label="选择填充" />
-          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelection(null); }} icon={<Crop size={24} />} label="自定义裁剪" />
+          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelection(null); }} icon={<Palette size={22} />} label="Brush" />
+          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelection(null); }} icon={<Eraser size={22} />} label="AI Erase" />
+          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelection(null); }} icon={<Square size={22} />} label="Fill" />
+          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelection(null); }} icon={<Crop size={22} />} label="Crop" />
           
           <div className="mt-auto flex flex-col items-center gap-6 pb-4">
              <div className="relative group">
@@ -387,7 +347,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                 onChange={(e) => setBrushColor(e.target.value)}
                 className="w-12 h-12 rounded-2xl cursor-pointer bg-slate-800 p-1 border border-slate-700 shadow-xl"
                />
-               <div className="absolute left-full ml-4 px-3 py-1 bg-white text-slate-900 text-[10px] font-black rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none uppercase">颜色</div>
              </div>
           </div>
         </div>
@@ -395,7 +354,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         {/* Workspace */}
         <div 
           ref={containerRef}
-          className="flex-1 bg-slate-950 overflow-auto flex items-center justify-center p-20 relative selection:bg-transparent"
+          className="flex-1 bg-slate-950 overflow-auto flex items-center justify-center p-20 relative"
           onWheel={(e) => {
             if (e.ctrlKey) {
               setZoom(z => Math.max(0.05, Math.min(5, z - e.deltaY * 0.001)));
@@ -404,25 +363,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           }}
         >
           <div 
-            className="relative shadow-[0_0_100px_rgba(0,0,0,0.5)] transition-transform duration-75 origin-center"
+            className="relative shadow-2xl transition-transform duration-75 origin-center"
             style={{ transform: `scale(${zoom})` }}
           >
-            <div className="absolute inset-0 bg-white shadow-2xl"></div>
-            
+            <div className="absolute inset-0 bg-white"></div>
             <canvas
               ref={canvasRef}
               onMouseDown={handleStart}
               onMouseMove={handleMove}
               onMouseUp={handleEnd}
               onMouseLeave={handleEnd}
-              onTouchStart={handleStart}
-              onTouchMove={handleMove}
-              onTouchEnd={handleEnd}
-              className={`block relative shadow-2xl ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}
+              className={`block relative ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}
               style={{ cursor: currentTool === 'none' ? 'default' : 'crosshair' }}
             />
-
-            {/* 选择填充和裁剪的选框 - 修复：画笔模式不显示选框 */}
             {selection && (currentTool === 'select-fill' || currentTool === 'crop') && (
                <div 
                  className={`absolute pointer-events-none border-2 border-white`}
@@ -431,7 +384,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                    top: Math.min(selection.y1, selection.y2),
                    width: Math.abs(selection.x1 - selection.x2),
                    height: Math.abs(selection.y1 - selection.y2),
-                   display: (Math.abs(selection.x1 - selection.x2) < 1 && Math.abs(selection.y1 - selection.y2) < 1) ? 'none' : 'block'
                  }}
                >
                  <div className="absolute inset-0 border-2 border-dashed animate-marching-ants"></div>
@@ -441,7 +393,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
 
           {/* Controls Panel */}
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-6 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-4 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-30 min-w-[400px]">
+          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-6 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-4 rounded-3xl shadow-2xl z-30 min-w-[400px]">
              {currentTool === 'brush' || currentTool === 'ai-erase' ? (
                <div className="flex items-center gap-6 w-full">
                  <div className="flex flex-col gap-1 flex-1">
@@ -490,23 +442,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
              ) : (
                <div className="w-full text-center px-10 py-1">
                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
-                   Select a tool to begin media enhancement
+                   Select a tool to enhance media
                  </p>
                </div>
              )}
           </div>
 
-          {/* Loader */}
           {(isProcessing || isUploading) && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/70 backdrop-blur-md">
-               <div className="relative">
-                 <div className="w-24 h-24 border-4 border-indigo-600/30 rounded-full animate-ping"></div>
-                 <div className="absolute inset-0 flex items-center justify-center">
-                    <Loader2 size={40} className="text-indigo-500 animate-spin" />
-                 </div>
-               </div>
+               <Loader2 size={40} className="text-indigo-500 animate-spin" />
                <p className="mt-8 text-white font-black tracking-[0.3em] text-sm uppercase animate-pulse">
-                 {isUploading ? 'Uploading to cloud...' : 'Processing AI marks...'}
+                 {isUploading ? 'Saving...' : 'AI Processing...'}
                </p>
             </div>
           )}
@@ -525,7 +471,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                             linear-gradient(0deg, #fff 50%, transparent 50%);
           background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
           background-size: 15px 2px, 15px 2px, 2px 15px, 2px 15px;
-          background-position: 0 0, 0 100%, 0 0, 100% 0;
           animation: marching-ants-animation 0.5s infinite linear;
         }
       `}</style>
@@ -536,16 +481,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 const ToolIcon = ({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
   <button 
     onClick={onClick}
-    className={`flex flex-col items-center gap-2 group transition-all relative ${active ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
+    className={`flex flex-col items-center gap-2 group transition-all relative ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}
   >
-    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all ${
+    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${
         active 
-          ? 'bg-blue-600/10 shadow-[inset_0_0_15px_rgba(59,130,246,0.3)] border border-blue-500/50' 
+          ? 'bg-indigo-600/10 border border-indigo-500/50 shadow-lg' 
           : 'bg-slate-800/50 hover:bg-slate-800 border border-transparent'
     }`}>
       {icon}
     </div>
     <span className="text-[10px] font-black uppercase tracking-tighter">{label}</span>
-    {active && <div className="absolute -left-4 top-1/2 -translate-y-1/2 w-1.5 h-8 bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.8)]"></div>}
+    {active && <div className="absolute -left-4 top-1/2 -translate-y-1/2 w-1 h-6 bg-indigo-500 rounded-full shadow-lg"></div>}
   </button>
 );
