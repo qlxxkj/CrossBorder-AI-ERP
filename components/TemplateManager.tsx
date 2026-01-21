@@ -62,7 +62,6 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
 
   for (const name of sheetNames) {
     const lowerName = name.toLowerCase();
-    // Skip instruction sheets
     if (lowerName.includes('instruction') || lowerName.includes('notice') || lowerName.includes('definitions') || lowerName.includes('valid values')) continue;
     
     const sheet = workbook.Sheets[name];
@@ -111,7 +110,7 @@ const findHeaderRowIndex = (rows: any[][]): number => {
       bestIdx = i;
     }
   }
-  return maxScore > 50 ? bestIdx : 2; // Default to row 3 (0-indexed 2) if not found
+  return maxScore > 50 ? bestIdx : 2; 
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -211,7 +210,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           
           let source: any = 'custom', field = '';
           
-          // Improved Matching Logic
           if (apiField.match(/item_sku|sku|external_product_id/)) { source = 'listing'; field = 'asin'; }
           else if (apiField.match(/item_name|title|product_name/)) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|main_image|main_image_url/)) { 
@@ -228,7 +226,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           else if (apiField.match(/product_description|description/)) { source = 'listing'; field = 'description'; }
           else if (apiField.match(/brand_name|brand/)) { source = 'listing'; field = 'brand'; }
           else {
-            // If there's an existing value in the template, use it as template_default
             if (userDataVal) {
               source = 'template_default';
             } else {

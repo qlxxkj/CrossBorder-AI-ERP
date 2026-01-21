@@ -219,14 +219,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[0];
       const sheet = workbook.Sheets[tplSheetName];
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 4;
-      const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] || (targetMarket === 'US' ? techRowIdx + 3 : techRowIdx + 2);
+      const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] || (targetMarket === 'US' ? techRowIdx + 2 : techRowIdx + 1);
       
       const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = dataStartRowIdx + rowOffset;
         const cleaned = listing.cleaned;
-        // Logic: Use translations if market matches, else used optimized if available, else fallback to cleaned
         const localOpt: OptimizedData | any = (targetMarket !== 'US' && listing.translations?.[targetMarket]) 
           ? listing.translations[targetMarket] 
           : (listing.optimized || null);
@@ -256,7 +255,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'brand') val = cleaned.brand || '';
             else if (f === 'description') val = localOpt?.optimized_description || cleaned.description || '';
             else if (f === 'main_image') val = cleaned.main_image || '';
-            // Handling arrays like features and other images
             else if (f?.startsWith('feature')) {
               const idx = parseInt(f.replace('feature', '')) - 1;
               const features = localOpt?.optimized_features || cleaned.features || [];
@@ -274,18 +272,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'item_height') val = formatExportVal(localOpt?.optimized_height || cleaned.item_height || '');
             else if (f === 'item_size_unit') val = getFullUnitName(localOpt?.optimized_size_unit || cleaned.item_size_unit || '');
           } 
-          else if (mapping.source === 'custom') {
-            val = mapping.defaultValue || '';
-          }
-          else if (mapping.source === 'random') {
-            val = generateRandomValue(mapping.randomType);
-          }
-          else if (mapping.source === 'template_default') {
-            val = mapping.templateDefault || '';
-          }
+          else if (mapping.source === 'custom') val = mapping.defaultValue || '';
+          else if (mapping.source === 'random') val = generateRandomValue(mapping.randomType);
+          else if (mapping.source === 'template_default') val = mapping.templateDefault || '';
 
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
-          // Ensure we don't overwrite formatting if cell exists, but standard write for data injection
           sheet[cellRef] = { v: val, t: (typeof val === 'number') ? 'n' : 's' };
         });
       });
@@ -294,7 +285,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const blob = new Blob([outData], { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url;
-      link.download = `Localized_${targetMarket}_${Date.now()}.xlsm`; link.click();
+      
+      const catName = categories.find(c => c.id === (selectedTemplate.category_id || targetCategory))?.name || 'General';
+      link.download = `${catName}_${targetMarket}_${Date.now()}.xlsm`;
+      
+      link.click();
       URL.revokeObjectURL(url);
       await updateExportHistory(targetMarket);
     } catch (err: any) { alert("Template export failed: " + err.message); } 
