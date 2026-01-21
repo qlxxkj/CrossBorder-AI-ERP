@@ -4,7 +4,7 @@ import {
   X, Eraser, Scissors, PaintBucket, Crop, Save, Undo, 
   Wand2, Loader2, Download, MousePointer2, Maximize, 
   Type, Square, Circle, Minus, Move, Palette, Trash2,
-  ZoomIn, ZoomOut, RotateCcw, Box
+  ZoomIn, ZoomOut, RotateCcw, Box, ArrowUpRight
 } from 'lucide-react';
 import { editImageWithAI } from '../services/geminiService';
 
@@ -14,7 +14,20 @@ interface ImageEditorProps {
   onSave: (newImageUrl: string) => void;
 }
 
-type Tool = 'select-fill' | 'brush' | 'ai-erase' | 'crop' | 'rect' | 'circle' | 'line' | 'text' | 'none';
+type Tool = 'select' | 'select-fill' | 'brush' | 'ai-erase' | 'crop' | 'rect' | 'circle' | 'line' | 'text' | 'none';
+
+interface EditorObject {
+  id: string;
+  type: 'rect' | 'circle' | 'line' | 'text';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  stroke: string;
+  fill: string;
+  strokeWidth: number;
+  text?: string;
+}
 
 interface SelectionBox {
   x1: number;
@@ -29,7 +42,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  const [currentTool, setCurrentTool] = useState<Tool>('none');
+  const [currentTool, setCurrentTool] = useState<Tool>('select');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [strokeColor, setStrokeColor] = useState('#000000');
@@ -37,6 +50,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [brushSize, setBrushSize] = useState(5);
   const [history, setHistory] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
+  
+  // Object system
+  const [objects, setObjects] = useState<EditorObject[]>([]);
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  
   const [isDrawing, setIsDrawing] = useState(false);
   const [selection, setSelection] = useState<SelectionBox | null>(null);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
@@ -116,6 +137,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
         setHistory(newHistory);
+        setObjects([]); // Clear active objects on undo as they are baked per step in this simplified model or lost
       };
     }
   };
@@ -166,13 +188,59 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   };
 
   const handleStart = (e: React.MouseEvent | React.TouchEvent) => {
-    if (currentTool === 'none') return;
     const pos = getMousePos(e);
     setStartPos(pos);
+
+    if (currentTool === 'select') {
+      // Check for handles first
+      if (selectedObjectId) {
+        const obj = objects.find(o => o.id === selectedObjectId);
+        if (obj) {
+          const handleSize = 10 / zoom;
+          const isOverResizeHandle = 
+            pos.x >= obj.x + obj.width - handleSize && 
+            pos.x <= obj.x + obj.width + handleSize && 
+            pos.y >= obj.y + obj.height - handleSize && 
+            pos.y <= obj.y + obj.height + handleSize;
+
+          if (isOverResizeHandle) {
+            setIsResizing(true);
+            return;
+          }
+
+          const isOverBody = 
+            pos.x >= obj.x && pos.x <= obj.x + obj.width &&
+            pos.y >= obj.y && pos.y <= obj.y + obj.height;
+          
+          if (isOverBody) {
+            setIsDragging(true);
+            setDragOffset({ x: pos.x - obj.x, y: pos.y - obj.y });
+            return;
+          }
+        }
+      }
+
+      // Check hit test for all objects
+      const hit = objects.slice().reverse().find(obj => 
+        pos.x >= obj.x && pos.x <= obj.x + obj.width &&
+        pos.y >= obj.y && pos.y <= obj.y + obj.height
+      );
+      
+      if (hit) {
+        setSelectedObjectId(hit.id);
+        setIsDragging(true);
+        setDragOffset({ x: pos.x - hit.x, y: pos.y - hit.y });
+      } else {
+        setSelectedObjectId(null);
+      }
+      return;
+    }
+
     setIsDrawing(true);
-    if (currentTool === 'select-fill' || currentTool === 'crop' || currentTool === 'rect' || currentTool === 'circle' || currentTool === 'line') {
+    if (['rect', 'circle', 'line', 'select-fill', 'crop'].includes(currentTool)) {
       setSelection({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y });
     }
+
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
       const ctx = canvasRef.current?.getContext('2d') as CanvasRenderingContext2D | null;
       if (ctx) {
@@ -186,57 +254,29 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   };
 
-  const drawShape = (ctx: CanvasRenderingContext2D, tool: Tool, start: {x: number, y: number}, end: {x: number, y: number}) => {
-    ctx.strokeStyle = strokeColor;
-    ctx.fillStyle = fillColor;
-    ctx.lineWidth = brushSize;
-    ctx.lineCap = 'round';
-
-    if (tool === 'rect') {
-      const x = Math.min(start.x, end.x);
-      const y = Math.min(start.y, end.y);
-      const w = Math.abs(start.x - end.x);
-      const h = Math.abs(start.y - end.y);
-      ctx.beginPath();
-      ctx.rect(x, y, w, h);
-      ctx.fill();
-      ctx.stroke();
-    } else if (tool === 'circle') {
-      const rx = Math.abs(start.x - end.x);
-      const ry = Math.abs(start.y - end.y);
-      const r = Math.sqrt(rx*rx + ry*ry);
-      ctx.beginPath();
-      ctx.arc(start.x, start.y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    } else if (tool === 'line') {
-      ctx.beginPath();
-      ctx.moveTo(start.x, start.y);
-      ctx.lineTo(end.x, end.y);
-      ctx.stroke();
-    }
-  };
-
   const handleMove = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDrawing) return;
     const pos = getMousePos(e);
     
-    if (['rect', 'circle', 'line'].includes(currentTool)) {
-      setSelection(prev => prev ? { ...prev, x2: pos.x, y2: pos.y } : null);
-      // For shapes, we need a preview. 
-      // Simplest way for this architecture: redraw from history then draw current shape.
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
-      if (canvas && ctx && history.length > 0) {
-        const lastImg = new Image();
-        lastImg.src = history[history.length - 1];
-        lastImg.onload = () => {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(lastImg, 0, 0);
-          drawShape(ctx, currentTool, startPos, pos);
-        };
+    if (currentTool === 'select' && selectedObjectId) {
+      if (isDragging) {
+        setObjects(prev => prev.map(obj => 
+          obj.id === selectedObjectId 
+            ? { ...obj, x: pos.x - dragOffset.x, y: pos.y - dragOffset.y }
+            : obj
+        ));
+      } else if (isResizing) {
+        setObjects(prev => prev.map(obj => 
+          obj.id === selectedObjectId 
+            ? { ...obj, width: Math.max(10, pos.x - obj.x), height: Math.max(10, pos.y - obj.y) }
+            : obj
+        ));
       }
-    } else if (currentTool === 'select-fill' || currentTool === 'crop') {
+      return;
+    }
+
+    if (!isDrawing) return;
+
+    if (['rect', 'circle', 'line', 'select-fill', 'crop'].includes(currentTool)) {
       setSelection(prev => prev ? { ...prev, x2: pos.x, y2: pos.y } : null);
     } else if (currentTool === 'brush' || currentTool === 'ai-erase') {
       const ctx = canvasRef.current?.getContext('2d') as CanvasRenderingContext2D | null;
@@ -248,29 +288,54 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   };
 
   const handleEnd = (e: React.MouseEvent | React.TouchEvent) => {
+    if (currentTool === 'select') {
+      setIsDragging(false);
+      setIsResizing(false);
+      return;
+    }
+
     if (!isDrawing) return;
     setIsDrawing(false);
     
-    if (['rect', 'circle', 'line', 'brush'].includes(currentTool)) {
-      saveToHistory();
-    }
+    const pos = getMousePos(e);
 
-    if (currentTool === 'text') {
-      const pos = getMousePos(e);
+    if (['rect', 'circle', 'line'].includes(currentTool)) {
+      const newObj: EditorObject = {
+        id: crypto.randomUUID(),
+        type: currentTool as any,
+        x: Math.min(startPos.x, pos.x),
+        y: Math.min(startPos.y, pos.y),
+        width: Math.abs(startPos.x - pos.x),
+        height: Math.abs(startPos.y - pos.y),
+        stroke: strokeColor,
+        fill: fillColor,
+        strokeWidth: brushSize
+      };
+      setObjects(prev => [...prev, newObj]);
+      setSelectedObjectId(newObj.id);
+      setCurrentTool('select');
+      setSelection(null);
+    } else if (currentTool === 'text') {
       const text = window.prompt("Enter text:");
       if (text) {
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
-        if (ctx) {
-          ctx.font = `bold ${brushSize * 5}px Inter, sans-serif`;
-          ctx.fillStyle = fillColor;
-          ctx.strokeStyle = strokeColor;
-          ctx.lineWidth = Math.max(1, brushSize / 2);
-          ctx.fillText(text, pos.x, pos.y);
-          ctx.strokeText(text, pos.x, pos.y);
-          saveToHistory();
-        }
+        const newObj: EditorObject = {
+          id: crypto.randomUUID(),
+          type: 'text',
+          x: pos.x,
+          y: pos.y,
+          width: text.length * brushSize * 3, // Approximation for selection box
+          height: brushSize * 6,
+          stroke: strokeColor,
+          fill: fillColor,
+          strokeWidth: brushSize,
+          text: text
+        };
+        setObjects(prev => [...prev, newObj]);
+        setSelectedObjectId(newObj.id);
+        setCurrentTool('select');
       }
+    } else if (currentTool === 'brush') {
+      saveToHistory();
     }
   };
 
@@ -331,6 +396,57 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   };
 
+  const handleFinalSave = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Draw all objects onto the canvas permanently
+    objects.forEach(obj => {
+      ctx.strokeStyle = obj.stroke;
+      ctx.fillStyle = obj.fill;
+      ctx.lineWidth = obj.strokeWidth;
+      ctx.lineCap = 'round';
+
+      if (obj.type === 'rect') {
+        ctx.beginPath();
+        ctx.rect(obj.x, obj.y, obj.width, obj.height);
+        ctx.fill();
+        ctx.stroke();
+      } else if (obj.type === 'circle') {
+        const r = Math.sqrt(obj.width * obj.width + obj.height * obj.height) / 2;
+        ctx.beginPath();
+        ctx.arc(obj.x + obj.width/2, obj.y + obj.height/2, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      } else if (obj.type === 'line') {
+        ctx.beginPath();
+        ctx.moveTo(obj.x, obj.y);
+        ctx.lineTo(obj.x + obj.width, obj.y + obj.height);
+        ctx.stroke();
+      } else if (obj.type === 'text' && obj.text) {
+        ctx.font = `bold ${obj.strokeWidth * 6}px Inter, sans-serif`;
+        ctx.fillText(obj.text, obj.x, obj.y);
+        ctx.strokeText(obj.text, obj.x, obj.y);
+      }
+    });
+
+    onSave(canvas.toDataURL('image/jpeg', 0.95));
+  };
+
+  // Keyboard support for deleting objects
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObjectId) {
+        setObjects(prev => prev.filter(o => o.id !== selectedObjectId));
+        setSelectedObjectId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedObjectId]);
+
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter">
       <div className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between text-white shadow-xl z-20">
@@ -348,20 +464,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
           <button onClick={undo} disabled={history.length <= 1} className="p-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-xl text-slate-300 transition-all"><Undo size={18} /></button>
           <button onClick={standardize} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-black flex items-center gap-2 border border-slate-700"><Maximize size={16} /> 1600*1600</button>
-          <button onClick={() => onSave(canvasRef.current?.toDataURL('image/jpeg', 0.95) || '')} className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transform active:scale-95 transition-all"><Save size={16} /> Save & Apply</button>
+          <button onClick={handleFinalSave} className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transform active:scale-95 transition-all"><Save size={16} /> Save & Apply</button>
         </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
         <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-6 gap-6 z-20 overflow-y-auto no-scrollbar">
-          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelection(null); }} icon={<Palette size={20} />} label="Brush" />
-          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelection(null); }} icon={<Eraser size={20} />} label="AI Erase" />
-          <ToolIcon active={currentTool === 'rect'} onClick={() => { setCurrentTool('rect'); setSelection(null); }} icon={<Square size={20} />} label="Rect" />
-          <ToolIcon active={currentTool === 'circle'} onClick={() => { setCurrentTool('circle'); setSelection(null); }} icon={<Circle size={20} />} label="Circle" />
-          <ToolIcon active={currentTool === 'line'} onClick={() => { setCurrentTool('line'); setSelection(null); }} icon={<Minus size={20} />} label="Line" />
-          <ToolIcon active={currentTool === 'text'} onClick={() => { setCurrentTool('text'); setSelection(null); }} icon={<Type size={20} />} label="Text" />
-          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelection(null); }} icon={<PaintBucket size={20} />} label="Fill" />
-          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelection(null); }} icon={<Scissors size={20} />} label="Crop" />
+          <ToolIcon active={currentTool === 'select'} onClick={() => { setCurrentTool('select'); }} icon={<MousePointer2 size={20} />} label="Select" />
+          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelectedObjectId(null); }} icon={<Palette size={20} />} label="Brush" />
+          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelectedObjectId(null); }} icon={<Eraser size={20} />} label="AI Erase" />
+          <ToolIcon active={currentTool === 'rect'} onClick={() => { setCurrentTool('rect'); setSelectedObjectId(null); }} icon={<Square size={20} />} label="Rect" />
+          <ToolIcon active={currentTool === 'circle'} onClick={() => { setCurrentTool('circle'); setSelectedObjectId(null); }} icon={<Circle size={20} />} label="Circle" />
+          <ToolIcon active={currentTool === 'line'} onClick={() => { setCurrentTool('line'); setSelectedObjectId(null); }} icon={<Minus size={20} />} label="Line" />
+          <ToolIcon active={currentTool === 'text'} onClick={() => { setCurrentTool('text'); setSelectedObjectId(null); }} icon={<Type size={20} />} label="Text" />
+          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelectedObjectId(null); }} icon={<PaintBucket size={20} />} label="Fill" />
+          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelectedObjectId(null); }} icon={<Scissors size={20} />} label="Crop" />
           
           <div className="mt-auto flex flex-col gap-4 pb-4">
              <div className="space-y-1">
@@ -377,8 +494,48 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
         <div ref={containerRef} className="flex-1 bg-slate-950 overflow-auto flex items-center justify-center p-20 relative">
           <div className="relative shadow-2xl transition-transform duration-75 origin-center" style={{ transform: `scale(${zoom})` }}>
-            <canvas ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} className="block relative" style={{ cursor: currentTool === 'none' ? 'default' : 'crosshair' }} />
-            {selection && (currentTool === 'select-fill' || currentTool === 'crop') && (
+            <canvas ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} className="block relative" style={{ cursor: currentTool === 'none' ? 'default' : currentTool === 'select' ? 'default' : 'crosshair' }} />
+            
+            {/* Object Overlay */}
+            <svg 
+              className="absolute inset-0 pointer-events-none w-full h-full"
+              viewBox={`0 0 ${canvasRef.current?.width || 0} ${canvasRef.current?.height || 0}`}
+            >
+              {objects.map(obj => (
+                <g key={obj.id} className={selectedObjectId === obj.id ? 'opacity-100' : 'opacity-80'}>
+                  {obj.type === 'rect' && <rect x={obj.x} y={obj.y} width={obj.width} height={obj.height} stroke={obj.stroke} fill={obj.fill} strokeWidth={obj.strokeWidth} />}
+                  {obj.type === 'circle' && <ellipse cx={obj.x + obj.width/2} cy={obj.y + obj.height/2} rx={obj.width/2} ry={obj.height/2} stroke={obj.stroke} fill={obj.fill} strokeWidth={obj.strokeWidth} />}
+                  {obj.type === 'line' && <line x1={obj.x} y1={obj.y} x2={obj.x + obj.width} y2={obj.y + obj.height} stroke={obj.stroke} strokeWidth={obj.strokeWidth} />}
+                  {obj.type === 'text' && (
+                    <text 
+                      x={obj.x} 
+                      y={obj.y} 
+                      fill={obj.fill} 
+                      stroke={obj.stroke} 
+                      strokeWidth={obj.strokeWidth/4} 
+                      style={{ font: `bold ${obj.strokeWidth * 6}px Inter, sans-serif` }}
+                    >
+                      {obj.text}
+                    </text>
+                  )}
+                  {selectedObjectId === obj.id && (
+                    <>
+                      <rect 
+                        x={obj.x} y={obj.y} width={obj.width} height={obj.height} 
+                        fill="none" stroke="#6366f1" strokeWidth={2 / zoom} strokeDasharray="4"
+                      />
+                      {/* Resize handle */}
+                      <circle 
+                        cx={obj.x + obj.width} cy={obj.y + obj.height} r={6 / zoom} 
+                        fill="#6366f1" className="cursor-nwse-resize" 
+                      />
+                    </>
+                  )}
+                </g>
+              ))}
+            </svg>
+
+            {selection && (['select-fill', 'crop'].includes(currentTool)) && (
                <div className="absolute pointer-events-none border-2 border-white" style={{ left: Math.min(selection.x1, selection.x2), top: Math.min(selection.y1, selection.y2), width: Math.abs(selection.x1 - selection.x2), height: Math.abs(selection.y1 - selection.y2) }}>
                  <div className="absolute inset-0 border-2 border-dashed border-black/50 animate-pulse"></div>
                </div>
@@ -405,8 +562,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
              {currentTool === 'crop' && (
                <button onClick={handleCrop} disabled={!selection} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black shadow-xl active:scale-95 transition-all">CONFIRM CROP</button>
              )}
-             {['rect', 'circle', 'line', 'text', 'brush', 'none'].includes(currentTool) && currentTool !== 'ai-erase' && (
-                <div className="px-10 text-[10px] font-black text-slate-500 uppercase tracking-widest">{currentTool === 'none' ? 'Select a tool' : `${currentTool} tool active`}</div>
+             {['select', 'rect', 'circle', 'line', 'text', 'brush', 'none'].includes(currentTool) && currentTool !== 'ai-erase' && (
+                <div className="px-10 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  {currentTool === 'select' ? (selectedObjectId ? 'Object Selected (Drag corners to resize)' : 'Select an object') : `${currentTool} tool active`}
+                </div>
              )}
           </div>
 
