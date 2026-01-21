@@ -31,11 +31,39 @@ const formatExportVal = (val: any) => {
   return parseFloat(num.toFixed(2));
 };
 
-const capitalizeUnit = (val: string) => {
-  if (!val) return "";
-  const trimmed = val.trim();
-  if (trimmed.length === 0) return "";
-  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+// New Helper: Convert abbreviations to Amazon-compliant full names with capitalization
+const getFullUnitName = (unit: string) => {
+  if (!unit) return "";
+  const normalized = unit.toLowerCase().trim();
+  const map: Record<string, string> = {
+    'lb': 'Pounds',
+    'lbs': 'Pounds',
+    'pound': 'Pounds',
+    'pounds': 'Pounds',
+    'kg': 'Kilograms',
+    'kilogram': 'Kilograms',
+    'kilograms': 'Kilograms',
+    'oz': 'Ounces',
+    'ounce': 'Ounces',
+    'ounces': 'Ounces',
+    'gr': 'Grams',
+    'g': 'Grams',
+    'gram': 'Grams',
+    'grams': 'Grams',
+    'in': 'Inches',
+    'inch': 'Inches',
+    'inches': 'Inches',
+    'cm': 'Centimeters',
+    'centimeter': 'Centimeters',
+    'centimeters': 'Centimeters',
+    'mm': 'Millimeters',
+    'millimeter': 'Millimeters',
+    'millimeters': 'Millimeters',
+    'ft': 'Feet',
+    'foot': 'Feet',
+    'feet': 'Feet'
+  };
+  return map[normalized] || unit.charAt(0).toUpperCase() + unit.slice(1);
 };
 
 const IS_LATIN_MKT = (code: string) => [
@@ -113,7 +141,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     else setSelectedTemplate(null);
   }, [filteredTemplates]);
 
-  // 更新导出历史到数据库
   const updateExportHistory = async (marketCode: string) => {
     if (!isSupabaseConfigured()) return;
     try {
@@ -256,14 +283,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'item_weight_value') val = formatExportVal(localOpt?.optimized_weight_value || cleaned.item_weight_value || '');
             else if (f === 'item_weight_unit') {
               const unit = localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '';
-              val = IS_LATIN_MKT(targetMarket) ? capitalizeUnit(unit) : unit;
+              // Enhanced: Use full name for template export
+              val = IS_LATIN_MKT(targetMarket) ? getFullUnitName(unit) : unit;
             }
             else if (f === 'item_length') val = formatExportVal(localOpt?.optimized_length || cleaned.item_length || '');
             else if (f === 'item_width') val = formatExportVal(localOpt?.optimized_width || cleaned.item_width || '');
             else if (f === 'item_height') val = formatExportVal(localOpt?.optimized_height || cleaned.item_height || '');
             else if (f === 'item_size_unit') {
               const unit = localOpt?.optimized_size_unit || cleaned.item_size_unit || '';
-              val = IS_LATIN_MKT(targetMarket) ? capitalizeUnit(unit) : unit;
+              // Enhanced: Use full name for template export
+              val = IS_LATIN_MKT(targetMarket) ? getFullUnitName(unit) : unit;
             }
           } else if (mapping.source === 'custom') { val = mapping.defaultValue || ''; } 
           else if (mapping.source === 'random') { val = generateRandomValue(mapping.randomType); }
@@ -335,7 +364,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                   <button onClick={handleExportCSV} className="p-8 bg-slate-50 border-2 border-slate-100 rounded-[2.5rem] flex flex-col items-center text-center group hover:border-indigo-500 transition-all hover:bg-white hover:shadow-2xl">
                      <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm mb-6"><FileText size={32} /></div>
                      <h3 className="font-black text-slate-900 uppercase tracking-widest mb-2">Default CSV</h3>
-                     <p className="text-[10px] text-slate-400 font-bold leading-relaxed">Raw data dump without marketplace formatting.</p>
+                     <p className="text-[10px] text-slate-400 font-bold Gabriel leading-relaxed">Raw data dump without marketplace formatting.</p>
                      <div className="mt-auto px-6 py-2 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest">Download</div>
                   </button>
 

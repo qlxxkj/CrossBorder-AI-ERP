@@ -420,7 +420,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          <div className="flex gap-2">
                            <input type="text" value={(currentContent as any).optimized_weight_value || (currentContent as any).item_weight_value || ''} onChange={e => updateField('optimized_weight_value', e.target.value)} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
                            <select value={(currentContent as any).optimized_weight_unit || (currentContent as any).item_weight_unit || 'lb'} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-24 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
-                             <option value="lb">LB</option><option value="kg">KG</option><option value="oz">OZ</option>
+                             <option value="lb">lb (Pounds)</option>
+                             <option value="kg">kg (Kilograms)</option>
+                             <option value="oz">oz (Ounces)</option>
+                             <option value="g">g (Grams)</option>
                            </select>
                          </div>
                       </div>
@@ -433,7 +436,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                               <input placeholder="H" type="text" value={(currentContent as any).optimized_height || (currentContent as any).item_height || ''} onChange={e => updateField('optimized_height', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                            </div>
                            <select value={(currentContent as any).optimized_size_unit || (currentContent as any).item_size_unit || 'in'} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-24 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
-                             <option value="in">IN</option><option value="cm">CM</option>
+                             <option value="in">in (Inches)</option>
+                             <option value="cm">cm (Centimeters)</option>
+                             <option value="mm">mm (Millimeters)</option>
                            </select>
                          </div>
                       </div>
@@ -586,24 +591,37 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   );
 };
 
+// Fix: Missing EngineBtn component used for AI model selection.
 const EngineBtn = ({ active, onClick, icon, label }: any) => (
-  <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${active ? 'bg-white shadow-md text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
+  <button 
+    onClick={onClick} 
+    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all ${
+      active ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+    }`}
+  >
     {icon} {label}
   </button>
 );
 
-const EditSection = ({ label, icon, value, onChange, limit, className = "", isMono = false }: any) => (
-  <div className="space-y-3 group">
-    <div className="flex justify-between items-center px-1">
-      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">{icon} {label}</label>
-      <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black ${value.length > limit ? 'bg-red-50 text-red-500 animate-pulse' : 'text-slate-300 uppercase'}`}>
-        {value.length > limit && <AlertTriangle size={10} />} {value.length} / {limit}
-      </div>
+// Fix: Missing EditSection component used for Title, Description, and Keywords editing.
+const EditSection = ({ label, icon, value, onChange, limit, isMono, className }: any) => (
+  <div className="space-y-3">
+    <div className="flex items-center justify-between ml-1">
+      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+        {icon} {label}
+      </label>
+      {limit && (
+        <span className={`text-[9px] font-black uppercase ${value.length > limit ? 'text-red-500' : 'text-slate-300'}`}>
+          {value.length} / {limit}
+        </span>
+      )}
     </div>
     <textarea 
-      value={value} 
+      value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={`w-full p-6 bg-slate-50 border rounded-[2rem] outline-none transition-all focus:bg-white ${isMono ? 'font-mono' : 'font-bold'} ${value.length > limit ? 'border-red-500 ring-4 ring-red-50' : 'border-slate-200 focus:border-indigo-500 focus:ring-8 focus:ring-indigo-500/5'} ${className}`} 
+      className={`w-full p-6 bg-slate-50 border rounded-[2rem] font-bold outline-none transition-all focus:bg-white ${
+        isMono ? 'font-mono' : ''
+      } ${value.length > (limit || 99999) ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200 focus:border-indigo-500'} ${className}`}
     />
   </div>
 );
