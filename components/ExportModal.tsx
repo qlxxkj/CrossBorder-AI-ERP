@@ -197,7 +197,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[0];
       const sheet = workbook.Sheets[tplSheetName];
       
-      // 核心优化：使用上传时探测到的起始行索引，默认兜底
       const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] ?? 3;
       
       const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
@@ -265,11 +264,19 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url;
       
-      // 优化文件名格式：分类_站点_时间
+      // 核心修复：文件名包含时分秒 [分类]_[站点]_[时间戳]
       const currentCatId = selectedTemplate.category_id || targetCategory;
       const catName = categories.find(c => c.id === currentCatId)?.name || (uiLang === 'zh' ? '通用分类' : 'General');
-      const timeStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
-      link.download = `${catName}_${targetMarket}_${timeStr}.xlsm`;
+      
+      const now = new Date();
+      const timestamp = now.getFullYear().toString() + 
+                        (now.getMonth() + 1).toString().padStart(2, '0') + 
+                        now.getDate().toString().padStart(2, '0') + "_" + 
+                        now.getHours().toString().padStart(2, '0') + 
+                        now.getMinutes().toString().padStart(2, '0') + 
+                        now.getSeconds().toString().padStart(2, '0');
+
+      link.download = `${catName}_${targetMarket}_${timestamp}.xlsm`;
       
       link.click();
       URL.revokeObjectURL(url);

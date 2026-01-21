@@ -4,7 +4,7 @@ import {
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
   Globe, Languages, Loader2, DollarSign, Truck, Save, ChevronRight,
   Zap, Check, Weight, Ruler, ListFilter, FileText, Wand2, Search, 
-  ExternalLink, Link2, Star, Maximize2, Hash, Cpu, Brain, AlertTriangle, Upload, Box
+  ExternalLink, Link2, Star, Maximize2, Hash, Cpu, Brain, Box
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage, ExchangeRate, SourcingRecord } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -32,20 +32,31 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
-// Markets that MUST use Metric units (cm/kg) according to Amazon standards
 const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'UK', 'CA', 'MX', 'PL', 'NL', 'SE', 'BE', 'SG', 'AU', 'EG'];
 
-const normalizeUnit = (unit: string | undefined): string => {
-  if (!unit) return "";
-  const u = unit.toLowerCase().trim();
-  if (u === 'lb' || u === 'lbs' || u === 'pounds') return "Pounds";
-  if (u === 'kg' || u === 'kilograms') return "Kilograms";
-  if (u === 'oz' || u === 'ounces') return "Ounces";
-  if (u === 'g' || u === 'grams') return "Grams";
-  if (u === 'in' || u === 'inches') return "Inches";
-  if (u === 'cm' || u === 'centimeters') return "Centimeters";
-  if (u === 'mm' || u === 'millimeters') return "Millimeters";
-  return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
+// 单位本地化映射表
+const UNIT_LOCALIZATION: Record<string, Record<string, string>> = {
+  'JP': {
+    'Pounds': 'ポンド',
+    'Kilograms': 'キログラム',
+    'Grams': 'グラム',
+    'Ounces': 'オンス',
+    'Inches': 'インチ',
+    'Centimeters': 'センチメートル',
+    'Millimeters': 'ミリメートル'
+  },
+  'DE': {
+    'Pounds': 'Pfund',
+    'Kilograms': 'Kilogramm',
+    'Inches': 'Zoll',
+    'Centimeters': 'Zentimeter'
+  },
+  'FR': {
+    'Pounds': 'Livres',
+    'Kilograms': 'Kilogrammes',
+    'Inches': 'Pouces',
+    'Centimeters': 'Centimètres'
+  }
 };
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
@@ -110,7 +121,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
-  // Centralized image upload helper
   const uploadImageToHost = async (dataUrlOrFile: string | File, asin: string): Promise<string> => {
     let file: File;
     if (typeof dataUrlOrFile === 'string') {
@@ -130,25 +140,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const getFieldValue = (optField: string, cleanField: string) => {
-    const isMetric = METRIC_MARKETS.includes(activeMarket);
-    
-    if (optField.includes('unit')) {
-      let rawUnit = "";
-      if (activeMarket === 'US') {
-        rawUnit = localListing.cleaned[cleanField];
-      } else {
-        const trans = localListing.translations?.[activeMarket];
-        rawUnit = trans ? (trans as any)[optField] : '';
-      }
-      
-      const normalized = normalizeUnit(rawUnit);
-      if (normalized) return normalized;
-
-      if (optField.includes('weight')) return isMetric ? "Kilograms" : "Pounds";
-      if (optField.includes('size')) return isMetric ? "Centimeters" : "Inches";
-      return "";
-    }
-
     if (activeMarket === 'US') {
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
       if (optVal !== undefined && optVal !== null && (Array.isArray(optVal) ? optVal.length > 0 : optVal !== '')) {
@@ -176,7 +167,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
 
     if (optField.includes('features')) return ['', '', '', '', ''];
-
     return '';
   };
 
@@ -201,12 +191,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const updateField = (field: string, value: any) => {
     const next = getUpdatedListing(field, value);
     setLocalListing(next);
-  };
-
-  const handleImmediateUpdateAndSync = (field: string, value: any) => {
-    const next = getUpdatedListing(field, value);
-    setLocalListing(next);
-    syncToSupabase(next);
   };
 
   const handleBatchStandardize = async () => {
@@ -238,7 +222,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       for (const url of allImgs) {
         const dataUrl = await processImage(url);
-        // CRITICAL FIX: Upload the result to host, don't store DataURL in DB
         const hostedUrl = await uploadImageToHost(dataUrl, localListing.asin);
         processed.push(hostedUrl);
       }
@@ -291,7 +274,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           optimized_title: localListing.cleaned.title,
           optimized_features: localListing.cleaned.features || [],
           optimized_description: localListing.cleaned.description || '',
-          search_keywords: localListing.cleaned.search_keywords || ''
+          search_keywords: localListing.cleaned.search_keywords || '',
+          optimized_weight_unit: localListing.cleaned.item_weight_unit || 'Pounds',
+          optimized_size_unit: localListing.cleaned.item_size_unit || 'Inches'
         } as OptimizedData;
         
         let trans: Partial<OptimizedData>;
@@ -307,16 +292,24 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const rawW = parseFloat(localListing.optimized?.optimized_width || localListing.cleaned.item_width || '0');
         const rawH = parseFloat(localListing.optimized?.optimized_height || localListing.cleaned.item_height || '0');
 
+        // 本地化单位名称逻辑
+        let finalWeightUnit = isMetric ? 'Kilograms' : 'Pounds';
+        let finalSizeUnit = isMetric ? 'Centimeters' : 'Inches';
+        
+        // 如果 AI 返回了本地化单位，则使用 AI 的
+        if (trans.optimized_weight_unit) finalWeightUnit = trans.optimized_weight_unit;
+        if (trans.optimized_size_unit) finalSizeUnit = trans.optimized_size_unit;
+
         currentTranslations[mkt.code] = {
           ...trans,
           optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
           optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2)),
           optimized_weight_value: isMetric ? (rawWeight * 0.45359).toFixed(2) : rawWeight.toFixed(2),
-          optimized_weight_unit: isMetric ? 'Kilograms' : 'Pounds',
+          optimized_weight_unit: finalWeightUnit,
           optimized_length: isMetric ? (rawL * 2.54).toFixed(2) : rawL.toFixed(2),
           optimized_width: isMetric ? (rawW * 2.54).toFixed(2) : rawW.toFixed(2),
           optimized_height: isMetric ? (rawH * 2.54).toFixed(2) : rawH.toFixed(2),
-          optimized_size_unit: isMetric ? 'Centimeters' : 'Inches',
+          optimized_size_unit: finalSizeUnit,
         } as OptimizedData;
       } catch (e) {}
     }
@@ -330,7 +323,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsSaving(true);
     try {
       const hostedUrl = await uploadImageToHost(dataUrl, localListing.asin);
-      // Determine if we are editing the main image or one of the others
       const isMain = previewImage === localListing.cleaned.main_image;
       const nextListing = { ...localListing };
       if (isMain) {
@@ -422,7 +414,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                    <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-inner overflow-x-auto custom-scrollbar no-scrollbar">
                       <button onClick={() => setActiveMarket('US')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 US Master</button>
                       {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => (
-                        <button key={m.code} onClick={() => setActiveMarket(m.code)} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>{m.flag} {m.code}</button>
+                        <button key={m.code} onClick={() => setActiveMarket(m.code)} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'code' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>{m.flag} {m.code}</button>
                       ))}
                    </div>
                    <button onClick={handleBatchTranslate} disabled={isBatchTranslating} className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shrink-0">
@@ -456,7 +448,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
                    <div className="grid grid-cols-2 gap-8 items-end">
                       <div className="space-y-3">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-amber-500" /> Weight</label>
+                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-amber-500" /> Weight & Unit</label>
                          <div className="flex gap-2">
                            <input 
                             type="text" 
@@ -464,36 +456,36 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             onChange={e => updateField('optimized_weight_value', e.target.value)} 
                             onBlur={() => syncToSupabase(localListing)}
                             className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" 
+                            placeholder="Value"
                            />
-                           <select 
+                           {/* 核心修复：下拉框改为文本框，支持本地化单位显示 */}
+                           <input 
+                            type="text" 
                             value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} 
-                            onChange={e => handleImmediateUpdateAndSync('optimized_weight_unit', e.target.value)} 
-                            className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase"
-                           >
-                             <option value="Pounds">Pounds</option>
-                             <option value="Kilograms">Kilograms</option>
-                             <option value="Ounces">Ounces</option>
-                             <option value="Grams">Grams</option>
-                           </select>
+                            onChange={e => updateField('optimized_weight_unit', e.target.value)} 
+                            onBlur={() => syncToSupabase(localListing)}
+                            className="w-48 px-5 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase outline-none focus:border-amber-500"
+                            placeholder="Unit (e.g. kg)"
+                           />
                          </div>
                       </div>
                       <div className="space-y-3">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Ruler size={14} className="text-indigo-500" /> Dimensions (L / W / H)</label>
+                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Ruler size={14} className="text-indigo-500" /> Dimensions & Unit</label>
                          <div className="flex gap-2">
                            <div className="grid grid-cols-3 gap-1 flex-1">
                               <input placeholder="L" type="text" value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                               <input placeholder="W" type="text" value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                               <input placeholder="H" type="text" value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                            </div>
-                           <select 
+                           {/* 核心修复：下拉框改为文本框，支持本地化单位显示 */}
+                           <input 
+                            type="text" 
                             value={getFieldValue('optimized_size_unit', 'item_size_unit')} 
-                            onChange={e => handleImmediateUpdateAndSync('optimized_size_unit', e.target.value)} 
-                            className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase"
-                           >
-                             <option value="Inches">Inches</option>
-                             <option value="Centimeters">Centimeters</option>
-                             <option value="Millimeters">Millimeters</option>
-                           </select>
+                            onChange={e => updateField('optimized_size_unit', e.target.value)} 
+                            onBlur={() => syncToSupabase(localListing)}
+                            className="w-48 px-5 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase outline-none focus:border-indigo-500"
+                            placeholder="Unit (e.g. cm)"
+                           />
                          </div>
                       </div>
                    </div>
@@ -563,7 +555,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 </div>
              </div>
 
-             {/* Sourcing Center */}
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm p-10 space-y-8 mt-8">
                 <div className="flex items-center justify-between">
                    <div className="flex items-center gap-3">

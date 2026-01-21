@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
@@ -57,7 +58,6 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     const text = response.text || "{}";
     return JSON.parse(text.trim()) as OptimizedData;
   } catch (error: any) {
-    // Fix: Handle specific error to re-prompt for key selection
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
       if (aistudio) aistudio.openSelectKey();
@@ -71,19 +71,22 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Task: Translate and LOCALIZE the TEXT ONLY of this Amazon listing into "${targetLang}".
+    Task: Translate and LOCALIZE the TEXT content of this Amazon listing into "${targetLang}".
     
-    [CRITICAL]
-    1. DO NOT handle, mention, or return any numbers related to weights, lengths, or sizes.
-    2. ONLY translate: Title, 5 Bullets, Description, and Keywords.
-    3. BRAND REMOVAL: Strip all specific brands (e.g., Toyota, Lexus, Bosch, etc.) and replace with generic terms like "compatible vehicles" in "${targetLang}".
-    4. QUALITY: Use natural, high-converting language for the "${targetLang}" market.
+    [CORE TRANSLATION]
+    1. Translate: Title, 5 Bullets, Description, and Keywords.
+    2. Localize unit names: Translate "Pounds", "Kilograms", "Inches", "Centimeters" into their natural equivalents in "${targetLang}" (e.g., for JP use "キログラム", "センチメートル").
+    3. DO NOT change the numeric values themselves.
+    4. BRAND REMOVAL: Strip all specific brands (e.g., Toyota, Lexus, Bosch, etc.) and replace with generic terms like "compatible vehicles" in "${targetLang}".
+    5. QUALITY: Use natural, high-converting language for the "${targetLang}" market.
 
     Source: ${JSON.stringify({
       title: sourceData.optimized_title,
       features: sourceData.optimized_features,
       description: sourceData.optimized_description,
-      keywords: sourceData.search_keywords
+      keywords: sourceData.search_keywords,
+      weight_unit: sourceData.optimized_weight_unit,
+      size_unit: sourceData.optimized_size_unit
     })}
   `;
 
@@ -99,7 +102,9 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
             optimized_title: { type: Type.STRING },
             optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
             optimized_description: { type: Type.STRING },
-            search_keywords: { type: Type.STRING }
+            search_keywords: { type: Type.STRING },
+            optimized_weight_unit: { type: Type.STRING },
+            optimized_size_unit: { type: Type.STRING }
           },
           required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
         }
@@ -109,7 +114,6 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     const text = response.text || "{}";
     return JSON.parse(text.trim());
   } catch (error: any) {
-    // Fix: Handle specific error to re-prompt for key selection
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
       if (aistudio) aistudio.openSelectKey();
@@ -136,7 +140,7 @@ export const search1688WithAI = async (productTitle: string, imageUrl: string): 
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview", // 使用 Pro 模型以获得更好的联网搜索质量
+      model: "gemini-3-pro-preview", 
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
@@ -157,7 +161,6 @@ export const search1688WithAI = async (productTitle: string, imageUrl: string): 
       }
     });
 
-    // Fix: Extracted grounding chunks and logged URLs as mandatory for Search Grounding
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const webSources = chunks.filter((c: any) => c.web?.uri).map((c: any) => c.web.uri);
     if (webSources.length > 0) {
@@ -167,7 +170,6 @@ export const search1688WithAI = async (productTitle: string, imageUrl: string): 
     const text = response.text || "[]";
     return JSON.parse(text.trim());
   } catch (error: any) {
-    // Fix: Handle specific error to re-prompt for key selection
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
       if (aistudio) aistudio.openSelectKey();
@@ -202,7 +204,6 @@ export const editImageWithAI = async (base64ImageData: string, prompt: string): 
       throw new Error("Gemini returned no response candidates for image editing.");
     }
 
-    // Fix: Iterated through parts to find the image data correctly per guidelines
     for (const part of response.candidates[0].content.parts) {
       if (part.inlineData) {
         return part.inlineData.data;
@@ -211,7 +212,6 @@ export const editImageWithAI = async (base64ImageData: string, prompt: string): 
     
     throw new Error("No image data returned from Gemini in response parts.");
   } catch (error: any) {
-    // Fix: Handle specific error to re-prompt for key selection
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
       if (aistudio) aistudio.openSelectKey();
