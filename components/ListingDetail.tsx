@@ -4,7 +4,7 @@ import {
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
   Globe, Languages, Loader2, DollarSign, Truck, Save, ChevronRight,
   Zap, Check, Weight, Ruler, ListFilter, FileText, Wand2, Search, 
-  ExternalLink, Link2, Star, Maximize2, Hash, Cpu, Brain, AlertTriangle
+  ExternalLink, Link2, Star, Maximize2, Hash, Cpu, Brain, AlertTriangle, Upload, Box
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage, ExchangeRate, SourcingRecord } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -27,13 +27,18 @@ interface ListingDetailProps {
 
 type AIEngine = 'gemini' | 'openai' | 'deepseek';
 
+const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
+const CORS_PROXY = 'https://corsproxy.io/?';
+
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMarket, setActiveMarket] = useState('US');
   const [engine, setEngine] = useState<AIEngine>('gemini');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
+  const [isStandardizing, setIsStandardizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   
@@ -77,6 +82,112 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
+  // Image Utilities
+  const processImageStandardization = async (url: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = `${CORS_PROXY}${encodeURIComponent(url)}`;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1600;
+        canvas.height = 1600;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject("Canvas failure");
+
+        // Background White
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, 1600, 1600);
+
+        // Calculate scaling for 1500x1500 box
+        const scale = Math.min(1500 / img.width, 1500 / img.height);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        const x = (1600 - w) / 2;
+        const y = (1600 - h) / 2;
+
+        ctx.drawImage(img, x, y, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.9));
+      };
+      img.onerror = () => reject("Image load error");
+    });
+  };
+
+  const handleBatchStandardize = async () => {
+    setIsStandardizing(true);
+    try {
+      const nextListing = { ...localListing };
+      const allImgs = [nextListing.cleaned.main_image, ...(nextListing.cleaned.other_images || [])].filter(Boolean) as string[];
+      const processed: string[] = [];
+
+      for (const url of allImgs) {
+        const newUrl = await processImageStandardization(url);
+        processed.push(newUrl);
+      }
+
+      nextListing.cleaned.main_image = processed[0];
+      nextListing.cleaned.other_images = processed.slice(1);
+      
+      setLocalListing(nextListing);
+      setPreviewImage(processed[0]);
+      await syncToSupabase(nextListing);
+    } catch (e) {
+      alert("Standardize failed: " + e);
+    } finally {
+      setIsStandardizing(false);
+    }
+  };
+
+  const handleAddImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsSaving(true);
+    try {
+      const formDataBody = new FormData();
+      formDataBody.append('file', file);
+      const response = await fetch(`${CORS_PROXY}${encodeURIComponent(IMAGE_HOST_DOMAIN + '/upload')}`, { method: 'POST', body: formDataBody });
+      const data = await response.json();
+      const url = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+      
+      const nextListing = { ...localListing };
+      nextListing.cleaned.other_images = [...(nextListing.cleaned.other_images || []), url];
+      setLocalListing(nextListing);
+      await syncToSupabase(nextListing);
+    } catch (err) {
+      alert("Upload failed");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const setAsMainImage = async (url: string) => {
+    const nextListing = { ...localListing };
+    const currentMain = nextListing.cleaned.main_image;
+    const others = (nextListing.cleaned.other_images || []).filter(u => u !== url);
+    
+    nextListing.cleaned.main_image = url;
+    if (currentMain) others.push(currentMain);
+    nextListing.cleaned.other_images = others;
+
+    setLocalListing(nextListing);
+    setPreviewImage(url);
+    await syncToSupabase(nextListing);
+  };
+
+  const deleteImage = async (url: string) => {
+    const nextListing = { ...localListing };
+    if (nextListing.cleaned.main_image === url) {
+      const firstOther = nextListing.cleaned.other_images?.[0];
+      nextListing.cleaned.main_image = firstOther || '';
+      nextListing.cleaned.other_images = nextListing.cleaned.other_images?.slice(1) || [];
+      setPreviewImage(nextListing.cleaned.main_image);
+    } else {
+      nextListing.cleaned.other_images = nextListing.cleaned.other_images?.filter(u => u !== url) || [];
+    }
+    setLocalListing(nextListing);
+    await syncToSupabase(nextListing);
+  };
+
   const handleOptimize = async () => {
     setIsOptimizing(true);
     try {
@@ -106,7 +217,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceData, mkt);
       else trans = await translateListingWithAI(sourceData, mkt);
       
-      // 自动计算该站点的价格与单位换算
       const rate = exchangeRates.find(r => r.marketplace === mkt)?.rate || 1;
       const isMetric = ['DE','FR','IT','ES','JP','NL','PL','SE'].includes(mkt);
       
@@ -123,23 +233,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       } as OptimizedData;
 
       return nextTrans;
-    } catch (e) {
-      console.error(`Translation to ${mkt} failed`, e);
-      return null;
-    }
+    } catch (e) { return null; }
   };
 
   const handleBatchTranslate = async () => {
     setIsBatchTranslating(true);
     const nextListing = { ...localListing };
     const currentTranslations = { ...(nextListing.translations || {}) };
-    
     for (const mkt of AMAZON_MARKETPLACES) {
       if (mkt.code === 'US') continue;
       const res = await performTranslate(mkt.code);
       if (res) currentTranslations[mkt.code] = res;
     }
-
     nextListing.translations = currentTranslations;
     setLocalListing(nextListing);
     await syncToSupabase(nextListing);
@@ -183,8 +288,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             <ArrowLeft size={18} className="mr-2 group-hover:-translate-x-1 transition-transform" /> {t('back')}
           </button> 
           <div className="h-6 w-px bg-slate-200"></div>
-          
-          {/* AI Engine Switcher */}
           <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
              <EngineBtn active={engine === 'gemini'} onClick={() => setEngine('gemini')} icon={<Zap size={14}/>} label="Gemini 3" />
              <EngineBtn active={engine === 'openai'} onClick={() => setEngine('openai')} icon={<Brain size={14}/>} label="GPT-4o" />
@@ -215,16 +318,29 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
                 <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
                    <img src={previewImage} className="max-w-full max-h-full object-contain mix-blend-multiply transition-transform duration-700 group-hover:scale-110" />
-                   <button onClick={() => setShowImageEditor(true)} className="absolute bottom-4 right-4 px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all">
-                      <Wand2 size={12} /> AI Editor
-                   </button>
+                   <div className="absolute bottom-4 right-4 flex gap-2">
+                      <button onClick={handleBatchStandardize} disabled={isStandardizing} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all">
+                        {isStandardizing ? <Loader2 className="animate-spin" size={12} /> : <Box size={12} />} 1600 Standard
+                      </button>
+                      <button onClick={() => setShowImageEditor(true)} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all">
+                         <Wand2 size={12} /> AI Editor
+                      </button>
+                   </div>
                 </div>
-                <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-2">
+                <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-3">
                    {allImages.map((img, i) => (
-                     <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
+                     <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
                         <img src={img} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
+                           <button onClick={(e) => { e.stopPropagation(); setAsMainImage(img); }} className="p-1 text-white hover:text-amber-400" title="Set as Main"><Star size={12} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); deleteImage(img); }} className="p-1 text-white hover:text-red-400" title="Delete"><Trash2 size={12} /></button>
+                        </div>
                      </div>
                    ))}
+                   <button onClick={() => fileInputRef.current?.click()} className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-600 transition-all shrink-0">
+                      <Plus size={20} />
+                   </button>
+                   <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAddImage} />
                 </div>
              </div>
              
