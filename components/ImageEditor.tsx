@@ -78,6 +78,26 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const [history, setHistory] = useState<EditorState[]>([]);
 
+  // Sync controls when selected object changes
+  useEffect(() => {
+    if (selectedObjectId) {
+      const obj = objects.find(o => o.id === selectedObjectId);
+      if (obj) {
+        setStrokeColor(obj.stroke);
+        setFillColor(obj.fill);
+        setBrushSize(obj.strokeWidth);
+        setOpacity(obj.opacity);
+      }
+    }
+  }, [selectedObjectId]);
+
+  // Real-time update functions
+  const updateSelectedObjectProperty = (property: keyof EditorObject, value: any) => {
+    if (selectedObjectId) {
+      setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, [property]: value } : o));
+    }
+  };
+
   const saveToHistory = useCallback((currentObjects?: EditorObject[]) => {
     const canvas = canvasRef.current;
     if (canvas) {
@@ -180,14 +200,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const targetSize = 1600;
       const safeArea = 1500;
       
-      // Calculate Scale and Offset for relative positioning
       const scale = Math.min(safeArea / tempImg.width, safeArea / tempImg.height);
       const drawW = tempImg.width * scale;
       const drawH = tempImg.height * scale;
       const offsetX = (targetSize - drawW) / 2;
       const offsetY = (targetSize - drawH) / 2;
 
-      // Transform existing objects to keep relative positions
       const transformedObjects = objects.map(obj => ({
         ...obj,
         x: obj.x * scale + offsetX,
@@ -197,7 +215,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         strokeWidth: obj.strokeWidth * scale
       }));
 
-      // Update Canvas Dimensions and Content
       canvas.width = targetSize;
       canvas.height = targetSize;
       const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
@@ -416,21 +433,26 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const handleFill = () => {
     if (currentTool !== 'select-fill' || !selection) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
-    if (!ctx) return;
-    const x = Math.min(selection.x1, selection.x2);
-    const y = Math.min(selection.y1, selection.y2);
-    const w = Math.abs(selection.x1 - selection.x2);
-    const h = Math.abs(selection.y1 - selection.y2);
     
-    ctx.save();
-    ctx.globalAlpha = opacity;
-    ctx.fillStyle = fillColor;
-    ctx.fillRect(x, y, w, h);
-    ctx.restore();
+    // Core Fix: Convert Fill into a Rectangle Object so it can be re-edited/selected
+    const newObj: EditorObject = {
+      id: crypto.randomUUID(),
+      type: 'rect',
+      x: Math.min(selection.x1, selection.x2),
+      y: Math.min(selection.y1, selection.y2),
+      width: Math.abs(selection.x1 - selection.x2),
+      height: Math.abs(selection.y1 - selection.y2),
+      rotation: 0,
+      stroke: 'transparent',
+      fill: fillColor,
+      strokeWidth: 0,
+      opacity: opacity
+    };
     
-    saveToHistory();
+    const nextObjects = [...objects, newObj];
+    setObjects(nextObjects);
+    setSelectedObjectId(newObj.id);
+    saveToHistory(nextObjects);
     setSelection(null); 
     setCurrentTool('select');
   };
@@ -601,11 +623,29 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <div className="mt-auto flex flex-col gap-4 pb-4">
              <div className="space-y-1">
                <span className="text-[8px] font-black text-slate-500 uppercase text-center block">Stroke</span>
-               <input type="color" value={strokeColor} onChange={(e) => setStrokeColor(e.target.value)} className="w-10 h-10 rounded-xl cursor-pointer bg-slate-800 p-1 border border-slate-700" />
+               <input 
+                type="color" 
+                value={strokeColor} 
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setStrokeColor(v);
+                  updateSelectedObjectProperty('stroke', v);
+                }} 
+                className="w-10 h-10 rounded-xl cursor-pointer bg-slate-800 p-1 border border-slate-700 transition-all hover:scale-105" 
+               />
              </div>
              <div className="space-y-1">
                <span className="text-[8px] font-black text-slate-500 uppercase text-center block">Fill</span>
-               <input type="color" value={fillColor} onChange={(e) => setFillColor(e.target.value)} className="w-10 h-10 rounded-xl cursor-pointer bg-slate-800 p-1 border border-slate-700" />
+               <input 
+                type="color" 
+                value={fillColor} 
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFillColor(v);
+                  updateSelectedObjectProperty('fill', v);
+                }} 
+                className="w-10 h-10 rounded-xl cursor-pointer bg-slate-800 p-1 border border-slate-700 transition-all hover:scale-105" 
+               />
              </div>
           </div>
         </div>
@@ -621,7 +661,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             >
               {/* Render Temporary Drawing Preview */}
               {isDrawing && selection && ['rect', 'circle', 'line'].includes(currentTool) && (
-                <g opacity={opacity * 0.5}>
+                <g opacity={opacity}>
                   {currentTool === 'rect' && (
                     <rect 
                       x={Math.min(selection.x1, selection.x2)} 
@@ -705,7 +745,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
             {selection && (['select-fill', 'crop'].includes(currentTool)) && (
                <div className="absolute pointer-events-none border-2 border-white" style={{ left: Math.min(selection.x1, selection.x2), top: Math.min(selection.y1, selection.y2), width: Math.abs(selection.x1 - selection.x2), height: Math.abs(selection.y1 - selection.y2) }}>
-                 <div className="absolute inset-0 border-2 border-dashed border-black/50 animate-pulse"></div>
+                 <div className="absolute inset-0 border-2 border-dashed border-black/50 animate-pulse" style={{ backgroundColor: currentTool === 'select-fill' ? fillColor : 'transparent', opacity: currentTool === 'select-fill' ? opacity : 1 }}></div>
                </div>
             )}
           </div>
@@ -714,10 +754,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 rounded-[2.5rem] shadow-2xl z-30 min-w-[700px]">
              <div className="flex flex-col gap-3 flex-1">
                <div className="flex justify-between">
-                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Brush Size / Stroke</span>
+                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Stroke / Font Size</span>
                  <span className="text-[10px] font-black text-blue-400">{brushSize}px</span>
                </div>
-               <input type="range" min="1" max="100" value={brushSize} onChange={(e) => setBrushSize(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+               <input 
+                type="range" min="1" max="100" value={brushSize} 
+                onChange={(e) => {
+                  const v = parseInt(e.target.value);
+                  setBrushSize(v);
+                  updateSelectedObjectProperty('strokeWidth', v);
+                }} 
+                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" 
+               />
              </div>
 
              <div className="w-px h-8 bg-slate-800"></div>
@@ -727,13 +775,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Opacity</span>
                  <span className="text-[10px] font-black text-indigo-400">{Math.round(opacity * 100)}%</span>
                </div>
-               <input type="range" min="0" max="1" step="0.01" value={opacity} onChange={(e) => {
-                 const v = parseFloat(e.target.value);
-                 setOpacity(v);
-                 if (selectedObjectId) {
-                    setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, opacity: v } : o));
-                 }
-               }} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+               <input 
+                type="range" min="0" max="1" step="0.01" value={opacity} 
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  setOpacity(v);
+                  updateSelectedObjectProperty('opacity', v);
+                }} 
+                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" 
+               />
              </div>
              
              {currentTool === 'ai-erase' && (
