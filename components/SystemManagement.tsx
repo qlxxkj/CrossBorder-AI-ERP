@@ -19,14 +19,14 @@ interface SystemManagementProps {
 }
 
 const MENU_OPTIONS = [
-  { id: 'dashboard', label: 'dashboard' },
-  { id: 'listings', label: 'listings' },
-  { id: 'categories', label: 'categoryMgmt' },
-  { id: 'pricing', label: 'pricing' },
-  { id: 'templates', label: 'templateManager' },
-  { id: 'sys:users', label: 'userMgmt' },
-  { id: 'sys:roles', label: 'roleMgmt' },
-  { id: 'sys:org', label: 'orgMgmt' },
+  { id: 'dashboard', label: 'dashboard', desc: 'Overview statistics' },
+  { id: 'listings', label: 'listings', desc: 'Product inventory management' },
+  { id: 'categories', label: 'categoryMgmt', desc: 'Product taxonomy' },
+  { id: 'pricing', label: 'pricing', desc: 'Price adjustments & rates' },
+  { id: 'templates', label: 'templateManager', desc: 'Excel export mapping' },
+  { id: 'system:org', label: 'orgMgmt', desc: 'Organization details' },
+  { id: 'system:roles', label: 'roleMgmt', desc: 'RBAC permissions' },
+  { id: 'system:users', label: 'userMgmt', desc: 'Member management' },
 ];
 
 export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgId, orgData, onOrgUpdate, activeSubTab = 'users', onSubTabChange }) => {
@@ -369,7 +369,10 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
                                const perm = (editingRole.permissions || []).find(p => p.menu_id === menu.id) || { can_read: false, can_create: false, can_update: false, can_delete: false };
                                return (
                                  <tr key={menu.id} className="hover:bg-slate-50/50">
-                                    <td className="p-6 font-bold text-slate-700">{t(menu.label)}</td>
+                                    <td className="p-6 font-bold text-slate-700">
+                                      {t(menu.label)}
+                                      <p className="text-[8px] text-slate-400 uppercase tracking-tighter mt-0.5">{menu.desc}</p>
+                                    </td>
                                     <td className="p-6 text-center"><Checkbox checked={perm.can_read} onChange={v => updateRolePermission(menu.id, 'can_read', v)} /></td>
                                     <td className="p-6 text-center"><Checkbox checked={perm.can_create} onChange={v => updateRolePermission(menu.id, 'can_create', v)} /></td>
                                     <td className="p-6 text-center"><Checkbox checked={perm.can_update} onChange={v => updateRolePermission(menu.id, 'can_update', v)} /></td>

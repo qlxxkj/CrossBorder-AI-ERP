@@ -123,7 +123,11 @@ const translations: any = {
     catName: 'Category Name',
     createdDate: 'Created Date',
     lastModified: 'Last Modified',
-    createCat: 'Create Category'
+    createCat: 'Create Category',
+    titleLabel: 'Title',
+    weightLabel: 'Weight',
+    dimensionsLabel: 'Dimensions',
+    email: 'Email'
   },
   zh: {
     back: '返回',
@@ -237,7 +241,11 @@ const translations: any = {
     catName: '分类名称',
     createdDate: '创建日期',
     lastModified: '最后修改',
-    createCat: '确认创建'
+    createCat: '确认创建',
+    titleLabel: '标题',
+    weightLabel: '重量',
+    dimensionsLabel: '尺寸',
+    email: '电子邮箱'
   },
   ja: {
     back: '戻る',
@@ -261,7 +269,6 @@ const translations: any = {
     f4Desc: '数秒で出品用Excelテンプレートをダウンロード。',
     sourcingTitle: 'インテリジェント仕入れ',
     sourcingSub: '画像AIで工場と直接つながる。',
-    s1Desc: '画像をアップロードし、1688で一致するメーカーを瞬時に検索。',
     pricingTitle: 'シンプルな価格設定',
     planStarter: 'スターター',
     planGrowth: '成長',
@@ -269,6 +276,11 @@ const translations: any = {
     freeForever: '永久無料',
     feature10AI: '月間10回のAI最適化',
     totalListings: '総製品数',
+    categoryMgmt: 'カテゴリー管理',
+    systemMgmt: 'システム管理',
+    userMgmt: 'ユーザー管理',
+    roleMgmt: 'ロール権限',
+    orgMgmt: '組織管理',
     footerProduct: '製品',
     footerCompany: '会社',
     allRights: '全著作権所有。'
@@ -301,6 +313,11 @@ const translations: any = {
     planElite: 'Elite',
     freeForever: 'Kostenlos für immer',
     feature10AI: '10 KI-Optimierungen / Monat',
+    categoryMgmt: 'Kategorien',
+    systemMgmt: 'Systemverwaltung',
+    userMgmt: 'Benutzer',
+    roleMgmt: 'Rollen',
+    orgMgmt: 'Organisation',
     footerProduct: 'Produkt',
     footerCompany: 'Unternehmen',
     allRights: 'Alle Rechte vorbehalten.'
@@ -332,6 +349,11 @@ const translations: any = {
     planElite: 'Élite',
     freeForever: 'Gratuit pour toujours',
     feature10AI: '10 optimisations IA / mois',
+    categoryMgmt: 'Catégories',
+    systemMgmt: 'Gestion système',
+    userMgmt: 'Utilisateurs',
+    roleMgmt: 'Rôles',
+    orgMgmt: 'Organisation',
     footerProduct: 'Produit',
     footerCompany: 'Entreprise',
     allRights: 'Tous droits réservés.'
@@ -363,6 +385,11 @@ const translations: any = {
     planElite: 'Élite',
     freeForever: 'Gratis para siempre',
     feature10AI: '10 optimizaciones IA / mes',
+    categoryMgmt: 'Categorías',
+    systemMgmt: 'Gestión del sistema',
+    userMgmt: 'Usuarios',
+    roleMgmt: 'Roles',
+    orgMgmt: 'Organización',
     footerProduct: 'Producto',
     footerCompany: 'Empresa',
     allRights: 'Todos los derechos reservados.'
