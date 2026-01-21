@@ -30,10 +30,9 @@ type AIEngine = 'gemini' | 'openai' | 'deepseek';
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const CORS_PROXY = 'https://corsproxy.io/?';
 
-// Marketplace standards for units
-const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'NL', 'PL', 'SE', 'BE'];
+// Markets that MUST use Metric units (cm/kg) according to Amazon standards
+const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'UK', 'CA', 'MX', 'PL', 'NL', 'SE', 'BE', 'SG', 'AU', 'EG'];
 
-// Helper to normalize unit names to Title Case Full Names
 const normalizeUnit = (unit: string | undefined): string => {
   if (!unit) return "";
   const u = unit.toLowerCase().trim();
@@ -76,7 +75,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
 
   useEffect(() => {
-    // CRITICAL FIX: Only reset to US if the product ID actually changed.
     if (lastListingId.current !== listing.id) {
       setActiveMarket('US');
       lastListingId.current = listing.id;
@@ -110,11 +108,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
-  // Helper: Correct source selection with strict reading from DB
   const getFieldValue = (optField: string, cleanField: string) => {
     const isMetric = METRIC_MARKETS.includes(activeMarket);
     
-    // 1. Handle units strictly from database
     if (optField.includes('unit')) {
       let rawUnit = "";
       if (activeMarket === 'US') {
@@ -127,13 +123,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const normalized = normalizeUnit(rawUnit);
       if (normalized) return normalized;
 
-      // Fallback defaults if unit is missing in DB
       if (optField.includes('weight')) return isMetric ? "Kilograms" : "Pounds";
       if (optField.includes('size')) return isMetric ? "Centimeters" : "Inches";
       return "";
     }
 
-    // 2. Handle US Master values
     if (activeMarket === 'US') {
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
       if (optVal !== undefined && optVal !== null && (Array.isArray(optVal) ? optVal.length > 0 : optVal !== '')) {
@@ -145,7 +139,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return '';
     }
 
-    // 3. Handle Translation markets
     const trans = localListing.translations?.[activeMarket];
     if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
       const val = (trans as any)[optField];
@@ -154,7 +147,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       }
     }
 
-    // Fallback for missing prices using exchange rate
     if (optField === 'optimized_price' || optField === 'optimized_shipping') {
       const sourceVal = localListing.cleaned[cleanField] || 0;
       const rate = exchangeRates.find(r => r.marketplace === activeMarket)?.rate || 1;
@@ -167,7 +159,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     return '';
   };
 
-  // New Helper: Return the updated listing object synchronously for immediate sync
   const getUpdatedListing = (field: string, value: any): Listing => {
     const nextListing = { ...localListing };
     if (activeMarket === 'US') {
@@ -191,7 +182,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setLocalListing(next);
   };
 
-  // Immediate update and sync to prevent race conditions (especially for selects)
   const handleImmediateUpdateAndSync = (field: string, value: any) => {
     const next = getUpdatedListing(field, value);
     setLocalListing(next);
@@ -293,15 +283,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const rate = exchangeRates.find(r => r.marketplace === mkt.code)?.rate || 1;
         const isMetric = METRIC_MARKETS.includes(mkt.code);
         
+        // Handle Unit Conversions automatically for Metric Markets
+        const rawWeight = parseFloat(localListing.optimized?.optimized_weight_value || localListing.cleaned.item_weight_value || '0');
+        const rawL = parseFloat(localListing.optimized?.optimized_length || localListing.cleaned.item_length || '0');
+        const rawW = parseFloat(localListing.optimized?.optimized_width || localListing.cleaned.item_width || '0');
+        const rawH = parseFloat(localListing.optimized?.optimized_height || localListing.cleaned.item_height || '0');
+
         currentTranslations[mkt.code] = {
           ...trans,
           optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
           optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2)),
-          optimized_weight_value: isMetric ? (parseFloat(localListing.cleaned.item_weight_value || '0') * 0.45359).toFixed(2) : localListing.cleaned.item_weight_value,
+          // Conversion Math: lb -> kg (0.45359), inch -> cm (2.54)
+          optimized_weight_value: isMetric ? (rawWeight * 0.45359).toFixed(2) : rawWeight.toFixed(2),
           optimized_weight_unit: isMetric ? 'Kilograms' : 'Pounds',
-          optimized_length: isMetric ? (parseFloat(localListing.cleaned.item_length || '0') * 2.54).toFixed(2) : localListing.cleaned.item_length,
-          optimized_width: isMetric ? (parseFloat(localListing.cleaned.item_width || '0') * 2.54).toFixed(2) : localListing.cleaned.item_width,
-          optimized_height: isMetric ? (parseFloat(localListing.cleaned.item_height || '0') * 2.54).toFixed(2) : localListing.cleaned.item_height,
+          optimized_length: isMetric ? (rawL * 2.54).toFixed(2) : rawL.toFixed(2),
+          optimized_width: isMetric ? (rawW * 2.54).toFixed(2) : rawW.toFixed(2),
+          optimized_height: isMetric ? (rawH * 2.54).toFixed(2) : rawH.toFixed(2),
           optimized_size_unit: isMetric ? 'Centimeters' : 'Inches',
         } as OptimizedData;
       } catch (e) {}
@@ -495,7 +492,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                     <button onClick={() => {
                                       const currentFeatures = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
                                       updateField('optimized_features', currentFeatures);
-                                      // Manually trigger sync because button click won't trigger onBlur on textareas
                                       const next = getUpdatedListing('optimized_features', currentFeatures);
                                       syncToSupabase(next);
                                     }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12}/></button>

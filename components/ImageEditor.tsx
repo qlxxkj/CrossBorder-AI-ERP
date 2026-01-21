@@ -4,17 +4,16 @@ import {
   X, Eraser, Scissors, PaintBucket, Crop, Save, Undo, 
   Wand2, Loader2, Download, MousePointer2, Maximize, 
   Type, Square, Circle, Minus, Move, Palette, Trash2,
-  ZoomIn, ZoomOut, RotateCcw, Box, ArrowUpRight, RefreshCw
+  ZoomIn, ZoomOut, RotateCcw, Box, ArrowUpRight, RefreshCw, 
+  Shapes, ChevronRight
 } from 'lucide-react';
 import { editImageWithAI } from '../services/geminiService';
-// Import UILanguage to fix type missing
 import { UILanguage } from '../types';
 
 interface ImageEditorProps {
   imageUrl: string;
   onClose: () => void;
   onSave: (newImageUrl: string) => void;
-  // Add uiLang prop to interface
   uiLang: UILanguage;
 }
 
@@ -27,10 +26,11 @@ interface EditorObject {
   y: number;
   width: number;
   height: number;
-  rotation: number; // In radians
+  rotation: number; 
   stroke: string;
   fill: string;
   strokeWidth: number;
+  opacity: number; // 0 to 1
   text?: string;
 }
 
@@ -48,7 +48,6 @@ interface SelectionBox {
 
 const CORS_PROXY = 'https://corsproxy.io/?';
 
-// Destructure uiLang from props
 export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onSave, uiLang }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -58,8 +57,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [fillColor, setFillColor] = useState('#ffffff');
   const [brushSize, setBrushSize] = useState(5);
+  const [opacity, setOpacity] = useState(1); // 1.0 = 100%
   const [zoom, setZoom] = useState(1);
   
+  // Shape menu state
+  const [showShapeMenu, setShowShapeMenu] = useState(false);
+  const [lastUsedShape, setLastUsedShape] = useState<'rect' | 'circle' | 'line'>('rect');
+
   // Object system
   const [objects, setObjects] = useState<EditorObject[]>([]);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
@@ -72,7 +76,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [selection, setSelection] = useState<SelectionBox | null>(null);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
 
-  // Unified History System
   const [history, setHistory] = useState<EditorState[]>([]);
 
   const saveToHistory = useCallback((currentObjects?: EditorObject[]) => {
@@ -224,7 +227,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           const rotateHandleY = obj.y - 30 / zoom;
           const centerX = obj.x + obj.width / 2;
           
-          // Basic hit test for rotation handle
           const distToRotate = Math.sqrt(Math.pow(pos.x - centerX, 2) + Math.pow(pos.y - rotateHandleY, 2));
           if (distToRotate < handleSize) {
             setIsRotating(true);
@@ -281,6 +283,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.moveTo(pos.x, pos.y);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        ctx.globalAlpha = opacity;
         ctx.strokeStyle = currentTool === 'ai-erase' ? 'rgba(255, 0, 0, 0.6)' : strokeColor;
         ctx.lineWidth = brushSize;
       }
@@ -357,7 +360,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         rotation: 0,
         stroke: strokeColor,
         fill: fillColor,
-        strokeWidth: brushSize
+        strokeWidth: brushSize,
+        opacity: opacity
       };
       const nextObjects = [...objects, newObj];
       setObjects(nextObjects);
@@ -379,6 +383,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           stroke: strokeColor,
           fill: fillColor,
           strokeWidth: brushSize,
+          opacity: opacity,
           text: text
         };
         const nextObjects = [...objects, newObj];
@@ -401,10 +406,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const y = Math.min(selection.y1, selection.y2);
     const w = Math.abs(selection.x1 - selection.x2);
     const h = Math.abs(selection.y1 - selection.y2);
+    
+    // Core Fix: Direct canvas manipulation to ensure absolute opacity covering
+    ctx.save();
+    ctx.globalAlpha = opacity;
     ctx.fillStyle = fillColor;
     ctx.fillRect(x, y, w, h);
+    ctx.restore();
+    
     saveToHistory();
     setSelection(null); 
+    setCurrentTool('select');
   };
 
   const handleCrop = () => {
@@ -425,6 +437,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     saveToHistory();
     setSelection(null);
     setZoom(1);
+    setCurrentTool('select');
   };
 
   const runAIErase = async () => {
@@ -464,6 +477,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       ctx.rotate(obj.rotation);
       ctx.translate(-cx, -cy);
 
+      ctx.globalAlpha = obj.opacity;
       ctx.strokeStyle = obj.stroke;
       ctx.fillStyle = obj.fill;
       ctx.lineWidth = obj.strokeWidth;
@@ -498,16 +512,22 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObjectId) {
-        const nextObjects = objects.filter(o => o.id !== selectedObjectId);
-        setObjects(nextObjects);
-        setSelectedObjectId(null);
-        saveToHistory(nextObjects);
+      if ((e.key === 'Delete' || e.key === 'Backspace')) {
+         if (selectedObjectId) {
+            const nextObjects = objects.filter(o => o.id !== selectedObjectId);
+            setObjects(nextObjects);
+            setSelectedObjectId(null);
+            saveToHistory(nextObjects);
+         } else if (currentTool === 'select-fill' && selection) {
+            handleFill();
+         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectId, objects, saveToHistory]);
+  }, [selectedObjectId, objects, saveToHistory, currentTool, selection, fillColor, opacity]);
+
+  const ShapeIcon = lastUsedShape === 'rect' ? Square : lastUsedShape === 'circle' ? Circle : Minus;
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter">
@@ -531,13 +551,28 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-6 gap-6 z-20 overflow-y-auto no-scrollbar">
+        <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-6 gap-6 z-20 overflow-y-auto no-scrollbar relative">
           <ToolIcon active={currentTool === 'select'} onClick={() => { setCurrentTool('select'); }} icon={<MousePointer2 size={20} />} label="Select" />
           <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelectedObjectId(null); }} icon={<Palette size={20} />} label="Brush" />
           <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelectedObjectId(null); }} icon={<Eraser size={20} />} label="AI Erase" />
-          <ToolIcon active={currentTool === 'rect'} onClick={() => { setCurrentTool('rect'); setSelectedObjectId(null); }} icon={<Square size={20} />} label="Rect" />
-          <ToolIcon active={currentTool === 'circle'} onClick={() => { setCurrentTool('circle'); setSelectedObjectId(null); }} icon={<Circle size={20} />} label="Circle" />
-          <ToolIcon active={currentTool === 'line'} onClick={() => { setCurrentTool('line'); setSelectedObjectId(null); }} icon={<Minus size={20} />} label="Line" />
+          
+          {/* Shapes Entry */}
+          <div className="relative">
+            <ToolIcon 
+              active={['rect', 'circle', 'line'].includes(currentTool)} 
+              onClick={() => { setShowShapeMenu(!showShapeMenu); setCurrentTool(lastUsedShape); }} 
+              icon={<ShapeIcon size={20} />} 
+              label="Shapes" 
+            />
+            {showShapeMenu && (
+              <div className="absolute left-full top-0 ml-2 bg-slate-800 border border-slate-700 p-2 rounded-xl shadow-2xl flex flex-col gap-2 z-50">
+                <button onClick={() => { setCurrentTool('rect'); setLastUsedShape('rect'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 ${currentTool === 'rect' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Square size={20} /></button>
+                <button onClick={() => { setCurrentTool('circle'); setLastUsedShape('circle'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 ${currentTool === 'circle' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Circle size={20} /></button>
+                <button onClick={() => { setCurrentTool('line'); setLastUsedShape('line'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 ${currentTool === 'line' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Minus size={20} /></button>
+              </div>
+            )}
+          </div>
+
           <ToolIcon active={currentTool === 'text'} onClick={() => { setCurrentTool('text'); setSelectedObjectId(null); }} icon={<Type size={20} />} label="Text" />
           <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelectedObjectId(null); }} icon={<PaintBucket size={20} />} label="Fill" />
           <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelectedObjectId(null); }} icon={<Scissors size={20} />} label="Crop" />
@@ -567,6 +602,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                   key={obj.id} 
                   className={selectedObjectId === obj.id ? 'opacity-100' : 'opacity-80'}
                   transform={`rotate(${(obj.rotation * 180) / Math.PI} ${obj.x + obj.width / 2} ${obj.y + obj.height / 2})`}
+                  style={{ opacity: obj.opacity }}
                 >
                   {obj.type === 'rect' && <rect x={obj.x} y={obj.y} width={obj.width} height={obj.height} stroke={obj.stroke} fill={obj.fill} strokeWidth={obj.strokeWidth} />}
                   {obj.type === 'circle' && <ellipse cx={obj.x + obj.width/2} cy={obj.y + obj.height/2} rx={obj.width/2} ry={obj.height/2} stroke={obj.stroke} fill={obj.fill} strokeWidth={obj.strokeWidth} />}
@@ -589,19 +625,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                         x={obj.x} y={obj.y} width={obj.width} height={obj.height} 
                         fill="none" stroke="#6366f1" strokeWidth={2 / zoom} strokeDasharray="4"
                       />
-                      {/* Resize handle */}
                       <circle 
                         cx={obj.x + obj.width} cy={obj.y + obj.height} r={6 / zoom} 
                         fill="#6366f1" className="cursor-nwse-resize pointer-events-auto" 
                       />
-                      {/* Rotation handle */}
                       <line x1={obj.x + obj.width/2} y1={obj.y} x2={obj.x + obj.width/2} y2={obj.y - 30/zoom} stroke="#6366f1" strokeWidth={2/zoom} />
                       <circle 
                         cx={obj.x + obj.width/2} cy={obj.y - 30/zoom} r={8 / zoom} 
                         fill="#6366f1" className="cursor-pointer pointer-events-auto"
-                      >
-                         <title>Rotate</title>
-                      </circle>
+                      />
                     </>
                   )}
                 </g>
@@ -615,13 +647,29 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             )}
           </div>
 
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-4 rounded-3xl shadow-2xl z-30 min-w-[500px]">
-             <div className="flex flex-col gap-1 flex-1">
+          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 rounded-[2.5rem] shadow-2xl z-30 min-w-[700px]">
+             <div className="flex flex-col gap-3 flex-1">
                <div className="flex justify-between">
-                 <span className="text-[10px] font-black text-slate-500 uppercase">Size / Stroke Width</span>
+                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Brush Size / Stroke</span>
                  <span className="text-[10px] font-black text-blue-400">{brushSize}px</span>
                </div>
                <input type="range" min="1" max="100" value={brushSize} onChange={(e) => setBrushSize(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+             </div>
+
+             <div className="w-px h-8 bg-slate-800"></div>
+
+             <div className="flex flex-col gap-3 flex-1">
+               <div className="flex justify-between">
+                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Opacity</span>
+                 <span className="text-[10px] font-black text-indigo-400">{Math.round(opacity * 100)}%</span>
+               </div>
+               <input type="range" min="0" max="1" step="0.01" value={opacity} onChange={(e) => {
+                 const v = parseFloat(e.target.value);
+                 setOpacity(v);
+                 if (selectedObjectId) {
+                    setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, opacity: v } : o));
+                 }
+               }} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
              </div>
              
              {currentTool === 'ai-erase' && (
@@ -635,9 +683,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
              {currentTool === 'crop' && (
                <button onClick={handleCrop} disabled={!selection} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black shadow-xl active:scale-95 transition-all">CONFIRM CROP</button>
              )}
-             {['select', 'rect', 'circle', 'line', 'text', 'brush', 'none'].includes(currentTool) && currentTool !== 'ai-erase' && (
-                <div className="px-10 text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                  {currentTool === 'select' ? (selectedObjectId ? 'Object Selected (Drag top circle to rotate)' : 'Select an object') : `${currentTool} tool active`}
+             {!['ai-erase', 'select-fill', 'crop'].includes(currentTool) && (
+                <div className="px-6 text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
+                  {currentTool === 'select' ? (selectedObjectId ? 'Object Selected' : 'Select Tool') : `${currentTool} tool`}
                 </div>
              )}
           </div>
