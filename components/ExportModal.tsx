@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Globe, AlertCircle, Tags, FileText, Search } from 'lucide-react';
-import { Listing, ExportTemplate, UILanguage, FieldMapping, CleanedData, OptimizedData, Category, PriceAdjustment, ExchangeRate } from '../types';
+import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Globe, AlertCircle, FileText } from 'lucide-react';
+import { Listing, ExportTemplate, UILanguage, FieldMapping, OptimizedData, Category, PriceAdjustment, ExchangeRate } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
@@ -35,32 +35,14 @@ const getFullUnitName = (unit: string | undefined) => {
   if (!unit) return "";
   const u = unit.toLowerCase().trim();
   const map: Record<string, string> = {
-    'lb': 'Pounds',
-    'lbs': 'Pounds',
-    'pound': 'Pounds',
-    'pounds': 'Pounds',
-    'kg': 'Kilograms',
-    'kilogram': 'Kilograms',
-    'kilograms': 'Kilograms',
-    'oz': 'Ounces',
-    'ounce': 'Ounces',
-    'ounces': 'Ounces',
-    'gr': 'Grams',
-    'g': 'Grams',
-    'gram': 'Grams',
-    'grams': 'Grams',
-    'in': 'Inches',
-    'inch': 'Inches',
-    'inches': 'Inches',
-    'cm': 'Centimeters',
-    'centimeter': 'Centimeters',
-    'centimeters': 'Centimeters',
-    'mm': 'Millimeters',
-    'millimeter': 'Millimeters',
-    'millimeters': 'Millimeters',
-    'ft': 'Feet',
-    'foot': 'Feet',
-    'feet': 'Feet'
+    'lb': 'Pounds', 'lbs': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
+    'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
+    'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces',
+    'gr': 'Grams', 'g': 'Grams', 'gram': 'Grams', 'grams': 'Grams',
+    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
+    'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
+    'mm': 'Millimeters', 'millimeter': 'Millimeters', 'millimeters': 'Millimeters',
+    'ft': 'Feet', 'foot': 'Feet', 'feet': 'Feet'
   };
   if (map[u]) return map[u];
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
@@ -78,7 +60,7 @@ const generateRandomValue = (type?: 'alphanumeric' | 'ean13'): string => {
       sum += (i % 2 === 0) ? digit : digit * 3;
     }
     const checkDigit = (10 - (sum % 10)) % 10;
-    return base + checkDigit;
+    return base + (checkDigit === 10 ? 0 : checkDigit);
   } else {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const letters = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -98,7 +80,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const [targetCategory, setTargetCategory] = useState('ALL');
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
-  const [mktSearch, setMktSearch] = useState('');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -117,11 +98,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   };
 
   const filteredMarketplaces = useMemo(() => {
-    return AMAZON_MARKETPLACES.filter(m => 
-      m.code.toLowerCase().includes(mktSearch.toLowerCase()) || 
-      m.name.toLowerCase().includes(mktSearch.toLowerCase())
-    );
-  }, [mktSearch]);
+    return AMAZON_MARKETPLACES;
+  }, []);
 
   const filteredTemplates = useMemo(() => {
     return templates.filter(t => 
@@ -215,11 +193,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
     setExporting(true); setExportStatus('Injecting Data...');
     try {
       const bytes = safeDecode(fileBinary);
-      const workbook = XLSX.read(bytes, { type: 'array', cellStyles: true, bookVBA: true, cellNF: true, cellText: true });
+      const workbook = XLSX.read(bytes, { type: 'array' });
       const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[0];
       const sheet = workbook.Sheets[tplSheetName];
-      const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 4;
-      const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] || (targetMarket === 'US' ? techRowIdx + 2 : techRowIdx + 1);
+      
+      // 核心优化：使用上传时探测到的起始行索引，默认兜底
+      const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] ?? 3;
       
       const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
 
@@ -281,13 +260,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         });
       });
 
-      const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm', bookVBA: true, cellStyles: true });
+      const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm' });
       const blob = new Blob([outData], { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url;
       
-      const catName = categories.find(c => c.id === (selectedTemplate.category_id || targetCategory))?.name || 'General';
-      link.download = `${catName}_${targetMarket}_${Date.now()}.xlsm`;
+      // 优化文件名格式：分类_站点_时间
+      const currentCatId = selectedTemplate.category_id || targetCategory;
+      const catName = categories.find(c => c.id === currentCatId)?.name || (uiLang === 'zh' ? '通用分类' : 'General');
+      const timeStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
+      link.download = `${catName}_${targetMarket}_${timeStr}.xlsm`;
       
       link.click();
       URL.revokeObjectURL(url);
@@ -328,7 +310,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                   <button onClick={handleExportCSV} className="p-8 bg-slate-50 border-2 border-slate-100 rounded-[2.5rem] flex flex-col items-center text-center group hover:border-indigo-500 transition-all hover:bg-white hover:shadow-2xl">
                      <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm mb-6"><FileText size={32} /></div>
                      <h3 className="font-black text-slate-900 uppercase tracking-widest mb-2">Default CSV</h3>
-                     <p className="text-[10px] text-slate-400 font-bold Gabriel leading-relaxed">Raw data dump without marketplace formatting.</p>
+                     <p className="text-[10px] text-slate-400 font-bold leading-relaxed">Raw data dump without marketplace formatting.</p>
                   </button>
                   <div className="space-y-4 flex flex-col h-full">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileSpreadsheet size={14} className="text-emerald-500" /> Template Export</label>

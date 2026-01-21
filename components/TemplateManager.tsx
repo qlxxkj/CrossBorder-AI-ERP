@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Plus, Trash2, Layout, Settings2, Save, FileSpreadsheet, Loader2, Check, AlertCircle, Info, Star, Filter, ArrowRightLeft, Database, Copy, Shuffle, ChevronDown, RefreshCcw, Tag, ListFilter, Search, Globe, X, DatabaseZap, Tags, Sparkles } from 'lucide-react';
+import { Upload, Trash2, Layout, Save, FileSpreadsheet, Loader2, Search, Globe, Tags, Sparkles } from 'lucide-react';
 import { ExportTemplate, UILanguage, FieldMapping, Category } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -92,19 +92,13 @@ const findHeaderRowIndex = (rows: any[][]): number => {
   for (let i = 0; i < Math.min(rows.length, 60); i++) {
     const row = rows[i];
     if (!row || row.length < 5) continue; 
-    
     let score = 0;
     const rowStr = row.map(c => String(c || '').toLowerCase()).join('|');
-    
-    HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { 
-      if (rowStr.includes(kw)) score += 100;
-    });
-
+    HIGH_CONFIDENCE_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) score += 100; });
     row.forEach(cell => {
       const s = String(cell || '').trim();
       if (s.includes('_') && s.toLowerCase() === s && s.length > 3) score += 10;
     });
-
     if (score > maxScore) {
       maxScore = score;
       bestIdx = i;
@@ -149,16 +143,6 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
     }
   };
 
-  const handleDeleteTemplate = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!window.confirm(uiLang === 'zh' ? "确定要删除该模板吗？" : "Are you sure?")) return;
-    const { error } = await supabase.from('templates').delete().eq('id', id);
-    if (!error) {
-      setTemplates(prev => prev.filter(t => t.id !== id));
-      if (selectedTemplate?.id === id) setSelectedTemplate(null);
-    }
-  };
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -169,7 +153,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       try {
         const arrayBuffer = event.target?.result as ArrayBuffer;
         const bytes = new Uint8Array(arrayBuffer);
-        const workbook = XLSX.read(bytes, { type: 'array', cellNF: true, cellText: true, cellStyles: true, bookVBA: true });
+        const workbook = XLSX.read(bytes, { type: 'array' });
         const base64File = safeEncode(bytes);
 
         const sheetName = findAmazonTemplateSheet(workbook);
@@ -180,11 +164,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const humanRowIdx = techRowIdx - 1 >= 0 ? techRowIdx - 1 : techRowIdx;
         const humanRow = jsonData[humanRowIdx] || [];
         
-        // Scan for the first data row that has actual content after the headers
+        // 核心优化：动态探测真正的用户输入行
+        // 逻辑：从技术行+1开始向下探测，找到第一个包含实际值的行（排除掉可能全是空的举例行）
         let dataStartRowIdx = techRowIdx + 1;
         let userDataRow: any[] = [];
         for (let r = techRowIdx + 1; r < Math.min(jsonData.length, techRowIdx + 10); r++) {
           const row = jsonData[r];
+          // 如果行中存在任何一个非空单元格
           if (row && row.some(cell => String(cell).trim() !== '')) {
             dataStartRowIdx = r;
             userDataRow = row;
@@ -210,6 +196,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           
           let source: any = 'custom', field = '';
           
+          // 智能匹配逻辑
           if (apiField.match(/item_sku|sku|external_product_id/)) { source = 'listing'; field = 'asin'; }
           else if (apiField.match(/item_name|title|product_name/)) { source = 'listing'; field = 'title'; }
           else if (apiField.match(/image_url|image_location|main_image|main_image_url/)) { 
@@ -226,6 +213,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           else if (apiField.match(/product_description|description/)) { source = 'listing'; field = 'description'; }
           else if (apiField.match(/brand_name|brand/)) { source = 'listing'; field = 'brand'; }
           else {
+            // 如果没匹配到字段但该列有默认值，则设为模板默认值源
             if (userDataVal) {
               source = 'template_default';
             } else {
@@ -238,14 +226,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
             source, 
             listingField: field, 
             defaultValue: userDataVal,
-            templateDefault: userDataVal,
+            templateDefault: userDataVal, // 固化探测到的模板初始值
             randomType: 'alphanumeric'
           };
         });
 
         mappings['__binary'] = base64File;
         mappings['__header_row_idx'] = techRowIdx;
-        mappings['__display_header_row_idx'] = humanRowIdx;
         mappings['__data_start_row_idx'] = dataStartRowIdx;
         mappings['__sheet_name'] = sheetName;
 
@@ -287,6 +274,24 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       category_id: selectedTemplate.category_id 
     }).eq('id', selectedTemplate.id);
     if (!error) alert(uiLang === 'zh' ? "配置已保存！" : "Saved!");
+  };
+
+  // Fix: Added missing handleDeleteTemplate function to remove templates from database
+  const handleDeleteTemplate = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!window.confirm(uiLang === 'zh' ? "确定要删除此模板吗？" : "Are you sure you want to delete this template?")) return;
+    
+    if (!isSupabaseConfigured()) return;
+    
+    const { error } = await supabase.from('templates').delete().eq('id', id);
+    if (!error) {
+      if (selectedTemplate?.id === id) {
+        setSelectedTemplate(null);
+      }
+      fetchTemplates();
+    } else {
+      alert("Delete failed: " + error.message);
+    }
   };
 
   const filteredFields = useMemo(() => {
