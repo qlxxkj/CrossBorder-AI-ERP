@@ -4,14 +4,18 @@ import {
   X, Eraser, Scissors, PaintBucket, Crop, Save, Undo, 
   Wand2, Loader2, Download, MousePointer2, Maximize, 
   Type, Square, Circle, Minus, Move, Palette, Trash2,
-  ZoomIn, ZoomOut, RotateCcw, Box, ArrowUpRight
+  ZoomIn, ZoomOut, RotateCcw, Box, ArrowUpRight, RefreshCw
 } from 'lucide-react';
 import { editImageWithAI } from '../services/geminiService';
+// Import UILanguage to fix type missing
+import { UILanguage } from '../types';
 
 interface ImageEditorProps {
   imageUrl: string;
   onClose: () => void;
   onSave: (newImageUrl: string) => void;
+  // Add uiLang prop to interface
+  uiLang: UILanguage;
 }
 
 type Tool = 'select' | 'select-fill' | 'brush' | 'ai-erase' | 'crop' | 'rect' | 'circle' | 'line' | 'text' | 'none';
@@ -23,10 +27,16 @@ interface EditorObject {
   y: number;
   width: number;
   height: number;
+  rotation: number; // In radians
   stroke: string;
   fill: string;
   strokeWidth: number;
   text?: string;
+}
+
+interface EditorState {
+  canvasData: string;
+  objects: EditorObject[];
 }
 
 interface SelectionBox {
@@ -38,17 +48,16 @@ interface SelectionBox {
 
 const CORS_PROXY = 'https://corsproxy.io/?';
 
-export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onSave }) => {
+// Destructure uiLang from props
+export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onSave, uiLang }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [currentTool, setCurrentTool] = useState<Tool>('select');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [fillColor, setFillColor] = useState('#ffffff');
   const [brushSize, setBrushSize] = useState(5);
-  const [history, setHistory] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
   
   // Object system
@@ -56,11 +65,26 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   
   const [isDrawing, setIsDrawing] = useState(false);
   const [selection, setSelection] = useState<SelectionBox | null>(null);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+
+  // Unified History System
+  const [history, setHistory] = useState<EditorState[]>([]);
+
+  const saveToHistory = useCallback((currentObjects?: EditorObject[]) => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const newState: EditorState = {
+        canvasData: canvas.toDataURL('image/png'),
+        objects: currentObjects ? [...currentObjects] : [...objects]
+      };
+      setHistory(prev => [...prev.slice(-30), newState]);
+    }
+  }, [objects]);
 
   useEffect(() => {
     const initCanvas = async () => {
@@ -93,12 +117,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             setZoom(scale || 1);
           }
           
-          saveToHistory();
+          const initialState: EditorState = {
+            canvasData: canvas.toDataURL('image/png'),
+            objects: []
+          };
+          setHistory([initialState]);
           setIsProcessing(false);
           URL.revokeObjectURL(localUrl);
         };
       } catch (err) {
-        console.warn("Proxy load failed, falling back to direct load:", err);
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.src = imageUrl;
@@ -106,7 +133,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           canvas.width = img.width;
           canvas.height = img.height;
           (ctx as CanvasRenderingContext2D).drawImage(img, 0, 0);
-          saveToHistory();
+          const initialState: EditorState = {
+            canvasData: canvas.toDataURL('image/png'),
+            objects: []
+          };
+          setHistory([initialState]);
           setIsProcessing(false);
         };
       }
@@ -114,30 +145,24 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     initCanvas();
   }, [imageUrl]);
 
-  const saveToHistory = () => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      setHistory(prev => [...prev.slice(-20), canvas.toDataURL('image/png')]);
-    }
-  };
-
   const undo = () => {
     if (history.length <= 1) return;
     const newHistory = [...history];
     newHistory.pop(); 
-    const last = newHistory[newHistory.length - 1];
+    const prevState = newHistory[newHistory.length - 1];
+    
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
-    if (canvas && ctx && last) {
+    if (canvas && ctx && prevState) {
       const img = new Image();
-      img.src = last;
+      img.src = prevState.canvasData;
       img.onload = () => {
         canvas.width = img.width;
         canvas.height = img.height;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
+        setObjects(prevState.objects);
         setHistory(newHistory);
-        setObjects([]); // Clear active objects on undo as they are baked per step in this simplified model or lost
       };
     }
   };
@@ -192,11 +217,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setStartPos(pos);
 
     if (currentTool === 'select') {
-      // Check for handles first
       if (selectedObjectId) {
         const obj = objects.find(o => o.id === selectedObjectId);
         if (obj) {
-          const handleSize = 10 / zoom;
+          const handleSize = 12 / zoom;
+          const rotateHandleY = obj.y - 30 / zoom;
+          const centerX = obj.x + obj.width / 2;
+          
+          // Basic hit test for rotation handle
+          const distToRotate = Math.sqrt(Math.pow(pos.x - centerX, 2) + Math.pow(pos.y - rotateHandleY, 2));
+          if (distToRotate < handleSize) {
+            setIsRotating(true);
+            return;
+          }
+
           const isOverResizeHandle = 
             pos.x >= obj.x + obj.width - handleSize && 
             pos.x <= obj.x + obj.width + handleSize && 
@@ -220,7 +254,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         }
       }
 
-      // Check hit test for all objects
       const hit = objects.slice().reverse().find(obj => 
         pos.x >= obj.x && pos.x <= obj.x + obj.width &&
         pos.y >= obj.y && pos.y <= obj.y + obj.height
@@ -258,17 +291,27 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const pos = getMousePos(e);
     
     if (currentTool === 'select' && selectedObjectId) {
+      const obj = objects.find(o => o.id === selectedObjectId);
+      if (!obj) return;
+
       if (isDragging) {
-        setObjects(prev => prev.map(obj => 
-          obj.id === selectedObjectId 
-            ? { ...obj, x: pos.x - dragOffset.x, y: pos.y - dragOffset.y }
-            : obj
+        setObjects(prev => prev.map(o => 
+          o.id === selectedObjectId 
+            ? { ...o, x: pos.x - dragOffset.x, y: pos.y - dragOffset.y }
+            : o
         ));
       } else if (isResizing) {
-        setObjects(prev => prev.map(obj => 
-          obj.id === selectedObjectId 
-            ? { ...obj, width: Math.max(10, pos.x - obj.x), height: Math.max(10, pos.y - obj.y) }
-            : obj
+        setObjects(prev => prev.map(o => 
+          o.id === selectedObjectId 
+            ? { ...o, width: Math.max(10, pos.x - o.x), height: Math.max(10, pos.y - o.y) }
+            : o
+        ));
+      } else if (isRotating) {
+        const centerX = obj.x + obj.width / 2;
+        const centerY = obj.y + obj.height / 2;
+        const angle = Math.atan2(pos.y - centerY, pos.x - centerX) + Math.PI / 2;
+        setObjects(prev => prev.map(o => 
+          o.id === selectedObjectId ? { ...o, rotation: angle } : o
         ));
       }
       return;
@@ -289,8 +332,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const handleEnd = (e: React.MouseEvent | React.TouchEvent) => {
     if (currentTool === 'select') {
+      if (isDragging || isResizing || isRotating) {
+        saveToHistory(objects);
+      }
       setIsDragging(false);
       setIsResizing(false);
+      setIsRotating(false);
       return;
     }
 
@@ -307,32 +354,38 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         y: Math.min(startPos.y, pos.y),
         width: Math.abs(startPos.x - pos.x),
         height: Math.abs(startPos.y - pos.y),
+        rotation: 0,
         stroke: strokeColor,
         fill: fillColor,
         strokeWidth: brushSize
       };
-      setObjects(prev => [...prev, newObj]);
+      const nextObjects = [...objects, newObj];
+      setObjects(nextObjects);
       setSelectedObjectId(newObj.id);
       setCurrentTool('select');
       setSelection(null);
+      saveToHistory(nextObjects);
     } else if (currentTool === 'text') {
-      const text = window.prompt("Enter text:");
+      const text = window.prompt(uiLang === 'zh' ? "输入文字:" : "Enter text:");
       if (text) {
         const newObj: EditorObject = {
           id: crypto.randomUUID(),
           type: 'text',
           x: pos.x,
           y: pos.y,
-          width: text.length * brushSize * 3, // Approximation for selection box
+          width: text.length * brushSize * 3,
           height: brushSize * 6,
+          rotation: 0,
           stroke: strokeColor,
           fill: fillColor,
           strokeWidth: brushSize,
           text: text
         };
-        setObjects(prev => [...prev, newObj]);
+        const nextObjects = [...objects, newObj];
+        setObjects(nextObjects);
         setSelectedObjectId(newObj.id);
         setCurrentTool('select');
+        saveToHistory(nextObjects);
       }
     } else if (currentTool === 'brush') {
       saveToHistory();
@@ -402,8 +455,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Draw all objects onto the canvas permanently
     objects.forEach(obj => {
+      ctx.save();
+      const cx = obj.x + obj.width / 2;
+      const cy = obj.y + obj.height / 2;
+      
+      ctx.translate(cx, cy);
+      ctx.rotate(obj.rotation);
+      ctx.translate(-cx, -cy);
+
       ctx.strokeStyle = obj.stroke;
       ctx.fillStyle = obj.fill;
       ctx.lineWidth = obj.strokeWidth;
@@ -430,22 +490,24 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.fillText(obj.text, obj.x, obj.y);
         ctx.strokeText(obj.text, obj.x, obj.y);
       }
+      ctx.restore();
     });
 
     onSave(canvas.toDataURL('image/jpeg', 0.95));
   };
 
-  // Keyboard support for deleting objects
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObjectId) {
-        setObjects(prev => prev.filter(o => o.id !== selectedObjectId));
+        const nextObjects = objects.filter(o => o.id !== selectedObjectId);
+        setObjects(nextObjects);
         setSelectedObjectId(null);
+        saveToHistory(nextObjects);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectId]);
+  }, [selectedObjectId, objects, saveToHistory]);
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter">
@@ -496,20 +558,23 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <div className="relative shadow-2xl transition-transform duration-75 origin-center" style={{ transform: `scale(${zoom})` }}>
             <canvas ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} className="block relative" style={{ cursor: currentTool === 'none' ? 'default' : currentTool === 'select' ? 'default' : 'crosshair' }} />
             
-            {/* Object Overlay */}
             <svg 
               className="absolute inset-0 pointer-events-none w-full h-full"
               viewBox={`0 0 ${canvasRef.current?.width || 0} ${canvasRef.current?.height || 0}`}
             >
               {objects.map(obj => (
-                <g key={obj.id} className={selectedObjectId === obj.id ? 'opacity-100' : 'opacity-80'}>
+                <g 
+                  key={obj.id} 
+                  className={selectedObjectId === obj.id ? 'opacity-100' : 'opacity-80'}
+                  transform={`rotate(${(obj.rotation * 180) / Math.PI} ${obj.x + obj.width / 2} ${obj.y + obj.height / 2})`}
+                >
                   {obj.type === 'rect' && <rect x={obj.x} y={obj.y} width={obj.width} height={obj.height} stroke={obj.stroke} fill={obj.fill} strokeWidth={obj.strokeWidth} />}
                   {obj.type === 'circle' && <ellipse cx={obj.x + obj.width/2} cy={obj.y + obj.height/2} rx={obj.width/2} ry={obj.height/2} stroke={obj.stroke} fill={obj.fill} strokeWidth={obj.strokeWidth} />}
                   {obj.type === 'line' && <line x1={obj.x} y1={obj.y} x2={obj.x + obj.width} y2={obj.y + obj.height} stroke={obj.stroke} strokeWidth={obj.strokeWidth} />}
                   {obj.type === 'text' && (
                     <text 
                       x={obj.x} 
-                      y={obj.y} 
+                      y={obj.y + obj.height/2} 
                       fill={obj.fill} 
                       stroke={obj.stroke} 
                       strokeWidth={obj.strokeWidth/4} 
@@ -527,8 +592,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                       {/* Resize handle */}
                       <circle 
                         cx={obj.x + obj.width} cy={obj.y + obj.height} r={6 / zoom} 
-                        fill="#6366f1" className="cursor-nwse-resize" 
+                        fill="#6366f1" className="cursor-nwse-resize pointer-events-auto" 
                       />
+                      {/* Rotation handle */}
+                      <line x1={obj.x + obj.width/2} y1={obj.y} x2={obj.x + obj.width/2} y2={obj.y - 30/zoom} stroke="#6366f1" strokeWidth={2/zoom} />
+                      <circle 
+                        cx={obj.x + obj.width/2} cy={obj.y - 30/zoom} r={8 / zoom} 
+                        fill="#6366f1" className="cursor-pointer pointer-events-auto"
+                      >
+                         <title>Rotate</title>
+                      </circle>
                     </>
                   )}
                 </g>
@@ -564,7 +637,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
              )}
              {['select', 'rect', 'circle', 'line', 'text', 'brush', 'none'].includes(currentTool) && currentTool !== 'ai-erase' && (
                 <div className="px-10 text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                  {currentTool === 'select' ? (selectedObjectId ? 'Object Selected (Drag corners to resize)' : 'Select an object') : `${currentTool} tool active`}
+                  {currentTool === 'select' ? (selectedObjectId ? 'Object Selected (Drag top circle to rotate)' : 'Select an object') : `${currentTool} tool active`}
                 </div>
              )}
           </div>

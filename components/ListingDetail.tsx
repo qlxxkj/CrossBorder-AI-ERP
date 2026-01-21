@@ -581,7 +581,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         />
       )}
 
-      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={(url) => { updateField('main_image', url); setPreviewImage(url); setShowImageEditor(false); }} />}
+      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={(url) => { updateField('main_image', url); setPreviewImage(url); setShowImageEditor(false); }} uiLang={uiLang} />}
     </div>
   );
 };
