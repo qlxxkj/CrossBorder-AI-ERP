@@ -11,31 +11,24 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   if (!apiKey) throw new Error("OpenAI API Key is missing.");
 
   const prompt = `
-    Analyze and Optimize this Amazon Listing for maximum conversion:
+    You are an expert Amazon Listing Optimizer. Extract and optimize product data from:
     ${JSON.stringify(cleanedData)}
 
-    [TASKS]
-    - Extract Title, Brand, 5 Bullet Points, and Description.
-    - Extract item_weight and dimensions. Standardize to FULL NAMES: "pounds", "inches".
-    - Accuracy: 2 decimal places.
+    [CORE TASKS]
+    1. Title: Max 200 chars, SEO high-conversion.
+    2. Bullets: Exactly 5 high-impact points. Start each with [KEYWORD].
+    3. Description: 1000-1500 chars, use HTML (<p>, <br>).
+    4. Logistics: 
+       - Extract weight and dimensions. 
+       - Standardize to English FULL NAMES: "pounds" and "inches".
+       - Format numbers to 2 decimal places.
 
-    [CRITICAL - ANONYMIZATION RULE]
-    - YOU MUST REMOVE ALL SPECIFIC BRAND NAMES AND AUTOMOTIVE MODELS (e.g. Toyota, Lexus).
-    - Replace with generic terms: "Compatible with select vehicles".
-
-    Return JSON:
-    {
-      "optimized_title": "...",
-      "optimized_features": ["...", "...", "...", "...", "..."],
-      "optimized_description": "...",
-      "search_keywords": "...",
-      "optimized_weight_value": "number",
-      "optimized_weight_unit": "pounds",
-      "optimized_length": "number",
-      "optimized_width": "number",
-      "optimized_height": "number",
-      "optimized_size_unit": "inches"
-    }
+    [CRITICAL - BRAND REMOVAL RULE]
+    - STRICT: Remove ALL specific brand names from the output.
+    - This includes the product's own brand AND any automotive brands/models (e.g., Toyota, Lexus, Camry, ES350, Honda, Ford, etc.).
+    - REPLACE brands with generic terms like "select vehicles", "specified models", or "compatible vehicle series".
+    
+    Return valid JSON matching the interface.
   `;
 
   const endpoint = `${baseUrl}/chat/completions`;
@@ -52,10 +45,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
       })
     });
     const data = await response.json();
-    
     if (data.error) throw new Error(data.error.message || "OpenAI API Error");
-    if (!data.choices || data.choices.length === 0) throw new Error("OpenAI returned empty choices.");
-
     return JSON.parse(data.choices[0].message.content) as OptimizedData;
   } catch (error: any) { throw error; }
 };
@@ -68,26 +58,23 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   if (!apiKey) throw new Error("OpenAI API Key is missing.");
 
   const prompt = `
-    Task: Translate and LOCALIZE the TEXT ONLY of this Amazon listing into "${targetLang}".
+    Task: Translate and LOCALIZE the content for Amazon listing into "${targetLang}".
     
-    Rules:
-    1. DO NOT perform any math or return any logistics data (weight, length, width, height).
-    2. ONLY translate: Title, Bullets, Description, Keywords.
-    3. BRAND SAFETY: Strip all specific brands/car names.
-    
-    Return JSON:
-    {
-      "optimized_title": "...",
-      "optimized_features": [...],
-      "optimized_description": "...",
-      "search_keywords": "..."
-    }
+    [STRICT RULES]
+    1. Translate Title, 5 Bullets, Description, and Keywords.
+    2. LOCALIZE UNIT NAMES: You MUST translate "Pounds", "Kilograms", "Inches", "Centimeters" into the native official terminology of "${targetLang}". 
+       - For example, if target is "JP", use "キログラム", "センチメートル", "ポンド", "インチ". 
+       - NEVER leave unit names in English if the target is not English.
+    3. BRAND REMOVAL: Strip specific brands (e.g. Bosch, Toyota) and use generic terms in "${targetLang}".
+    4. Numeric values must remain untouched.
 
     Source: ${JSON.stringify({
       title: sourceData.optimized_title,
       features: sourceData.optimized_features,
       description: sourceData.optimized_description,
-      keywords: sourceData.search_keywords
+      keywords: sourceData.search_keywords,
+      weight_unit: sourceData.optimized_weight_unit,
+      size_unit: sourceData.optimized_size_unit
     })}
   `;
 
@@ -105,10 +92,6 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
       })
     });
     const data = await response.json();
-    
-    if (data.error) throw new Error(data.error.message || "OpenAI Translation Error");
-    if (!data.choices || data.choices.length === 0) throw new Error("OpenAI returned no translation content.");
-
     return JSON.parse(data.choices[0].message.content);
   } catch (error: any) { throw error; }
 };

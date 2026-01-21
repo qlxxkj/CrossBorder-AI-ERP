@@ -105,7 +105,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } else {
       file = dataUrlOrFile;
     }
-
     const formDataBody = new FormData();
     formDataBody.append('file', file);
     const response = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formDataBody });
@@ -125,7 +124,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       if (optField.includes('features')) return ['', '', '', '', ''];
       return '';
     }
-
     const trans = localListing.translations?.[activeMarket];
     if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
       const val = (trans as any)[optField];
@@ -133,14 +131,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         return val;
       }
     }
-
     if (optField === 'optimized_price' || optField === 'optimized_shipping') {
       const sourceVal = localListing.cleaned[cleanField] || 0;
       const rate = exchangeRates.find(r => r.marketplace === activeMarket)?.rate || 1;
       const converted = sourceVal * rate;
       return activeMarket === 'JP' ? Math.round(converted) : parseFloat(converted.toFixed(2));
     }
-
     if (optField.includes('features')) return ['', '', '', '', ''];
     return '';
   };
@@ -174,7 +170,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const nextListing = { ...localListing };
       const allImgs = [nextListing.cleaned.main_image, ...(nextListing.cleaned.other_images || [])].filter(Boolean) as string[];
       const processed: string[] = [];
-
       const processImage = async (url: string): Promise<string> => {
         return new Promise((resolve, reject) => {
           const img = new Image();
@@ -194,13 +189,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           img.onerror = () => reject("Image load error");
         });
       };
-
       for (const url of allImgs) {
         const dataUrl = await processImage(url);
         const hostedUrl = await uploadImageToHost(dataUrl, localListing.asin);
         processed.push(hostedUrl);
       }
-
       nextListing.cleaned.main_image = processed[0];
       nextListing.cleaned.other_images = processed.slice(1);
       setLocalListing(nextListing);
@@ -261,13 +254,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         
         const rate = exchangeRates.find(r => r.marketplace === mkt.code)?.rate || 1;
         const isMetric = METRIC_MARKETS.includes(mkt.code);
-        
         const rawWeight = parseFloat(localListing.optimized?.optimized_weight_value || localListing.cleaned.item_weight_value || '0');
         const rawL = parseFloat(localListing.optimized?.optimized_length || localListing.cleaned.item_length || '0');
         const rawW = parseFloat(localListing.optimized?.optimized_width || localListing.cleaned.item_width || '0');
         const rawH = parseFloat(localListing.optimized?.optimized_height || localListing.cleaned.item_height || '0');
 
-        // 核心修复：确保本地化单位被正确赋予
+        // 核心修复：强制使用引擎返回的本地化单位，若无则兜底
         const finalWeightUnit = trans.optimized_weight_unit || (isMetric ? 'Kilograms' : 'Pounds');
         const finalSizeUnit = trans.optimized_size_unit || (isMetric ? 'Centimeters' : 'Inches');
 
@@ -444,7 +436,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             className="flex-[2] px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none min-w-0" 
                             placeholder="Value"
                            />
-                           {/* 核心修复：调整单位输入框宽度并保证对齐 */}
                            <input 
                             type="text" 
                             value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} 
