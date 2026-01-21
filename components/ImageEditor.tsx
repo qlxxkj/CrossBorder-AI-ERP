@@ -407,7 +407,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const w = Math.abs(selection.x1 - selection.x2);
     const h = Math.abs(selection.y1 - selection.y2);
     
-    // Core Fix: Direct canvas manipulation to ensure absolute opacity covering
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.fillStyle = fillColor;
@@ -468,6 +467,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Draw all objects onto the canvas before saving
     objects.forEach(obj => {
       ctx.save();
       const cx = obj.x + obj.width / 2;
@@ -550,32 +550,36 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-6 gap-6 z-20 overflow-y-auto no-scrollbar relative">
-          <ToolIcon active={currentTool === 'select'} onClick={() => { setCurrentTool('select'); }} icon={<MousePointer2 size={20} />} label="Select" />
-          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelectedObjectId(null); }} icon={<Palette size={20} />} label="Brush" />
-          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelectedObjectId(null); }} icon={<Eraser size={20} />} label="AI Erase" />
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Left Toolbar */}
+        <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-6 gap-6 z-40 relative">
+          <ToolIcon active={currentTool === 'select'} onClick={() => { setCurrentTool('select'); setShowShapeMenu(false); }} icon={<MousePointer2 size={20} />} label="Select" />
+          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Palette size={20} />} label="Brush" />
+          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Eraser size={20} />} label="AI Erase" />
           
-          {/* Shapes Entry */}
-          <div className="relative">
+          {/* Shapes Entry - Grouped Submenu */}
+          <div className="relative group/shape">
             <ToolIcon 
               active={['rect', 'circle', 'line'].includes(currentTool)} 
-              onClick={() => { setShowShapeMenu(!showShapeMenu); setCurrentTool(lastUsedShape); }} 
+              onClick={() => { setShowShapeMenu(!showShapeMenu); }} 
               icon={<ShapeIcon size={20} />} 
               label="Shapes" 
             />
             {showShapeMenu && (
-              <div className="absolute left-full top-0 ml-2 bg-slate-800 border border-slate-700 p-2 rounded-xl shadow-2xl flex flex-col gap-2 z-50">
-                <button onClick={() => { setCurrentTool('rect'); setLastUsedShape('rect'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 ${currentTool === 'rect' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Square size={20} /></button>
-                <button onClick={() => { setCurrentTool('circle'); setLastUsedShape('circle'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 ${currentTool === 'circle' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Circle size={20} /></button>
-                <button onClick={() => { setCurrentTool('line'); setLastUsedShape('line'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 ${currentTool === 'line' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Minus size={20} /></button>
+              <div 
+                className="fixed left-24 top-auto bg-slate-800 border border-slate-700 p-2 rounded-xl shadow-2xl flex flex-col gap-2 z-[100] animate-in slide-in-from-left-2 duration-200"
+                style={{ marginTop: '-40px' }}
+              >
+                <button onClick={() => { setCurrentTool('rect'); setLastUsedShape('rect'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 transition-all ${currentTool === 'rect' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Square size={20} /></button>
+                <button onClick={() => { setCurrentTool('circle'); setLastUsedShape('circle'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 transition-all ${currentTool === 'circle' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Circle size={20} /></button>
+                <button onClick={() => { setCurrentTool('line'); setLastUsedShape('line'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 transition-all ${currentTool === 'line' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Minus size={20} /></button>
               </div>
             )}
           </div>
 
-          <ToolIcon active={currentTool === 'text'} onClick={() => { setCurrentTool('text'); setSelectedObjectId(null); }} icon={<Type size={20} />} label="Text" />
-          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelectedObjectId(null); }} icon={<PaintBucket size={20} />} label="Fill" />
-          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelectedObjectId(null); }} icon={<Scissors size={20} />} label="Crop" />
+          <ToolIcon active={currentTool === 'text'} onClick={() => { setCurrentTool('text'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Type size={20} />} label="Text" />
+          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<PaintBucket size={20} />} label="Fill" />
+          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Scissors size={20} />} label="Crop" />
           
           <div className="mt-auto flex flex-col gap-4 pb-4">
              <div className="space-y-1">
@@ -589,7 +593,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
         </div>
 
-        <div ref={containerRef} className="flex-1 bg-slate-950 overflow-auto flex items-center justify-center p-20 relative">
+        {/* Canvas Area */}
+        <div ref={containerRef} className="flex-1 bg-slate-950 overflow-auto flex items-center justify-center p-20 relative z-10">
           <div className="relative shadow-2xl transition-transform duration-75 origin-center" style={{ transform: `scale(${zoom})` }}>
             <canvas ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} className="block relative" style={{ cursor: currentTool === 'none' ? 'default' : currentTool === 'select' ? 'default' : 'crosshair' }} />
             
@@ -647,6 +652,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             )}
           </div>
 
+          {/* Bottom Control Bar */}
           <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 rounded-[2.5rem] shadow-2xl z-30 min-w-[700px]">
              <div className="flex flex-col gap-3 flex-1">
                <div className="flex justify-between">

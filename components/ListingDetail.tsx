@@ -28,7 +28,9 @@ interface ListingDetailProps {
 type AIEngine = 'gemini' | 'openai' | 'deepseek';
 
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
+const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 const CORS_PROXY = 'https://corsproxy.io/?';
+const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 // Markets that MUST use Metric units (cm/kg) according to Amazon standards
 const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'UK', 'CA', 'MX', 'PL', 'NL', 'SE', 'BE', 'SG', 'AU', 'EG'];
@@ -106,6 +108,25 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       onUpdate({ ...targetListing, updated_at: new Date().toISOString() });
     } catch (e: any) { console.error("Auto-save failed:", e); } 
     finally { setIsSaving(false); }
+  };
+
+  // Centralized image upload helper
+  const uploadImageToHost = async (dataUrlOrFile: string | File, asin: string): Promise<string> => {
+    let file: File;
+    if (typeof dataUrlOrFile === 'string') {
+      const res = await fetch(dataUrlOrFile);
+      const blob = await res.blob();
+      file = new File([blob], `${asin}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+    } else {
+      file = dataUrlOrFile;
+    }
+
+    const formDataBody = new FormData();
+    formDataBody.append('file', file);
+    const response = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formDataBody });
+    if (!response.ok) throw new Error("Image hosting failed");
+    const data = await response.json();
+    return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
   };
 
   const getFieldValue = (optField: string, cleanField: string) => {
@@ -216,8 +237,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       };
 
       for (const url of allImgs) {
-        const newUrl = await processImage(url);
-        processed.push(newUrl);
+        const dataUrl = await processImage(url);
+        // CRITICAL FIX: Upload the result to host, don't store DataURL in DB
+        const hostedUrl = await uploadImageToHost(dataUrl, localListing.asin);
+        processed.push(hostedUrl);
       }
 
       nextListing.cleaned.main_image = processed[0];
@@ -234,11 +257,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!file) return;
     setIsSaving(true);
     try {
-      const formDataBody = new FormData();
-      formDataBody.append('file', file);
-      const response = await fetch(`${CORS_PROXY}${encodeURIComponent(IMAGE_HOST_DOMAIN + '/upload')}`, { method: 'POST', body: formDataBody });
-      const data = await response.json();
-      const url = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+      const url = await uploadImageToHost(file, localListing.asin);
       const nextListing = { ...localListing };
       nextListing.cleaned.other_images = [...(nextListing.cleaned.other_images || []), url];
       setLocalListing(nextListing);
@@ -283,7 +302,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const rate = exchangeRates.find(r => r.marketplace === mkt.code)?.rate || 1;
         const isMetric = METRIC_MARKETS.includes(mkt.code);
         
-        // Handle Unit Conversions automatically for Metric Markets
         const rawWeight = parseFloat(localListing.optimized?.optimized_weight_value || localListing.cleaned.item_weight_value || '0');
         const rawL = parseFloat(localListing.optimized?.optimized_length || localListing.cleaned.item_length || '0');
         const rawW = parseFloat(localListing.optimized?.optimized_width || localListing.cleaned.item_width || '0');
@@ -293,7 +311,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           ...trans,
           optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
           optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2)),
-          // Conversion Math: lb -> kg (0.45359), inch -> cm (2.54)
           optimized_weight_value: isMetric ? (rawWeight * 0.45359).toFixed(2) : rawWeight.toFixed(2),
           optimized_weight_unit: isMetric ? 'Kilograms' : 'Pounds',
           optimized_length: isMetric ? (rawL * 2.54).toFixed(2) : rawL.toFixed(2),
@@ -307,6 +324,32 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setLocalListing(nextListing);
     await syncToSupabase(nextListing);
     setIsBatchTranslating(false);
+  };
+
+  const handleEditorSave = async (dataUrl: string) => {
+    setIsSaving(true);
+    try {
+      const hostedUrl = await uploadImageToHost(dataUrl, localListing.asin);
+      // Determine if we are editing the main image or one of the others
+      const isMain = previewImage === localListing.cleaned.main_image;
+      const nextListing = { ...localListing };
+      if (isMain) {
+        nextListing.cleaned.main_image = hostedUrl;
+      } else {
+        const others = [...(localListing.cleaned.other_images || [])];
+        const idx = others.indexOf(previewImage);
+        if (idx !== -1) others[idx] = hostedUrl;
+        nextListing.cleaned.other_images = others;
+      }
+      setLocalListing(nextListing);
+      setPreviewImage(hostedUrl);
+      await syncToSupabase(nextListing);
+      setShowImageEditor(false);
+    } catch (e) {
+      alert("Failed to save edited image: " + e);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const allImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].filter(Boolean) as string[];
@@ -588,7 +631,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         />
       )}
 
-      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={(url) => { updateField('main_image', url); setPreviewImage(url); setShowImageEditor(false); }} uiLang={uiLang} />}
+      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={handleEditorSave} uiLang={uiLang} />}
     </div>
   );
 };
