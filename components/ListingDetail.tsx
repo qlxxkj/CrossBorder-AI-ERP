@@ -33,6 +33,20 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 // Marketplace standards for units
 const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'NL', 'PL', 'SE', 'BE'];
 
+// Helper to normalize unit names to Title Case Full Names
+const normalizeUnit = (unit: string | undefined): string => {
+  if (!unit) return "";
+  const u = unit.toLowerCase().trim();
+  if (u === 'lb' || u === 'lbs' || u === 'pounds') return "Pounds";
+  if (u === 'kg' || u === 'kilograms') return "Kilograms";
+  if (u === 'oz' || u === 'ounces') return "Ounces";
+  if (u === 'g' || u === 'grams') return "Grams";
+  if (u === 'in' || u === 'inches') return "Inches";
+  if (u === 'cm' || u === 'centimeters') return "Centimeters";
+  if (u === 'mm' || u === 'millimeters') return "Millimeters";
+  return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
+};
+
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -98,37 +112,37 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const isMetric = METRIC_MARKETS.includes(activeMarket);
     
     const getDefaultUnit = (field: string) => {
-      if (field.includes('weight')) return isMetric ? 'kg' : 'lb';
-      if (field.includes('size') || field.includes('unit')) return isMetric ? 'cm' : 'in';
+      if (field.includes('weight')) return isMetric ? 'Kilograms' : 'Pounds';
+      if (field.includes('size') || field.includes('unit')) return isMetric ? 'Centimeters' : 'Inches';
       return '';
     };
 
     if (activeMarket === 'US') {
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
       if (optVal !== undefined && optVal !== null && (Array.isArray(optVal) ? optVal.length > 0 : optVal !== '')) {
-        return optVal;
+        return optField.includes('unit') ? normalizeUnit(optVal) : optVal;
       }
       
       const cleanVal = (localListing.cleaned as any)[cleanField];
-      if (cleanVal !== undefined && cleanVal !== null) return cleanVal;
+      if (cleanVal !== undefined && cleanVal !== null) {
+        return cleanField.includes('unit') ? normalizeUnit(cleanVal) : cleanVal;
+      }
 
-      // Type-specific defaults for US
       if (optField.includes('unit')) return getDefaultUnit(optField);
       if (optField.includes('features')) return ['', '', '', '', ''];
       return '';
     }
 
-    // Check existing translation (Important for non-US markets)
+    // Non-US Market: Strictly read from translations
     const trans = localListing.translations?.[activeMarket];
     if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
       const val = (trans as any)[optField];
-      // Only return if it's not an empty string or empty array (except for units which we handle below)
       if (Array.isArray(val) ? val.length > 0 : val !== '') {
-        return val;
+        return optField.includes('unit') ? normalizeUnit(val) : val;
       }
     }
 
-    // Dynamic fallbacks for Non-US prices
+    // Dynamic price calculation fallback for translation sites
     if (optField === 'optimized_price' || optField === 'optimized_shipping') {
       const sourceVal = localListing.cleaned[cleanField] || 0;
       const rate = exchangeRates.find(r => r.marketplace === activeMarket)?.rate || 1;
@@ -136,10 +150,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return activeMarket === 'JP' ? Math.round(converted) : parseFloat(converted.toFixed(2));
     }
 
-    // Fallback for units if not found in translations
     if (optField.includes('unit')) return getDefaultUnit(optField);
-    
-    // Always ensure features returns an array for mapping
     if (optField.includes('features')) return ['', '', '', '', ''];
 
     return '';
@@ -264,11 +275,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
           optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2)),
           optimized_weight_value: isMetric ? (parseFloat(localListing.cleaned.item_weight_value || '0') * 0.45359).toFixed(2) : localListing.cleaned.item_weight_value,
-          optimized_weight_unit: isMetric ? 'kg' : 'lb',
+          optimized_weight_unit: isMetric ? 'Kilograms' : 'Pounds',
           optimized_length: isMetric ? (parseFloat(localListing.cleaned.item_length || '0') * 2.54).toFixed(2) : localListing.cleaned.item_length,
           optimized_width: isMetric ? (parseFloat(localListing.cleaned.item_width || '0') * 2.54).toFixed(2) : localListing.cleaned.item_width,
           optimized_height: isMetric ? (parseFloat(localListing.cleaned.item_height || '0') * 2.54).toFixed(2) : localListing.cleaned.item_height,
-          optimized_size_unit: isMetric ? 'cm' : 'in',
+          optimized_size_unit: isMetric ? 'Centimeters' : 'Inches',
         } as OptimizedData;
       } catch (e) {}
     }
@@ -382,11 +393,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-amber-500" /> Weight</label>
                          <div className="flex gap-2">
                            <input type="text" value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
-                           <select value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-40 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
-                             <option value="lb">lb (Pounds)</option>
-                             <option value="kg">kg (Kilograms)</option>
-                             <option value="oz">oz (Ounces)</option>
-                             <option value="g">g (Grams)</option>
+                           <select value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                             <option value="Pounds">Pounds</option>
+                             <option value="Kilograms">Kilograms</option>
+                             <option value="Ounces">Ounces</option>
+                             <option value="Grams">Grams</option>
                            </select>
                          </div>
                       </div>
@@ -398,10 +409,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                               <input placeholder="W" type="text" value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                               <input placeholder="H" type="text" value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                            </div>
-                           <select value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-40 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
-                             <option value="in">in (Inches)</option>
-                             <option value="cm">cm (Centimeters)</option>
-                             <option value="mm">mm (Millimeters)</option>
+                           <select value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                             <option value="Inches">Inches</option>
+                             <option value="Centimeters">Centimeters</option>
+                             <option value="Millimeters">Millimeters</option>
                            </select>
                          </div>
                       </div>
@@ -438,7 +449,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                    placeholder={`Bullet Point ${i+1}...`}
                                  />
                                  <div className="flex justify-between items-center px-1">
-                                    <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-slate-400'}`}>{(f || '').length} / 500</span>
+                                    <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-indigo-600'}`}>{(f || '').length} / 500</span>
                                     <button onClick={() => {
                                       const currentFeatures = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
                                       updateField('optimized_features', currentFeatures);

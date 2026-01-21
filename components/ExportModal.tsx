@@ -31,10 +31,10 @@ const formatExportVal = (val: any) => {
   return parseFloat(num.toFixed(2));
 };
 
-// Mapper: strictly Title Case full names for Amazon Templates (e.g., Pounds, Kilograms, Inches)
-const getFullUnitName = (unit: string) => {
+// Mapper: strictly Title Case full names for Amazon Templates
+const getFullUnitName = (unit: string | undefined) => {
   if (!unit) return "";
-  const normalized = unit.toLowerCase().trim();
+  const u = unit.toLowerCase().trim();
   const map: Record<string, string> = {
     'lb': 'Pounds',
     'lbs': 'Pounds',
@@ -63,8 +63,7 @@ const getFullUnitName = (unit: string) => {
     'foot': 'Feet',
     'feet': 'Feet'
   };
-  // Fallback to capitalizing first letter and lowercasing rest
-  if (map[normalized]) return map[normalized];
+  if (map[u]) return map[u];
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
