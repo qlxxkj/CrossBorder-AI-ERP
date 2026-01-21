@@ -31,7 +31,7 @@ const formatExportVal = (val: any) => {
   return parseFloat(num.toFixed(2));
 };
 
-// Mapper: strictly Title Case full names for Amazon Templates
+// Mapper: strictly Title Case full names for Amazon Templates (e.g., Pounds, Kilograms, Inches)
 const getFullUnitName = (unit: string) => {
   if (!unit) return "";
   const normalized = unit.toLowerCase().trim();
@@ -63,8 +63,9 @@ const getFullUnitName = (unit: string) => {
     'foot': 'Feet',
     'feet': 'Feet'
   };
-  // Fallback to capitalizing the first letter if not in map
-  return map[normalized] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
+  // Fallback to capitalizing first letter and lowercasing rest
+  if (map[normalized]) return map[normalized];
+  return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
 const IS_LATIN_MKT = (code: string) => [
@@ -161,7 +162,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
     let basePrice = 0; let baseShipping = 0; let needsRateConversion = true;
     const translation = listing.translations?.[targetMkt];
-    if (translation && (translation.optimized_price !== undefined)) {
+    if (translation && translation.optimized_price !== undefined && translation.optimized_price !== null) {
       basePrice = translation.optimized_price;
       baseShipping = translation.optimized_shipping || 0;
       needsRateConversion = false; 
@@ -246,7 +247,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'price') val = calculateFinalPrice(listing, targetMarket);
             else if (f === 'shipping') {
               const trans = listing.translations?.[targetMarket];
-              if (trans && trans.optimized_shipping !== undefined) val = trans.optimized_shipping;
+              if (trans && trans.optimized_shipping !== undefined && trans.optimized_shipping !== null) val = trans.optimized_shipping;
               else {
                 const rate = exchangeRates.find(r => r.marketplace === targetMarket)?.rate || 1;
                 const calcShip = (cleaned.shipping || 0) * (targetMarket === 'US' ? 1 : rate);

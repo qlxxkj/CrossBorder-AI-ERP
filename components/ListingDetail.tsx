@@ -90,7 +90,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
-  // Helper to get value from correct source
+  // Enhanced Helper: Handles Fallbacks and Currency Conversions for Price/Shipping
   const getFieldValue = (optField: string, cleanField: string) => {
     if (activeMarket === 'US') {
       const val = localListing.status === 'optimized' && localListing.optimized 
@@ -98,36 +98,39 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         : (localListing.cleaned as any)[cleanField];
       return (val !== undefined && val !== null) ? val : '';
     }
-    const transVal = (localListing.translations?.[activeMarket] as any)?.[optField];
-    return (transVal !== undefined && transVal !== null) ? transVal : '';
+
+    // Check existing translation first
+    const trans = localListing.translations?.[activeMarket];
+    if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
+      return (trans as any)[optField];
+    }
+
+    // Dynamic Fallback for Prices (Clean Price * Exchange Rate)
+    if (optField === 'optimized_price' || optField === 'optimized_shipping') {
+      const sourceKey = optField === 'optimized_price' ? 'price' : 'shipping';
+      const sourceVal = localListing.cleaned[sourceKey] || 0;
+      const rate = exchangeRates.find(r => r.marketplace === activeMarket)?.rate || 1;
+      const converted = sourceVal * rate;
+      return activeMarket === 'JP' ? Math.round(converted) : parseFloat(converted.toFixed(2));
+    }
+
+    return '';
   };
 
   const updateField = (field: string, value: any) => {
     const nextListing = { ...localListing };
-    // Map UI generic field names back to specific structure fields
-    const fieldMapping: Record<string, string> = {
-      'price': 'price',
-      'shipping': 'shipping',
-      'optimized_price': 'optimized_price',
-      'optimized_shipping': 'optimized_shipping',
-      'main_image': 'main_image'
-    };
-
-    const targetField = fieldMapping[field] || field;
-
+    
     if (activeMarket === 'US') {
       if (nextListing.status === 'optimized' && nextListing.optimized) {
-        nextListing.optimized = { ...nextListing.optimized, [targetField]: value };
+        nextListing.optimized = { ...nextListing.optimized, [field]: value };
       } else {
-        // Fallback or collected status: update cleaned data
-        // For logistics and content fields that start with optimized_, strip prefix if updating cleaned
-        const cleanKey = targetField.replace('optimized_', '');
+        const cleanKey = field.startsWith('optimized_') ? field.replace('optimized_', '') : field;
         nextListing.cleaned = { ...nextListing.cleaned, [cleanKey]: value };
       }
     } else {
       const currentTranslations = { ...(nextListing.translations || {}) };
       const currentTrans = currentTranslations[activeMarket] || { optimized_title: '', optimized_features: [], optimized_description: '', search_keywords: '' } as OptimizedData;
-      currentTranslations[activeMarket] = { ...currentTrans, [targetField]: value };
+      currentTranslations[activeMarket] = { ...currentTrans, [field]: value };
       nextListing.translations = currentTranslations;
     }
     setLocalListing(nextListing);
@@ -170,11 +173,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       setLocalListing(nextListing);
       setPreviewImage(processed[0]);
       await syncToSupabase(nextListing);
-    } catch (e) {
-      alert("Standardize failed: " + e);
-    } finally {
-      setIsStandardizing(false);
-    }
+    } catch (e) { alert("Standardize failed: " + e); } 
+    finally { setIsStandardizing(false); }
   };
 
   const handleAddImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -300,8 +300,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                      <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
                         <img src={img} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                           <button onClick={(e) => { e.stopPropagation(); setLocalListing(p => ({...p, cleaned: {...p.cleaned, main_image: img}})); setPreviewImage(img); }} className="p-1 text-white hover:text-amber-400" title="Set as Main"><Star size={12} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} /></button>
-                           <button onClick={(e) => { e.stopPropagation(); setLocalListing(p => ({...p, cleaned: {...p.cleaned, other_images: (p.cleaned.other_images || []).filter(u => u !== img)}})); }} className="p-1 text-white hover:text-red-400" title="Delete"><Trash2 size={12} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} className="p-1 text-white hover:text-amber-400" title="Set as Main"><Star size={12} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); const others = (localListing.cleaned.other_images || []).filter(u => u !== img); updateField('other_images', others); }} className="p-1 text-white hover:text-red-400" title="Delete"><Trash2 size={12} /></button>
                         </div>
                      </div>
                    ))}
