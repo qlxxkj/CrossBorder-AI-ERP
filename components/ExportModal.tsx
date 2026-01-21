@@ -31,7 +31,6 @@ const formatExportVal = (val: any) => {
   return parseFloat(num.toFixed(2));
 };
 
-// Mapper: strictly Title Case full names for Amazon Templates
 const getFullUnitName = (unit: string | undefined) => {
   if (!unit) return "";
   const u = unit.toLowerCase().trim();
@@ -66,10 +65,6 @@ const getFullUnitName = (unit: string | undefined) => {
   if (map[u]) return map[u];
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
-
-const IS_LATIN_MKT = (code: string) => [
-  'US', 'CA', 'MX', 'BR', 'UK', 'DE', 'FR', 'IT', 'ES', 'IE', 'PL', 'NL', 'SE', 'BE', 'AU', 'SG'
-].includes(code);
 
 const generateRandomValue = (type?: 'alphanumeric' | 'ean13'): string => {
   if (type === 'ean13') {
@@ -225,12 +220,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const sheet = workbook.Sheets[tplSheetName];
       const techRowIdx = selectedTemplate.mappings?.['__header_row_idx'] || 4;
       const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] || (targetMarket === 'US' ? techRowIdx + 3 : techRowIdx + 2);
+      
       const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
 
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = dataStartRowIdx + rowOffset;
         const cleaned = listing.cleaned;
-        const localOpt: OptimizedData | null = (targetMarket !== 'US' && listing.translations?.[targetMarket]) 
+        // Logic: Use translations if market matches, else used optimized if available, else fallback to cleaned
+        const localOpt: OptimizedData | any = (targetMarket !== 'US' && listing.translations?.[targetMarket]) 
           ? listing.translations[targetMarket] 
           : (listing.optimized || null);
 
@@ -238,7 +235,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           const colIdx = parseInt(mappingKey.replace('col_', ''));
           const mapping = selectedTemplate.mappings?.[mappingKey] as FieldMapping | undefined;
           if (!mapping || isNaN(colIdx)) return;
+
           let val: any = "";
+          
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
             if (f === 'asin') val = listing.asin || cleaned.asin || '';
@@ -246,8 +245,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'price') val = calculateFinalPrice(listing, targetMarket);
             else if (f === 'shipping') {
               const trans = listing.translations?.[targetMarket];
-              if (trans && trans.optimized_shipping !== undefined && trans.optimized_shipping !== null) val = trans.optimized_shipping;
-              else {
+              if (trans && trans.optimized_shipping !== undefined && trans.optimized_shipping !== null) {
+                val = trans.optimized_shipping;
+              } else {
                 const rate = exchangeRates.find(r => r.marketplace === targetMarket)?.rate || 1;
                 const calcShip = (cleaned.shipping || 0) * (targetMarket === 'US' ? 1 : rate);
                 val = targetMarket === 'JP' ? Math.round(calcShip) : parseFloat(calcShip.toFixed(2));
@@ -256,17 +256,36 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'brand') val = cleaned.brand || '';
             else if (f === 'description') val = localOpt?.optimized_description || cleaned.description || '';
             else if (f === 'main_image') val = cleaned.main_image || '';
+            // Handling arrays like features and other images
+            else if (f?.startsWith('feature')) {
+              const idx = parseInt(f.replace('feature', '')) - 1;
+              const features = localOpt?.optimized_features || cleaned.features || [];
+              val = features[idx] || '';
+            }
+            else if (f?.startsWith('other_image')) {
+              const idx = parseInt(f.replace('other_image', '')) - 1;
+              const otherImages = cleaned.other_images || [];
+              val = otherImages[idx] || '';
+            }
             else if (f === 'item_weight_value') val = formatExportVal(localOpt?.optimized_weight_value || cleaned.item_weight_value || '');
             else if (f === 'item_weight_unit') val = getFullUnitName(localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '');
             else if (f === 'item_length') val = formatExportVal(localOpt?.optimized_length || cleaned.item_length || '');
             else if (f === 'item_width') val = formatExportVal(localOpt?.optimized_width || cleaned.item_width || '');
             else if (f === 'item_height') val = formatExportVal(localOpt?.optimized_height || cleaned.item_height || '');
             else if (f === 'item_size_unit') val = getFullUnitName(localOpt?.optimized_size_unit || cleaned.item_size_unit || '');
-          } else if (mapping.source === 'custom') val = mapping.defaultValue || '';
-          else if (mapping.source === 'random') val = generateRandomValue(mapping.randomType);
-          else if (mapping.source === 'template_default') val = mapping.templateDefault || '';
+          } 
+          else if (mapping.source === 'custom') {
+            val = mapping.defaultValue || '';
+          }
+          else if (mapping.source === 'random') {
+            val = generateRandomValue(mapping.randomType);
+          }
+          else if (mapping.source === 'template_default') {
+            val = mapping.templateDefault || '';
+          }
 
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
+          // Ensure we don't overwrite formatting if cell exists, but standard write for data injection
           sheet[cellRef] = { v: val, t: (typeof val === 'number') ? 'n' : 's' };
         });
       });

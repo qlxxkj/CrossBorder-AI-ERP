@@ -62,6 +62,7 @@ const findAmazonTemplateSheet = (workbook: XLSX.WorkBook): string => {
 
   for (const name of sheetNames) {
     const lowerName = name.toLowerCase();
+    // Skip instruction sheets
     if (lowerName.includes('instruction') || lowerName.includes('notice') || lowerName.includes('definitions') || lowerName.includes('valid values')) continue;
     
     const sheet = workbook.Sheets[name];
@@ -110,7 +111,7 @@ const findHeaderRowIndex = (rows: any[][]): number => {
       bestIdx = i;
     }
   }
-  return maxScore > 50 ? bestIdx : 4; 
+  return maxScore > 50 ? bestIdx : 2; // Default to row 3 (0-indexed 2) if not found
 };
 
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
@@ -173,20 +174,25 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
         const base64File = safeEncode(bytes);
 
         const sheetName = findAmazonTemplateSheet(workbook);
-        const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
+        const jsonData: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, range: 0, defval: '' });
         
         const techRowIdx = findHeaderRowIndex(jsonData);
-        const techRow = jsonData[techRowIdx];
+        const techRow = jsonData[techRowIdx] || [];
         const humanRowIdx = techRowIdx - 1 >= 0 ? techRowIdx - 1 : techRowIdx;
         const humanRow = jsonData[humanRowIdx] || [];
         
-        let dataStartRowIdx = techRowIdx + 2; 
-        if (uploadMarketplace === 'US') {
-          dataStartRowIdx = techRowIdx + 3;
+        // Scan for the first data row that has actual content after the headers
+        let dataStartRowIdx = techRowIdx + 1;
+        let userDataRow: any[] = [];
+        for (let r = techRowIdx + 1; r < Math.min(jsonData.length, techRowIdx + 10); r++) {
+          const row = jsonData[r];
+          if (row && row.some(cell => String(cell).trim() !== '')) {
+            dataStartRowIdx = r;
+            userDataRow = row;
+            break;
+          }
         }
-        const userDataRow = jsonData[dataStartRowIdx] || [];
 
-        // 识别所有存在内容的列（不再基于 apiField 过滤）
         const maxCols = Math.max(techRow.length, humanRow.length);
         const foundHeaders: string[] = [];
         for (let i = 0; i < maxCols; i++) {
@@ -205,25 +211,29 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           
           let source: any = 'custom', field = '';
           
-          // 自动匹配逻辑
-          if (apiField.includes('sku') || apiField.includes('external_product_id')) { source = 'listing'; field = 'asin'; }
-          else if (apiField.includes('item_name') || apiField === 'title' || apiField.includes('product_name')) { source = 'listing'; field = 'title'; }
-          else if (apiField.match(/image_url|image_location|main_image/)) { 
+          // Improved Matching Logic
+          if (apiField.match(/item_sku|sku|external_product_id/)) { source = 'listing'; field = 'asin'; }
+          else if (apiField.match(/item_name|title|product_name/)) { source = 'listing'; field = 'title'; }
+          else if (apiField.match(/image_url|image_location|main_image|main_image_url/)) { 
             imgCount++; 
             source = 'listing'; 
             field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; 
           }
-          else if (apiField.match(/bullet_point/)) { 
+          else if (apiField.match(/bullet_point|feature_index|bullet/)) { 
             bulletCount++; 
             source = 'listing'; 
             field = `feature${bulletCount}`; 
           }
-          else if (apiField.includes('standard_price')) { source = 'listing'; field = 'price'; }
-          else if (apiField.includes('description')) { source = 'listing'; field = 'description'; }
-          else if (apiField.includes('brand_name')) { source = 'listing'; field = 'brand'; }
+          else if (apiField.match(/standard_price|price/)) { source = 'listing'; field = 'price'; }
+          else if (apiField.match(/product_description|description/)) { source = 'listing'; field = 'description'; }
+          else if (apiField.match(/brand_name|brand/)) { source = 'listing'; field = 'brand'; }
           else {
-            if (userDataVal) source = 'custom';
-            else source = 'template_default';
+            // If there's an existing value in the template, use it as template_default
+            if (userDataVal) {
+              source = 'template_default';
+            } else {
+              source = 'custom';
+            }
           }
 
           mappings[key] = { 
@@ -396,7 +406,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
                         <div className="space-y-1">
                           <span className="text-[11px] font-black text-slate-600 break-all">{h}</span>
-                          <p className="text-[8px] font-black text-slate-400 uppercase">User Value: {selectedTemplate.mappings?.[`col_${i}`]?.templateDefault || '-'}</p>
+                          <p className="text-[8px] font-black text-slate-400 uppercase">Template Value: {selectedTemplate.mappings?.[`col_${i}`]?.templateDefault || '-'}</p>
                         </div>
                         <select value={mapping.source} onChange={(e) => updateMapping(key, { source: e.target.value as any })} className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-bold cursor-pointer">
                           <option value="custom">Manual Value</option>
