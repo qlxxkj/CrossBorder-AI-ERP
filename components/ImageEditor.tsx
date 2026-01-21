@@ -179,18 +179,35 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     tempImg.onload = () => {
       const targetSize = 1600;
       const safeArea = 1500;
+      
+      // Calculate Scale and Offset for relative positioning
+      const scale = Math.min(safeArea / tempImg.width, safeArea / tempImg.height);
+      const drawW = tempImg.width * scale;
+      const drawH = tempImg.height * scale;
+      const offsetX = (targetSize - drawW) / 2;
+      const offsetY = (targetSize - drawH) / 2;
+
+      // Transform existing objects to keep relative positions
+      const transformedObjects = objects.map(obj => ({
+        ...obj,
+        x: obj.x * scale + offsetX,
+        y: obj.y * scale + offsetY,
+        width: obj.width * scale,
+        height: obj.height * scale,
+        strokeWidth: obj.strokeWidth * scale
+      }));
+
+      // Update Canvas Dimensions and Content
       canvas.width = targetSize;
       canvas.height = targetSize;
       const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, targetSize, targetSize);
-      const scale = Math.min(safeArea / tempImg.width, safeArea / tempImg.height);
-      const drawW = tempImg.width * scale;
-      const drawH = tempImg.height * scale;
-      const x = (targetSize - drawW) / 2;
-      const y = (targetSize - drawH) / 2;
-      ctx.drawImage(tempImg, x, y, drawW, drawH);
-      saveToHistory();
+      ctx.drawImage(tempImg, offsetX, offsetY, drawW, drawH);
+
+      setObjects(transformedObjects);
+      saveToHistory(transformedObjects);
+      
       if (containerRef.current) {
         setZoom(Math.min((containerRef.current.clientHeight - 120) / 1600, 1));
       }
@@ -602,6 +619,47 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               className="absolute inset-0 pointer-events-none w-full h-full"
               viewBox={`0 0 ${canvasRef.current?.width || 0} ${canvasRef.current?.height || 0}`}
             >
+              {/* Render Temporary Drawing Preview */}
+              {isDrawing && selection && ['rect', 'circle', 'line'].includes(currentTool) && (
+                <g opacity={opacity * 0.5}>
+                  {currentTool === 'rect' && (
+                    <rect 
+                      x={Math.min(selection.x1, selection.x2)} 
+                      y={Math.min(selection.y1, selection.y2)} 
+                      width={Math.abs(selection.x1 - selection.x2)} 
+                      height={Math.abs(selection.y1 - selection.y2)} 
+                      stroke={strokeColor} 
+                      fill={fillColor} 
+                      strokeWidth={brushSize} 
+                      strokeDasharray="5,5"
+                    />
+                  )}
+                  {currentTool === 'circle' && (
+                    <ellipse 
+                      cx={(selection.x1 + selection.x2) / 2} 
+                      cy={(selection.y1 + selection.y2) / 2} 
+                      rx={Math.abs(selection.x1 - selection.x2) / 2} 
+                      ry={Math.abs(selection.y1 - selection.y2) / 2} 
+                      stroke={strokeColor} 
+                      fill={fillColor} 
+                      strokeWidth={brushSize} 
+                      strokeDasharray="5,5"
+                    />
+                  )}
+                  {currentTool === 'line' && (
+                    <line 
+                      x1={selection.x1} 
+                      y1={selection.y1} 
+                      x2={selection.x2} 
+                      y2={selection.y2} 
+                      stroke={strokeColor} 
+                      strokeWidth={brushSize} 
+                      strokeDasharray="5,5"
+                    />
+                  )}
+                </g>
+              )}
+
               {objects.map(obj => (
                 <g 
                   key={obj.id} 
