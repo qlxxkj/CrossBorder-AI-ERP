@@ -65,7 +65,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
   const [isStandardizing, setIsStandardizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [lastSaved, setLastSaved] = useState<string | null>(null);
   
   const [showImageEditor, setShowImageEditor] = useState(false);
   const [showSourcingModal, setShowSourcingModal] = useState(false);
@@ -102,8 +101,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       }).eq('id', targetListing.id);
       if (error) throw error;
       onUpdate({ ...targetListing, updated_at: new Date().toISOString() });
-      setLastSaved(new Date().toLocaleTimeString());
-    } catch (e: any) { console.error("Save failed:", e); } 
+    } catch (e: any) { console.error("Auto-save failed:", e); } 
     finally { setIsSaving(false); }
   };
 
@@ -111,24 +109,25 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const getFieldValue = (optField: string, cleanField: string) => {
     const isMetric = METRIC_MARKETS.includes(activeMarket);
     
-    const getDefaultUnit = (field: string) => {
-      if (field.includes('weight')) return isMetric ? 'Kilograms' : 'Pounds';
-      if (field.includes('size') || field.includes('unit')) return isMetric ? 'Centimeters' : 'Inches';
-      return '';
-    };
+    // Strict logic for units as requested
+    if (optField.includes('unit')) {
+      if (activeMarket === 'US') {
+        const rawUnit = localListing.cleaned[cleanField];
+        return normalizeUnit(rawUnit);
+      } else {
+        const trans = localListing.translations?.[activeMarket];
+        const transUnit = trans ? (trans as any)[optField] : null;
+        return normalizeUnit(transUnit);
+      }
+    }
 
     if (activeMarket === 'US') {
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
       if (optVal !== undefined && optVal !== null && (Array.isArray(optVal) ? optVal.length > 0 : optVal !== '')) {
-        return optField.includes('unit') ? normalizeUnit(optVal) : optVal;
+        return optVal;
       }
-      
       const cleanVal = (localListing.cleaned as any)[cleanField];
-      if (cleanVal !== undefined && cleanVal !== null) {
-        return cleanField.includes('unit') ? normalizeUnit(cleanVal) : cleanVal;
-      }
-
-      if (optField.includes('unit')) return getDefaultUnit(optField);
+      if (cleanVal !== undefined && cleanVal !== null) return cleanVal;
       if (optField.includes('features')) return ['', '', '', '', ''];
       return '';
     }
@@ -138,7 +137,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
       const val = (trans as any)[optField];
       if (Array.isArray(val) ? val.length > 0 : val !== '') {
-        return optField.includes('unit') ? normalizeUnit(val) : val;
+        return val;
       }
     }
 
@@ -150,7 +149,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return activeMarket === 'JP' ? Math.round(converted) : parseFloat(converted.toFixed(2));
     }
 
-    if (optField.includes('unit')) return getDefaultUnit(optField);
     if (optField.includes('features')) return ['', '', '', '', ''];
 
     return '';
@@ -307,6 +305,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
         
         <div className="flex gap-3">
+          {isSaving && <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[9px] font-black uppercase animate-pulse"><Loader2 className="animate-spin" size={12} /> Syncing</div>}
           <button onClick={handleOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-6 py-2.5 rounded-2xl font-black text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-all uppercase shadow-sm">
             {isOptimizing ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} AI Optimize
           </button>
@@ -374,6 +373,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            type="number" step="0.01" 
                            value={getFieldValue('optimized_price', 'price')}
                            onChange={(e) => updateField('optimized_price', parseFloat(e.target.value))}
+                           onBlur={() => syncToSupabase(localListing)}
                            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl focus:bg-white focus:border-emerald-500 outline-none transition-all" 
                          />
                       </div>
@@ -383,6 +383,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            type="number" step="0.01" 
                            value={getFieldValue('optimized_shipping', 'shipping')}
                            onChange={(e) => updateField('optimized_shipping', parseFloat(e.target.value))}
+                           onBlur={() => syncToSupabase(localListing)}
                            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl focus:bg-white focus:border-blue-500 outline-none transition-all" 
                          />
                       </div>
@@ -392,8 +393,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-amber-500" /> Weight</label>
                          <div className="flex gap-2">
-                           <input type="text" value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
-                           <select value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                           <input 
+                            type="text" 
+                            value={getFieldValue('optimized_weight_value', 'item_weight_value')} 
+                            onChange={e => updateField('optimized_weight_value', e.target.value)} 
+                            onBlur={() => syncToSupabase(localListing)}
+                            className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" 
+                           />
+                           <select 
+                            value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} 
+                            onChange={e => updateField('optimized_weight_unit', e.target.value)} 
+                            onBlur={() => syncToSupabase(localListing)}
+                            className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase"
+                           >
                              <option value="Pounds">Pounds</option>
                              <option value="Kilograms">Kilograms</option>
                              <option value="Ounces">Ounces</option>
@@ -405,11 +417,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Ruler size={14} className="text-indigo-500" /> Dimensions (L / W / H)</label>
                          <div className="flex gap-2">
                            <div className="grid grid-cols-3 gap-1 flex-1">
-                              <input placeholder="L" type="text" value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
-                              <input placeholder="W" type="text" value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
-                              <input placeholder="H" type="text" value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
+                              <input placeholder="L" type="text" value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
+                              <input placeholder="W" type="text" value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
+                              <input placeholder="H" type="text" value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs" />
                            </div>
-                           <select value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                           <select 
+                            value={getFieldValue('optimized_size_unit', 'item_size_unit')} 
+                            onChange={e => updateField('optimized_size_unit', e.target.value)} 
+                            onBlur={() => syncToSupabase(localListing)}
+                            className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase"
+                           >
                              <option value="Inches">Inches</option>
                              <option value="Centimeters">Centimeters</option>
                              <option value="Millimeters">Millimeters</option>
@@ -422,6 +439,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     label="Product Title" icon={<ImageIcon size={14}/>} 
                     value={getFieldValue('optimized_title', 'title')}
                     onChange={v => updateField('optimized_title', v)}
+                    onBlur={() => syncToSupabase(localListing)}
                     limit={200} className="text-xl font-black leading-snug"
                    />
 
@@ -445,6 +463,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                      currentFeatures[i] = e.target.value;
                                      updateField('optimized_features', currentFeatures);
                                    }}
+                                   onBlur={() => syncToSupabase(localListing)}
                                    className={`w-full p-4 bg-slate-50 border rounded-2xl text-sm font-bold leading-relaxed focus:bg-white outline-none transition-all border-slate-200 focus:border-indigo-500`}
                                    placeholder={`Bullet Point ${i+1}...`}
                                  />
@@ -453,6 +472,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                     <button onClick={() => {
                                       const currentFeatures = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
                                       updateField('optimized_features', currentFeatures);
+                                      syncToSupabase({...localListing, optimized: {...localListing.optimized, optimized_features: currentFeatures} as OptimizedData});
                                     }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12}/></button>
                                  </div>
                               </div>
@@ -465,6 +485,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     label="Product Description (HTML)" icon={<FileText size={14}/>} 
                     value={getFieldValue('optimized_description', 'description')}
                     onChange={v => updateField('optimized_description', v)}
+                    onBlur={() => syncToSupabase(localListing)}
                     limit={2000} isMono className="min-h-[250px] text-xs leading-loose"
                    />
 
@@ -472,6 +493,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     label="Search Keywords" icon={<Hash size={14}/>} 
                     value={getFieldValue('search_keywords', 'search_keywords')}
                     onChange={v => updateField('search_keywords', v)}
+                    onBlur={() => syncToSupabase(localListing)}
                     limit={250} className="bg-amber-50/20 border-amber-100 focus:border-amber-400 text-sm font-bold"
                    />
                 </div>
@@ -556,14 +578,14 @@ const EngineBtn = ({ active, onClick, icon, label }: any) => (
   </button>
 );
 
-const EditSection = ({ label, icon, value, onChange, limit, isMono, className }: any) => (
+const EditSection = ({ label, icon, value, onChange, onBlur, limit, isMono, className }: any) => (
   <div className="space-y-3">
     <div className="flex items-center justify-between ml-1">
       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
         {icon} {label}
       </label>
       {limit && (
-        <span className={`text-[9px] font-black uppercase ${(value || '').length > limit ? 'text-red-500' : 'text-slate-400'}`}>
+        <span className={`text-[9px] font-black uppercase ${(value || '').length > limit ? 'text-red-500' : 'text-indigo-600'}`}>
           {(value || '').length} / {limit}
         </span>
       )}
@@ -571,6 +593,7 @@ const EditSection = ({ label, icon, value, onChange, limit, isMono, className }:
     <textarea 
       value={value || ''}
       onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
       className={`w-full p-6 bg-slate-50 border rounded-[2rem] font-bold outline-none transition-all focus:bg-white ${isMono ? 'font-mono' : ''} ${(value || '').length > (limit || 99999) ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200 focus:border-indigo-500'} ${className}`}
     />
   </div>
