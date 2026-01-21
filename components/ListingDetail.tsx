@@ -44,6 +44,7 @@ const normalizeUnit = (unit: string | undefined): string => {
   if (u === 'in' || u === 'inches') return "Inches";
   if (u === 'cm' || u === 'centimeters') return "Centimeters";
   if (u === 'mm' || u === 'millimeters') return "Millimeters";
+  // Default fallback for any other string
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
@@ -77,7 +78,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   useEffect(() => {
     // CRITICAL FIX: Only reset to US if the product ID actually changed.
-    // If it's just an update of the same product, keep current activeMarket.
     if (lastListingId.current !== listing.id) {
       setActiveMarket('US');
       lastListingId.current = listing.id;
@@ -106,7 +106,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         updated_at: new Date().toISOString()
       }).eq('id', targetListing.id);
       if (error) throw error;
-      // Note: App component will update this listing, triggering our useEffect above
       onUpdate({ ...targetListing, updated_at: new Date().toISOString() });
     } catch (e: any) { console.error("Auto-save failed:", e); } 
     finally { setIsSaving(false); }
@@ -114,14 +113,25 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   // Helper: Correct source selection with strict reading from DB
   const getFieldValue = (optField: string, cleanField: string) => {
+    const isMetric = METRIC_MARKETS.includes(activeMarket);
+    
     // 1. Handle units strictly from database
     if (optField.includes('unit')) {
+      let rawUnit = "";
       if (activeMarket === 'US') {
-        return normalizeUnit(localListing.cleaned[cleanField]);
+        rawUnit = localListing.cleaned[cleanField];
       } else {
         const trans = localListing.translations?.[activeMarket];
-        return normalizeUnit(trans ? (trans as any)[optField] : '');
+        rawUnit = trans ? (trans as any)[optField] : '';
       }
+      
+      const normalized = normalizeUnit(rawUnit);
+      if (normalized) return normalized;
+
+      // Fallback defaults if unit is missing in DB
+      if (optField.includes('weight')) return isMetric ? "Kilograms" : "Pounds";
+      if (optField.includes('size')) return isMetric ? "Centimeters" : "Inches";
+      return "";
     }
 
     // 2. Handle US Master values
@@ -162,13 +172,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const nextListing = { ...localListing };
     
     if (activeMarket === 'US') {
+      // If we are on US site, we either update optimized (if it exists) or cleaned
+      const cleanKey = field.startsWith('optimized_') ? field.replace('optimized_', '') : field;
       if (nextListing.status === 'optimized' && nextListing.optimized) {
         nextListing.optimized = { ...nextListing.optimized, [field]: value };
       } else {
-        const cleanKey = field.startsWith('optimized_') ? field.replace('optimized_', '') : field;
         nextListing.cleaned = { ...nextListing.cleaned, [cleanKey]: value };
       }
     } else {
+      // If we are on non-US site, we always update the specific translation
       const currentTranslations = { ...(nextListing.translations || {}) };
       const currentTrans = currentTranslations[activeMarket] || { optimized_title: '', optimized_features: ['', '', '', '', ''], optimized_description: '', search_keywords: '' } as OptimizedData;
       currentTranslations[activeMarket] = { ...currentTrans, [field]: value };
@@ -406,7 +418,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            />
                            <select 
                             value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} 
-                            onChange={e => { updateField('optimized_weight_unit', e.target.value); syncToSupabase({ ...localListing }); }} 
+                            onChange={e => updateField('optimized_weight_unit', e.target.value)} 
+                            onBlur={() => syncToSupabase(localListing)}
                             className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase"
                            >
                              <option value="Pounds">Pounds</option>
@@ -426,7 +439,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            </div>
                            <select 
                             value={getFieldValue('optimized_size_unit', 'item_size_unit')} 
-                            onChange={e => { updateField('optimized_size_unit', e.target.value); syncToSupabase({ ...localListing }); }}
+                            onChange={e => updateField('optimized_size_unit', e.target.value)} 
+                            onBlur={() => syncToSupabase(localListing)}
                             className="w-48 px-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase"
                            >
                              <option value="Inches">Inches</option>
@@ -474,7 +488,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                     <button onClick={() => {
                                       const currentFeatures = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
                                       updateField('optimized_features', currentFeatures);
-                                      // Syncing here manually because clicking a trash button doesn't trigger onBlur on the textarea
+                                      // Manually trigger sync because button click won't trigger onBlur on textareas
                                       const next = { ...localListing };
                                       if (activeMarket === 'US') {
                                         if (next.optimized) next.optimized.optimized_features = currentFeatures;
@@ -594,7 +608,7 @@ const EditSection = ({ label, icon, value, onChange, onBlur, limit, isMono, clas
         {icon} {label}
       </label>
       {limit && (
-        <span className={`text-[9px] font-black uppercase ${(value || '').length > limit ? 'text-red-500' : 'text-indigo-600'}`}>
+        <span className={`text-[9px] font-black uppercase ${(value || '').length > limit ? 'text-red-500' : 'text-slate-400'}`}>
           {(value || '').length} / {limit}
         </span>
       )}
