@@ -71,14 +71,15 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Task: Translate and LOCALIZE the TEXT content of this Amazon listing into "${targetLang}".
+    Task: Translate and LOCALIZE the content for Amazon listing into "${targetLang}".
     
-    [CORE TRANSLATION]
-    1. Translate: Title, 5 Bullets, Description, and Keywords.
-    2. Localize unit names: Translate "Pounds", "Kilograms", "Inches", "Centimeters" into their natural equivalents in "${targetLang}" (e.g., for JP use "キログラム", "センチメートル").
-    3. DO NOT change the numeric values themselves.
-    4. BRAND REMOVAL: Strip all specific brands (e.g., Toyota, Lexus, Bosch, etc.) and replace with generic terms like "compatible vehicles" in "${targetLang}".
-    5. QUALITY: Use natural, high-converting language for the "${targetLang}" market.
+    [STRICT RULES]
+    1. Translate Title, 5 Bullets, Description, and Keywords.
+    2. LOCALIZE UNIT NAMES: You MUST translate "Pounds", "Kilograms", "Inches", "Centimeters" into the native official terminology of "${targetLang}". 
+       - For example, if target is "JP", use "キログラム", "センチメートル", "ポンド", "インチ". 
+       - NEVER leave unit names in English if the target is not English.
+    3. BRAND REMOVAL: Strip specific brands (e.g. Bosch, Toyota) and use generic terms in "${targetLang}".
+    4. Numeric values must remain untouched.
 
     Source: ${JSON.stringify({
       title: sourceData.optimized_title,
@@ -103,10 +104,10 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
             optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
             optimized_description: { type: Type.STRING },
             search_keywords: { type: Type.STRING },
-            optimized_weight_unit: { type: Type.STRING },
-            optimized_size_unit: { type: Type.STRING }
+            optimized_weight_unit: { type: Type.STRING, description: "Localized weight unit name in target language" },
+            optimized_size_unit: { type: Type.STRING, description: "Localized dimension unit name in target language" }
           },
-          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
+          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords", "optimized_weight_unit", "optimized_size_unit"]
         }
       }
     });
