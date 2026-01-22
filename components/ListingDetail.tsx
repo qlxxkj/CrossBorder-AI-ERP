@@ -28,15 +28,14 @@ type AIEngine = 'gemini' | 'openai' | 'deepseek';
 
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
+const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
+const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 const MARKET_LANG_MAP: Record<string, string> = {
   'DE': 'German', 'FR': 'French', 'IT': 'Italian', 'ES': 'Spanish', 
   'JP': 'Japanese', 'PL': 'Polish', 'NL': 'Dutch', 'SE': 'Swedish', 
   'BR': 'Portuguese', 'MX': 'Spanish', 'EG': 'Arabic', 'BE': 'French'
 };
-
-const ENGLISH_MARKETS = ['US', 'UK', 'CA', 'AU', 'SG', 'IE'];
-const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'UK', 'CA', 'MX', 'PL', 'NL', 'SE', 'BE', 'SG', 'AU', 'EG'];
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
@@ -88,27 +87,29 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
+  /**
+   * 核心重构：多站点数据隔离逻辑
+   */
   const getFieldValue = (optField: string, cleanField: string) => {
-    if (activeMarket !== 'US') {
+    if (activeMarket === 'US') {
+      // 主站：显示优化数据或采集数据
+      const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
+      if (optField.includes('features')) {
+        if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && String(v).trim() !== '')) return optVal;
+        return localListing.cleaned?.features || ['', '', '', '', ''];
+      }
+      if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') return optVal;
+      return (localListing.cleaned as any)[cleanField] || '';
+    } else {
+      // 非主站：仅显示翻译数据，翻译前默认为空
       const trans = localListing.translations?.[activeMarket];
       if (trans) {
         const val = (trans as any)[optField];
-        if (Array.isArray(val) && val.length > 0 && val.some(v => v && String(v).trim() !== '')) return val;
-        if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+        if (optField.includes('features')) return Array.isArray(val) ? val : ['', '', '', '', ''];
+        return val !== undefined && val !== null ? String(val) : '';
       }
+      return optField.includes('features') ? ['', '', '', '', ''] : '';
     }
-
-    const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
-    const cleanVal = (localListing.cleaned as any)[cleanField];
-
-    if (optField.includes('features')) {
-      if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && String(v).trim() !== '')) return optVal;
-      if (Array.isArray(cleanVal) && cleanVal.length > 0) return cleanVal;
-      return ['', '', '', '', ''];
-    }
-
-    if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') return optVal;
-    return cleanVal !== undefined && cleanVal !== null ? String(cleanVal) : '';
   };
 
   const updateField = (field: string, value: any) => {
@@ -125,15 +126,67 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     onUpdate(nextListing);
   };
 
+  const uploadImageToHost = async (dataUrlOrFile: string | File, asin: string): Promise<string> => {
+    let file: File;
+    if (typeof dataUrlOrFile === 'string') {
+      const res = await fetch(dataUrlOrFile);
+      const blob = await res.blob();
+      file = new File([blob], `${asin}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+    } else { file = dataUrlOrFile; }
+    const formDataBody = new FormData();
+    formDataBody.append('file', file);
+    const response = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formDataBody });
+    const data = await response.json();
+    return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+  };
+
+  const handleBatchStandardize = async () => {
+    setIsStandardizing(true);
+    try {
+      const nextListing = { ...localListing };
+      const allImgs = [nextListing.cleaned.main_image, ...(nextListing.cleaned.other_images || [])].filter(Boolean) as string[];
+      const processed: string[] = [];
+      for (const url of allImgs) {
+        const hostedUrl = await uploadImageToHost(url, localListing.asin);
+        processed.push(hostedUrl);
+      }
+      nextListing.cleaned.main_image = processed[0];
+      nextListing.cleaned.other_images = processed.slice(1);
+      setLocalListing(nextListing); setPreviewImage(processed[0]); onUpdate(nextListing); await syncToSupabase(nextListing);
+    } catch (e) { alert("Standardize failed"); } 
+    finally { setIsStandardizing(false); }
+  };
+
+  const handleAddImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsSaving(true);
+    try {
+      const url = await uploadImageToHost(file, localListing.asin);
+      const nextListing = { ...localListing };
+      nextListing.cleaned.other_images = [...(nextListing.cleaned.other_images || []), url];
+      setLocalListing(nextListing); onUpdate(nextListing); await syncToSupabase(nextListing);
+    } catch (err) { alert("Upload failed"); } 
+    finally { setIsSaving(false); if (e.target) e.target.value = ''; }
+  };
+
   const handleOptimize = async () => {
     setIsOptimizing(true);
     try {
+      const sourceData = localListing.cleaned!;
       let opt: OptimizedData;
-      if (engine === 'openai') opt = await optimizeListingWithOpenAI(localListing.cleaned!);
-      else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(localListing.cleaned!);
-      else opt = await optimizeListingWithAI(localListing.cleaned!);
-      const updated: Listing = { ...localListing, status: 'optimized', optimized: opt };
-      setLocalListing(updated); onUpdate(updated); await syncToSupabase(updated);
+      if (engine === 'openai') opt = await optimizeListingWithOpenAI(sourceData);
+      else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(sourceData);
+      else opt = await optimizeListingWithAI(sourceData);
+      
+      const updatedListing = { ...localListing };
+      if (activeMarket === 'US') {
+        updatedListing.optimized = opt;
+        updatedListing.status = 'optimized';
+      } else {
+        updatedListing.translations = { ...(updatedListing.translations || {}), [activeMarket]: opt };
+      }
+      setLocalListing(updatedListing); onUpdate(updatedListing); await syncToSupabase(updatedListing);
     } catch (e: any) { alert(`Failed: ${e.message}`); } 
     finally { setIsOptimizing(false); }
   };
@@ -146,43 +199,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_title: localListing.cleaned.title,
         optimized_features: localListing.cleaned.features || [],
         optimized_description: localListing.cleaned.description || '',
-        search_keywords: localListing.cleaned.search_keywords || '',
-        optimized_weight_value: localListing.cleaned.item_weight_value,
-        optimized_weight_unit: localListing.cleaned.item_weight_unit,
-        optimized_length: localListing.cleaned.item_length,
-        optimized_width: localListing.cleaned.item_width,
-        optimized_height: localListing.cleaned.item_height,
-        optimized_size_unit: localListing.cleaned.item_size_unit
+        search_keywords: localListing.cleaned.search_keywords || ''
       } as OptimizedData;
       
+      const targetLang = MARKET_LANG_MAP[marketCode] || 'English';
       let trans: Partial<OptimizedData>;
-      const targetLang = MARKET_LANG_MAP[marketCode];
-
-      // 优化：如果是英语站点，直接同步并换算，不调用 AI 翻译节省点数
-      if (ENGLISH_MARKETS.includes(marketCode) || !targetLang) {
-          trans = { ...sourceData };
-      } else {
-          if (engine === 'openai') trans = await translateListingWithOpenAI(sourceData, targetLang);
-          else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceData, targetLang);
-          else trans = await translateListingWithAI(sourceData, targetLang);
-      }
+      if (engine === 'openai') trans = await translateListingWithOpenAI(sourceData, targetLang);
+      else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceData, targetLang);
+      else trans = await translateListingWithAI(sourceData, targetLang);
       
-      // 物流单位与价格换算逻辑
-      const isMetric = METRIC_MARKETS.includes(marketCode);
-      const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
-      
-      const finalTrans = {
-          ...trans,
-          optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
-          optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2)),
-          // 简易单位换算 (lb -> kg, in -> cm)
-          optimized_weight_value: isMetric && sourceData.optimized_weight_unit?.toLowerCase().includes('lb') 
-            ? (parseFloat(sourceData.optimized_weight_value || '0') * 0.453).toFixed(2) : sourceData.optimized_weight_value,
-          optimized_weight_unit: isMetric ? (marketCode === 'JP' ? 'キログラム' : 'kg') : 'lb'
-      };
-
       const nextListing = { ...localListing };
-      nextListing.translations = { ...(nextListing.translations || {}), [marketCode]: finalTrans as OptimizedData };
+      nextListing.translations = { ...(nextListing.translations || {}), [marketCode]: trans as OptimizedData };
       setLocalListing(nextListing); onUpdate(nextListing);
     } catch (e) { console.error(e); } 
     finally { setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(marketCode); return n; }); }
@@ -190,9 +217,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleBatchTranslate = async () => {
     setIsBatchTranslating(true);
-    for (const mkt of AMAZON_MARKETPLACES) {
-      if (mkt.code !== 'US') await translateMarket(mkt.code);
-    }
+    for (const mkt of AMAZON_MARKETPLACES) { if (mkt.code !== 'US') await translateMarket(mkt.code); }
     setIsBatchTranslating(false);
   };
 
@@ -214,24 +239,34 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
              ))}
           </div>
         </div>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
           <button onClick={handleOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-6 py-2.5 rounded-2xl font-black text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-all uppercase shadow-sm">
             {isOptimizing ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} AI Optimize
           </button>
-          <button onClick={() => syncToSupabase(localListing)} disabled={isSaving} className="flex items-center gap-2 px-8 py-2.5 rounded-2xl font-black text-xs text-white bg-slate-900 hover:bg-black shadow-xl uppercase tracking-widest transition-all">
-            {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} {t('save')}
-          </button>
+          <div className="flex items-center bg-slate-900 rounded-2xl p-0.5 shadow-xl">
+             <button onClick={() => syncToSupabase(localListing)} disabled={isSaving} className="flex items-center gap-2 px-8 py-2.5 rounded-2xl font-black text-xs text-white hover:bg-black transition-all uppercase tracking-widest">
+               {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} {t('save')}
+             </button>
+             <div className="w-px h-6 bg-white/10 mx-1"></div>
+             <button onClick={onNext} className="p-2.5 text-white hover:bg-white/10 rounded-2xl transition-all" title="Next Listing">
+                <ChevronRight size={18} />
+             </button>
+          </div>
         </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
+          {/* 左侧：图片管理 + 搜货 */}
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
                 <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
                    <img src={previewImage} className="max-w-full max-h-full object-contain transition-transform duration-700 group-hover:scale-110" />
                    <div className="absolute bottom-4 right-4 flex gap-2">
+                      <button onClick={handleBatchStandardize} disabled={isStandardizing} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all">
+                        {isStandardizing ? <Loader2 className="animate-spin" size={12} /> : <Box size={12} />} 1600 Std
+                      </button>
                       <button onClick={() => setShowImageEditor(true)} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all">
                          <Wand2 size={12} /> AI Editor
                       </button>
@@ -242,13 +277,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                      <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
                         <img src={img} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                           <button onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} className="p-1 text-white hover:text-amber-400"><Star size={12} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} /></button>
-                           <button onClick={(e) => { e.stopPropagation(); const others = (localListing.cleaned.other_images || []).filter(u => u !== img); updateField('other_images', others); }} className="p-1 text-white hover:text-red-400"><Trash2 size={12} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} className="p-1 text-white hover:text-amber-400" title="Set as Main"><Star size={12} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); const others = (localListing.cleaned.other_images || []).filter(u => u !== img); updateField('other_images', others); }} className="p-1 text-white hover:text-red-400" title="Delete"><Trash2 size={12} /></button>
                         </div>
                      </div>
                    ))}
                    <button onClick={() => fileInputRef.current?.click()} className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-600 transition-all shrink-0"><Plus size={20} /></button>
-                   <input type="file" ref={fileInputRef} className="hidden" accept="image/*" />
+                   <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAddImage} />
                 </div>
              </div>
 
@@ -278,6 +313,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
              </div>
           </div>
 
+          {/* 右侧：编辑器 */}
           <div className="lg:col-span-8">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="px-10 py-6 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between gap-6">
@@ -308,7 +344,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </div>
                    </div>
 
-                   {/* 物流字段区域 */}
                    <div className="grid grid-cols-2 gap-8 pt-4 border-t border-slate-50">
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} /> Item Weight</label>
@@ -328,12 +363,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </div>
                    </div>
 
-                   <EditSection 
-                    label="Product Title" icon={<ImageIcon size={14}/>} 
-                    value={getFieldValue('optimized_title', 'title')}
-                    onChange={v => updateField('optimized_title', v)}
-                    limit={200} className="text-xl font-black"
-                   />
+                   <EditSection label="Product Title" icon={<ImageIcon size={14}/>} value={getFieldValue('optimized_title', 'title')} onChange={v => updateField('optimized_title', v)} limit={200} className="text-xl font-black" />
 
                    <div className="space-y-4">
                       <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullets)</label>
