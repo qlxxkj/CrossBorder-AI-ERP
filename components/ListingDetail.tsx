@@ -12,7 +12,7 @@ import { SourcingFormModal } from './SourcingFormModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
 import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
-import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
+import { optimizeListingWithOpenAI as optimizeListingWithDeepSeek, translateListingWithOpenAI as translateListingWithDeepSeek } from '../services/deepseekService';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
 
 interface ListingDetailProps {
@@ -29,7 +29,7 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 /**
- * 亚马逊官方上传模板单位本地化格式映射
+ * 亚马逊官方模板单位本地化格式映射 - 严格遵循各站点 Sentence Case 全称
  */
 const mapStandardUnit = (unit: string, market: string) => {
   const u = unit.toLowerCase().trim();
@@ -39,33 +39,50 @@ const mapStandardUnit = (unit: string, market: string) => {
     const jp: Record<string, string> = { 
       'kg': 'キログラム', 'kilogram': 'キログラム', 
       'cm': 'センチメートル', 'centimeter': 'センチメートル', 
-      'lb': 'ポンド', 'pound': 'ポンド', 
-      'in': 'インチ', 'inch': 'インチ', 
-      'oz': 'オンス', 'ounce': 'オンス',
-      'g': 'グラム', 'gram': 'グラム'
+      'lb': 'ポンド', 'in': 'インチ', 'oz': 'オンス', 'g': 'グラム' 
     };
     return jp[u] || unit;
   }
-  // 2. 拉美 (MX, BR) / 西语 (ES)
-  if (['MX', 'BR', 'ES'].includes(market)) {
-    const latinExt: Record<string, string> = { 
-      'kg': 'Kilogramos', 'cm': 'Centímetros', 
-      'lb': 'Libras', 'in': 'Pulgadas', 
-      'oz': 'Onzas', 'g': 'Gramos' 
+  
+  // 2. 德语站点
+  if (market === 'DE') {
+    const de: Record<string, string> = {
+      'kg': 'Kilogramm', 'kilogram': 'Kilogramm',
+      'cm': 'Zentimeter', 'centimeter': 'Zentimeter',
+      'lb': 'Pfund', 'oz': 'Unze'
     };
-    return latinExt[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
+    return de[u] || unit;
   }
-  // 3. 阿拉伯
+
+  // 3. 法语站点
+  if (['FR', 'BE'].includes(market)) {
+    const fr: Record<string, string> = {
+      'kg': 'Kilogrammes', 'kilogram': 'Kilogrammes',
+      'cm': 'Centimètres', 'centimeter': 'Centimètres',
+      'lb': 'Livres', 'oz': 'Onces'
+    };
+    return fr[u] || unit;
+  }
+
+  // 4. 拉美 (MX, BR) / 西语 (ES)
+  if (['MX', 'BR', 'ES'].includes(market)) {
+    const es: Record<string, string> = { 
+      'kg': 'Kilogramos', 'cm': 'Centímetros', 
+      'lb': 'Libras', 'in': 'Pulgadas', 'oz': 'Onzas', 'g': 'Gramos' 
+    };
+    return es[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
+  }
+  
+  // 5. 阿拉伯
   if (['EG', 'SA', 'AE'].includes(market)) {
     const ar: Record<string, string> = { 
       'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 
-      'lb': 'رطل', 'in': 'بوصة', 
-      'oz': 'أوقية', 'g': 'جرام' 
+      'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية', 'g': 'جرام' 
     };
     return ar[u] || unit;
   }
   
-  // 4. 标准拉丁语系 (US, UK, DE, FR, etc.)
+  // 6. 其他欧美站点 (US, UK, CA, etc.)
   const latin: Record<string, string> = {
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
     'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
@@ -75,6 +92,70 @@ const mapStandardUnit = (unit: string, market: string) => {
     'g': 'Grams', 'gram': 'Grams', 'grams': 'Grams'
   };
   return latin[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
+};
+
+// Fix: Implemented missing standardizeImage function for canvas-based image processing and re-upload
+const standardizeImage = async (imageUrl: string): Promise<string> => {
+  if (!imageUrl) return "";
+  
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
+    
+    img.onload = async () => {
+      const canvas = document.createElement('canvas');
+      const targetSize = 1600;
+      const safeArea = 1500;
+      canvas.width = targetSize;
+      canvas.height = targetSize;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(imageUrl);
+        return;
+      }
+      
+      // White background
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, targetSize, targetSize);
+      
+      // Calculate scaling to fit safe area
+      const scale = Math.min(safeArea / img.width, safeArea / img.height);
+      const drawW = img.width * scale;
+      const drawH = img.height * scale;
+      const offsetX = (targetSize - drawW) / 2;
+      const offsetY = (targetSize - drawH) / 2;
+      
+      ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+      
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          resolve(imageUrl);
+          return;
+        }
+        
+        try {
+          const file = new File([blob], `std_${Date.now()}.jpg`, { type: 'image/jpeg' });
+          const fd = new FormData();
+          fd.append('file', file);
+          
+          const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
+          const data = await res.json();
+          const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+          resolve(u || imageUrl);
+        } catch (e) {
+          console.error("Standardize upload failed", e);
+          resolve(imageUrl);
+        }
+      }, 'image/jpeg', 0.9);
+    };
+    
+    img.onerror = () => {
+      console.error("Failed to load image for standardization", imageUrl);
+      resolve(imageUrl);
+    };
+  });
 };
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
@@ -141,47 +222,20 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  const standardizeImage = async (url: string): Promise<string> => {
-    if (!url) return "";
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = url.startsWith('http') ? `${CORS_PROXY}${encodeURIComponent(url)}` : url;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1600; canvas.height = 1600;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return resolve(url);
-        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, 1600, 1600);
-        const scale = Math.min(1500 / img.width, 1500 / img.height);
-        const w = img.width * scale, h = img.height * scale;
-        ctx.drawImage(img, (1600 - w) / 2, (1600 - h) / 2, w, h);
-        canvas.toBlob(async (blob) => {
-          if (!blob) return resolve(url);
-          const fd = new FormData(); fd.append('file', new File([blob], `std_${Date.now()}.jpg`, { type: 'image/jpeg' }));
-          const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
-          const data = await res.json();
-          resolve(Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url || url);
-        }, 'image/jpeg', 0.9);
-      };
-      img.onerror = () => resolve(url);
-    });
-  };
-
   /**
-   * 智能物流换算引擎 - 强制溯源 Master 站点数据
+   * 智能物流换算引擎 - 强制非美站点公制化 & 溯源 Master
    */
   const performLogisticsConversion = (targetMkt: string) => {
-    // 强制回溯基准：优先 Master (US) 优化版，其次采集原始版
     const optMaster = localListing.optimized;
     const cleanMaster = localListing.cleaned;
-    const isMetric = !['US', 'CA', 'UK'].includes(targetMkt);
     
-    // 识别输入端的物理基准单位
+    // 强制公制化判定：只要不是 US 站点（含加拿大 CA、英国 UK），一律转为公制
+    const isMetric = targetMkt !== 'US';
+    
+    // 溯源 Master：优先取优化后的基准，其次采集版
     const sourceUnitW = String(optMaster?.optimized_weight_unit || cleanMaster.item_weight_unit || "lb").toLowerCase();
     const sourceUnitS = String(optMaster?.optimized_size_unit || cleanMaster.item_size_unit || "in").toLowerCase();
     
-    // 识别输入端的物理基准数值
     const sourceValW = optMaster?.optimized_weight_value || cleanMaster.item_weight_value || "";
     const sourceL = optMaster?.optimized_length || cleanMaster.item_length || "";
     const sourceW = optMaster?.optimized_width || cleanMaster.item_width || "";
@@ -199,28 +253,25 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
     let finalW = String(sourceValW), finalL = String(sourceL), finalWd = String(sourceW), finalH = String(sourceH);
 
-    // 核心换算逻辑
     if (isMetric) {
-      // 目标市场要求公制 (KG / CM)
-      // 处理重量换算
+      // 换算至公制 (KG / CM)
       if (sourceUnitW.includes('lb') || sourceUnitW.includes('pound')) {
         finalW = nW > 0 ? (nW * 0.453592).toFixed(2) : "";
       } else if (sourceUnitW.includes('oz') || sourceUnitW.includes('ounce')) {
-        finalW = nW > 0 ? (nW * 0.0283495).toFixed(3) : ""; // 高精度 Ounce 换算系数
+        finalW = nW > 0 ? (nW * 0.0283495).toFixed(3) : ""; 
       } else if (sourceUnitW.includes('g') && !sourceUnitW.includes('k')) {
         finalW = nW > 0 ? (nW / 1000).toFixed(3) : "";
       } else {
         finalW = nW > 0 ? nW.toString() : "";
       }
       
-      // 处理尺寸换算
       if (sourceUnitS.includes('in') || sourceUnitS.includes('inch')) {
         finalL = nL > 0 ? (nL * 2.54).toFixed(2) : "";
         finalWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : "";
         finalH = nH > 0 ? (nH * 2.54).toFixed(2) : "";
       }
     } else {
-      // 目标市场要求英制 (Pounds / Inches)
+      // 换算至英制 (针对 US 站点)
       if (sourceUnitW.includes('kg') || sourceUnitW.includes('kilogram')) {
         finalW = nW > 0 ? (nW / 0.453592).toFixed(2) : "";
       } else if (sourceUnitW.includes('g')) {
@@ -256,7 +307,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(source, targetLang);
       else trans = await translateListingWithAI(source, targetLang);
       
-      // AI 翻译完成后，强制重新计算物流换算
+      // 自动触发换算逻辑
       const logistics = performLogisticsConversion(code);
       const rate = exchangeRates.find(r => r.marketplace === code)?.rate || 1;
       
@@ -292,7 +343,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleRecalculateCurrent = () => {
     const results = performLogisticsConversion(activeMarket);
-    // 关键：批量状态更新
+    // 使用函数式更新确保状态即时生效
     setLocalListing(prev => {
       const next = { ...prev };
       const trans = { ...(next.translations || {}) };
@@ -322,7 +373,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
              <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={updateField} isSaving={isSaving} isProcessing={isProcessingImages} onStandardizeAll={async () => { setIsProcessingImages(true); const newMain = await standardizeImage(localListing.cleaned.main_image || ''); const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImage(u))); updateField('main_image', newMain); updateField('other_images', newOthers); setPreviewImage(newMain); setIsProcessingImages(false); }} onStandardizeOne={(u) => standardizeImage(u).then(n => { if(u === localListing.cleaned.main_image) { updateField('main_image', n); setPreviewImage(n); } else { updateField('other_images', localListing.cleaned.other_images?.map(x => x === u ? n : x)); } })} setShowEditor={setShowImageEditor} fileInputRef={fileInputRef} />
-             <ListingSourcingSection listing={localListing} updateField={updateField} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
+             <ListingSourcingSection listing={localListing} updateField={updateField} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingRecord} />
           </div>
           <div className="lg:col-span-8">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">

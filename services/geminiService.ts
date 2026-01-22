@@ -9,13 +9,14 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and con
 1. Keys: optimized_title, optimized_features (array of 5-10), optimized_description, search_keywords.
 2. Measurements: optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
 3. [IMPORTANT] Units: Always use FULL WORDS for units in the TARGET language. 
-   - For English/Latin: Use Sentence Case (e.g., "Kilograms", "Pounds", "Centimeters", "Inches").
-   - For Mexico/Brazil/Spain: Use "Kilogramos", "Centímetros", "Libras", "Pulgadas".
-   - For Japan: Use Japanese Full Width characters (e.g., "キログラム", "センチメートル", "ポンド", "インチ").
-   - For Arabic: Use Arabic script (e.g., "كيلوجرام", "سنتيمتر", "رطل", "بوصة").
+   - For English/Latin (US): Use "Pounds", "Inches".
+   - For English/Latin (CA/UK/Others): Use "Kilograms", "Centimeters". 
+   - For Mexico/Brazil/Spain: Use "Kilogramos", "Centímetros".
+   - For Japan: Use Japanese Full Width characters (e.g., "キログラム", "センチメートル").
+   - For Arabic: Use Arabic script (e.g., "كيلوجرام", "سنتيمتر").
 4. PROHIBITED: 
    - No Brand Names.
-   - NO Car or Motorcycle Brand Names (e.g., BMW, Toyota, Mercedes, Tesla, Honda, Yamaha, Kawasaki, Ducati, etc.) to avoid trademark issues.
+   - NO Car or Motorcycle Brand Names (e.g., BMW, Toyota, Mercedes, Tesla, Honda, Yamaha, Kawasaki, Ducati, etc.).
    - No Extreme Words (Best, Perfect, etc.).
 
 Return ONLY a flat JSON object.
@@ -77,10 +78,10 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     2. RETURN ONLY JSON. 
     3. NO Car or Motorcycle Brands.
     4. [UNIT RULE]: Use the FULL NAME of the unit in the "${targetLangName}" language.
-       - Japanese: "キログラム", "センチメートル", "ポンド", "インチ".
-       - Arabic: "كيلوجرام", "سنتيمتر", "رطل", "بوصة".
-       - Latin (ES/PT/MX): "Kilogramos", "Centímetros", "Libras", "Pulgadas".
-       - English/Others: "Kilograms", "Pounds", "Centimeters", "Inches".
+       - Japanese: "キログラム", "センチメートル".
+       - Arabic: "كيلوجرام", "سنتيمتر".
+       - Latin (ES/PT/MX): "Kilogramos", "Centímetros".
+       - English (Non-US): "Kilograms", "Centimeters".
     Data: ${JSON.stringify(sourceData)}
   `;
   try {
