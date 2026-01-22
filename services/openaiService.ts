@@ -25,7 +25,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
        - Format numbers to 2 decimal places.
 
     [CRITICAL - BRAND REMOVAL RULE]
-    - STRICT: Remove ALL specific brand names (e.g. Bosch, Toyota, Lexus) from the output.
+    - STRICT: Remove ALL specific brand names from the output.
     - REPLACE brands with generic terms like "select vehicles", "specified models", or "compatible vehicle series".
     
     Return valid JSON.
@@ -34,20 +34,18 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
-  try {
-    const response = await fetch(finalUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: model,
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" }
-      })
-    });
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message || "OpenAI API Error");
-    return JSON.parse(data.choices[0].message.content) as OptimizedData;
-  } catch (error: any) { throw error; }
+  const response = await fetch(finalUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    })
+  });
+  const data = await response.json();
+  if (data.error) throw new Error(data.error.message || "OpenAI API Error");
+  return JSON.parse(data.choices[0].message.content) as OptimizedData;
 };
 
 export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLang: string): Promise<Partial<OptimizedData>> => {
@@ -55,8 +53,6 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const model = process.env.OPENAI_MODEL || "gpt-4o";
   
-  if (!apiKey) throw new Error("OpenAI API Key is missing.");
-
   const prompt = `
     Task: Translate and LOCALIZE the content for Amazon listing into "${targetLang}".
     
@@ -82,17 +78,15 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
-  try {
-    const response = await fetch(finalUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: model,
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" }
-      })
-    });
-    const data = await response.json();
-    return JSON.parse(data.choices[0].message.content);
-  } catch (error: any) { throw error; }
+  const response = await fetch(finalUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    })
+  });
+  const data = await response.json();
+  return JSON.parse(data.choices[0].message.content);
 };

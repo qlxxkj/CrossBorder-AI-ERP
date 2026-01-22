@@ -2,7 +2,12 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
+/**
+ * Optimizes an Amazon listing using Gemini 3 Flash model.
+ * Follows strict branding and formatting rules.
+ */
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
+  // Always create a new GoogleGenAI instance right before making an API call to ensure it uses the most up-to-date API key.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
@@ -20,7 +25,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
        - Format numbers to 2 decimal places.
 
     [CRITICAL - BRAND REMOVAL RULE]
-    - STRICT: Remove ALL specific brand names from the output.
+    - STRICT: Remove ALL specific brand names (e.g. Bosch, Toyota) from the output.
     - REPLACE brands with generic terms like "select vehicles", "specified models", or "compatible vehicle series".
     
     Return valid JSON.
@@ -51,23 +56,24 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
       }
     });
 
-    if (!response.candidates || response.candidates.length === 0) {
-      throw new Error("Gemini returned no response candidates.");
-    }
-
+    // The text property returns the generated string directly.
     const text = response.text || "{}";
     return JSON.parse(text.trim()) as OptimizedData;
   } catch (error: any) {
+    // If the request fails with "Requested entity was not found.", prompt the user to select a key again.
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
       if (aistudio) aistudio.openSelectKey();
     }
-    console.error("AI Optimization failed:", error);
     throw error;
   }
 };
 
+/**
+ * Translates and localizes an Amazon listing using Gemini 3 Flash model.
+ */
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLang: string): Promise<Partial<OptimizedData>> => {
+  // Always create a new GoogleGenAI instance right before making an API call to ensure it uses the most up-to-date API key.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
@@ -105,120 +111,69 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
             optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
             optimized_description: { type: Type.STRING },
             search_keywords: { type: Type.STRING },
-            optimized_weight_unit: { type: Type.STRING, description: "Localized weight unit name in target language" },
-            optimized_size_unit: { type: Type.STRING, description: "Localized dimension unit name in target language" }
+            optimized_weight_unit: { type: Type.STRING },
+            optimized_size_unit: { type: Type.STRING }
           },
           required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords", "optimized_weight_unit", "optimized_size_unit"]
         }
       }
     });
 
+    // Directly access text property as per guidelines
     const text = response.text || "{}";
     return JSON.parse(text.trim());
   } catch (error: any) {
+    // If the request fails with "Requested entity was not found.", prompt the user to select a key again.
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
       if (aistudio) aistudio.openSelectKey();
     }
-    console.error(`Gemini Translation failed:`, error);
     throw error;
   }
 };
 
-export const search1688WithAI = async (productTitle: string, imageUrl: string): Promise<any[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const prompt = `
-    Use Google Search to find exactly 4 REAL wholesale product listings on 1688.com that match this item:
-    Title: "${productTitle}"
-    Image context: ${imageUrl}
-
-    Instructions:
-    1. Find exact or very similar items on 1688.com.
-    2. Return a JSON array of objects.
-    3. Each object MUST have: "title" (product name), "price" (approximate price in CNY), "image" (thumbnail URL), "link" (1688 product URL).
-    4. Return ONLY the raw JSON.
-  `;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview", 
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              price: { type: Type.STRING },
-              image: { type: Type.STRING },
-              link: { type: Type.STRING }
-            },
-            required: ["title", "price", "image", "link"]
-          }
-        }
-      }
-    });
-
-    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const webSources = chunks.filter((c: any) => c.web?.uri).map((c: any) => c.web.uri);
-    if (webSources.length > 0) {
-      console.log("Sources identified by Gemini:", webSources);
-    }
-
-    const text = response.text || "[]";
-    return JSON.parse(text.trim());
-  } catch (error: any) {
-    if (error.message?.includes("Requested entity was not found.")) {
-      const aistudio = (window as any).aistudio;
-      if (aistudio) aistudio.openSelectKey();
-    }
-    console.error("AI 1688 Sourcing failed:", error);
-    return [];
-  }
-};
-
-export const editImageWithAI = async (base64ImageData: string, prompt: string): Promise<string> => {
+/**
+ * Edits an image using the gemini-2.5-flash-image model.
+ * This function handles sending both image and text parts to the model.
+ */
+export const editImageWithAI = async (base64Image: string, prompt: string): Promise<string> => {
+  // Always create a new GoogleGenAI instance right before making an API call to ensure it uses the most up-to-date API key.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
+    const imagePart = {
+      inlineData: {
+        mimeType: 'image/jpeg',
+        data: base64Image,
+      },
+    };
+    const textPart = {
+      text: prompt
+    };
+    
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: base64ImageData,
-              mimeType: 'image/jpeg',
-            },
-          },
-          {
-            text: prompt,
-          },
-        ],
-      },
+      contents: { parts: [imagePart, textPart] },
     });
 
-    if (!response.candidates || response.candidates.length === 0) {
-      throw new Error("Gemini returned no response candidates for image editing.");
+    if (!response.candidates?.[0]?.content?.parts) {
+      throw new Error("Empty response from AI");
     }
 
+    // Find and return the image part from the response candidates.
     for (const part of response.candidates[0].content.parts) {
       if (part.inlineData) {
         return part.inlineData.data;
       }
     }
     
-    throw new Error("No image data returned from Gemini in response parts.");
+    throw new Error("No image data returned in AI response");
   } catch (error: any) {
+    // Handle API key selection reset for "Requested entity was not found." error.
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
       if (aistudio) aistudio.openSelectKey();
     }
-    console.error("AI Image Editing failed:", error);
     throw error;
   }
 };

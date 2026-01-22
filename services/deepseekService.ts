@@ -25,7 +25,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
        - Format numbers to 2 decimal places.
 
     [CRITICAL - BRAND REMOVAL RULE]
-    - STRICT: Remove ALL specific brand names (e.g. Bosch, Toyota, Lexus) from the output.
+    - STRICT: Remove ALL specific brand names from the output.
     - REPLACE brands with generic terms like "select vehicles", "specified models", or "compatible vehicle series".
     
     Return valid JSON.
@@ -34,19 +34,17 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
-  try {
-    const response = await fetch(finalUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: model,
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" }
-      })
-    });
-    const data = await response.json();
-    return JSON.parse(data.choices[0].message.content) as OptimizedData;
-  } catch (error: any) { throw error; }
+  const response = await fetch(finalUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    })
+  });
+  const data = await response.json();
+  return JSON.parse(data.choices[0].message.content) as OptimizedData;
 };
 
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLang: string): Promise<Partial<OptimizedData>> => {
@@ -54,8 +52,6 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const model = process.env.DEEPSEEK_MODEL || "deepseek-chat";
   
-  if (!apiKey) throw new Error("DeepSeek API Key is missing.");
-
   const prompt = `
     Task: Translate and LOCALIZE the content for Amazon listing into "${targetLang}".
     
@@ -81,17 +77,15 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
-  try {
-    const response = await fetch(finalUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: model,
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" }
-      })
-    });
-    const data = await response.json();
-    return JSON.parse(data.choices[0].message.content);
-  } catch (error: any) { throw error; }
+  const response = await fetch(finalUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    })
+  });
+  const data = await response.json();
+  return JSON.parse(data.choices[0].message.content);
 };

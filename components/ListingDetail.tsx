@@ -115,21 +115,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const getFieldValue = (optField: string, cleanField: string) => {
-    // 核心改进：内部辅助函数处理主站/回退逻辑
     const getUSValue = () => {
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
       
-      // 处理五点描述
       if (optField.includes('features')) {
         if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && v.trim() !== '')) {
           return optVal;
         }
-        const cleanFeatures = localListing.cleaned.features;
-        if (Array.isArray(cleanFeatures) && cleanFeatures.length > 0) return cleanFeatures;
-        return ['', '', '', '', ''];
+        return localListing.cleaned.features || ['', '', '', '', ''];
       }
 
-      // 处理普通字符串
       if (optVal !== undefined && optVal !== null && typeof optVal === 'string' && optVal.trim() !== '') {
         return optVal;
       }
@@ -137,17 +132,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const cleanVal = (localListing.cleaned as any)[cleanField];
       if (cleanVal !== undefined && cleanVal !== null && String(cleanVal).trim() !== '') return cleanVal;
       
-      return '';
+      return optField.includes('features') ? ['', '', '', '', ''] : '';
     };
 
-    if (activeMarket === 'US') {
-      return getUSValue();
-    }
+    if (activeMarket === 'US') return getUSValue();
 
     const trans = localListing.translations?.[activeMarket];
     if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
       const val = (trans as any)[optField];
-      // 如果是数组，需确保有非空内容；如果是字符串，需非空
       if (Array.isArray(val) ? (val.length > 0 && val.some(v => v && v.trim() !== '')) : (val !== '' && val !== undefined)) {
         return val;
       }
@@ -160,7 +152,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return activeMarket === 'JP' ? Math.round(converted) : parseFloat(converted.toFixed(2));
     }
     
-    // 如果分站点无数据，回退至主站/原始数据
     return getUSValue();
   };
 
@@ -180,6 +171,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       nextListing.translations = currentTranslations;
     }
     setLocalListing(nextListing);
+    onUpdate(nextListing); // 通知父级
   };
 
   const handleBatchStandardize = async () => {
@@ -244,12 +236,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else opt = await optimizeListingWithAI(localListing.cleaned!);
       const updated: Listing = { ...localListing, status: 'optimized', optimized: opt };
       setLocalListing(updated);
+      onUpdate(updated);
       await syncToSupabase(updated);
     } catch (e: any) { alert(`AI Optimization failed: ` + e.message); } 
     finally { setIsOptimizing(false); }
   };
 
-  // 核心改进：单站点翻译函数
   const translateMarket = async (marketCode: string) => {
     if (marketCode === 'US') return;
     setTranslatingMarkets(prev => new Set(prev).add(marketCode));
@@ -276,10 +268,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const rawH = parseFloat(localListing.optimized?.optimized_height || localListing.cleaned.item_height || '0');
 
         const getFallbackUnit = (mkt: string, type: 'weight' | 'size') => {
-          const metric = METRIC_MARKETS.includes(mkt);
           if (mkt === 'JP') return type === 'weight' ? 'キログラム' : 'センチメートル';
-          if (metric) return type === 'weight' ? 'Kilograms' : 'Centimeters';
-          return type === 'weight' ? 'Pounds' : 'Inches';
+          return METRIC_MARKETS.includes(mkt) ? (type === 'weight' ? 'Kilograms' : 'Centimeters') : (type === 'weight' ? 'Pounds' : 'Inches');
         };
 
         const updatedTrans = {
@@ -296,13 +286,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
         setLocalListing(prev => {
           const next = { ...prev };
-          const currentTranslations = { ...(next.translations || {}) };
-          currentTranslations[marketCode] = updatedTrans;
-          next.translations = currentTranslations;
+          next.translations = { ...(next.translations || {}), [marketCode]: updatedTrans };
+          onUpdate(next); // 重要：及时更新父组件
           return next;
         });
 
-        // 异步更新数据库
+        // 持久化到 Supabase
         await supabase.from('listings').update({
            translations: { ...(localListing.translations || {}), [marketCode]: updatedTrans }
         }).eq('id', localListing.id);
@@ -329,7 +318,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleTabClick = (code: string) => {
     setActiveMarket(code);
-    // 如果点击的是分站，且没翻译过且没在翻译中，自动触发翻译
     if (code !== 'US' && !localListing.translations?.[code] && !translatingMarkets.has(code)) {
         translateMarket(code);
     }
@@ -351,13 +339,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       }
       setLocalListing(nextListing);
       setPreviewImage(hostedUrl);
+      onUpdate(nextListing);
       await syncToSupabase(nextListing);
       setShowImageEditor(false);
-    } catch (e) {
-      alert("Failed to save edited image: " + e);
-    } finally {
-      setIsSaving(false);
-    }
+    } catch (e) { alert("Failed to save: " + e); } 
+    finally { setIsSaving(false); }
   };
 
   const allImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].filter(Boolean) as string[];
@@ -489,7 +475,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             onChange={e => updateField('optimized_weight_value', e.target.value)} 
                             onBlur={() => syncToSupabase(localListing)}
                             className="flex-[2] px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none min-w-0" 
-                            placeholder="Value"
                            />
                            <input 
                             type="text" 
@@ -497,7 +482,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             onChange={e => updateField('optimized_weight_unit', e.target.value)} 
                             onBlur={() => syncToSupabase(localListing)}
                             className="flex-1 px-4 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] outline-none focus:border-amber-500 text-center min-w-0"
-                            placeholder="Unit"
                            />
                          </div>
                       </div>
@@ -515,7 +499,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             onChange={e => updateField('optimized_size_unit', e.target.value)} 
                             onBlur={() => syncToSupabase(localListing)}
                             className="flex-1 px-4 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] outline-none focus:border-indigo-500 text-center min-w-0"
-                            placeholder="Unit"
                            />
                          </div>
                       </div>
@@ -545,9 +528,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                  <textarea 
                                    value={f || ''}
                                    onChange={(e) => {
-                                     const currentFeatures = [...getFieldValue('optimized_features', 'features')];
-                                     currentFeatures[i] = e.target.value;
-                                     updateField('optimized_features', currentFeatures);
+                                     const current = [...getFieldValue('optimized_features', 'features')];
+                                     current[i] = e.target.value;
+                                     updateField('optimized_features', current);
                                    }}
                                    onBlur={() => syncToSupabase(localListing)}
                                    className={`w-full p-4 bg-slate-50 border rounded-2xl text-sm font-bold leading-relaxed focus:bg-white outline-none transition-all border-slate-200 focus:border-indigo-500`}
@@ -556,10 +539,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                  <div className="flex justify-between items-center px-1">
                                     <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-slate-400'}`}>{(f || '').length} / 500</span>
                                     <button onClick={() => {
-                                      const currentFeatures = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
-                                      updateField('optimized_features', currentFeatures);
-                                      const next = { ...localListing, translations: { ...(localListing.translations || {}), [activeMarket]: { ...(localListing.translations?.[activeMarket] || {}), optimized_features: currentFeatures } as OptimizedData } };
-                                      syncToSupabase(next);
+                                      const current = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
+                                      updateField('optimized_features', current);
+                                      syncToSupabase({...localListing, optimized: {...localListing.optimized, optimized_features: current} as OptimizedData});
                                     }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12}/></button>
                                  </div>
                               </div>
@@ -583,6 +565,48 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                     onBlur={() => syncToSupabase(localListing)}
                     limit={250} className="bg-amber-50/20 border-amber-100 focus:border-amber-400 text-sm font-bold"
                    />
+                </div>
+             </div>
+
+             {/* Supply Chain Discovery - 确保在该列的最底部显示 */}
+             <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm p-10 space-y-8">
+                <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center text-white shadow-xl"><Link2 size={24} /></div>
+                      <div>
+                        <h3 className="text-xl font-black text-slate-900 tracking-tight">Supply Chain Discovery</h3>
+                        <p className="text-xs text-slate-400 font-bold">Manage wholesale sources and manufacturer benchmarks.</p>
+                      </div>
+                   </div>
+                   <div className="flex gap-3">
+                      <button onClick={() => setShowSourcingModal(true)} className="flex items-center gap-2 px-6 py-2.5 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-orange-700 transition-all"><Search size={14} /> AI Visual Search</button>
+                      <button onClick={() => setShowSourcingForm({show: true, data: null})} className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"><Plus size={14} /> Manual Record</button>
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   {(localListing.sourcing_data || []).map((s, idx) => (
+                     <div key={idx} className="group bg-slate-50 border border-slate-100 p-5 rounded-3xl flex items-center gap-5 relative hover:bg-white hover:shadow-2xl hover:border-orange-200 transition-all">
+                        <div className="w-16 h-16 bg-white rounded-xl overflow-hidden border border-slate-200 shrink-0">
+                           <img src={s.image} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                           <p className="text-xs font-black text-slate-900 truncate">{s.title}</p>
+                           <p className="text-orange-600 font-black text-lg mt-0.5">{s.price}</p>
+                           <div className="flex items-center gap-3 mt-2">
+                              <a href={s.url} target="_blank" className="inline-flex items-center gap-1.5 text-[9px] font-black text-slate-400 hover:text-blue-600 uppercase tracking-widest transition-colors">Supplier <ExternalLink size={10} /></a>
+                              <button onClick={() => setShowSourcingForm({show: true, data: s})} className="text-[9px] font-black text-slate-400 hover:text-indigo-600 uppercase tracking-widest transition-colors">Edit</button>
+                           </div>
+                        </div>
+                        <button onClick={() => { 
+                          const next = { ...localListing, sourcing_data: (localListing.sourcing_data || []).filter((_, i) => i !== idx) }; 
+                          setLocalListing(next); syncToSupabase(next); 
+                        }} className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={14} /></button>
+                     </div>
+                   ))}
+                   {(localListing.sourcing_data || []).length === 0 && (
+                     <div className="col-span-2 py-16 bg-slate-50 border-2 border-dashed border-slate-100 rounded-[2.5rem] flex flex-col items-center justify-center opacity-30"><Link2 size={32} className="mb-3" /><p className="text-[10px] font-black uppercase tracking-widest">No sourcing data attached</p></div>
+                   )}
                 </div>
              </div>
           </div>
