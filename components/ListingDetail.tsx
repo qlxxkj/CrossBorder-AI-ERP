@@ -28,6 +28,24 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
+/**
+ * 核心换算后单位格式映射 (Sentence Case)
+ */
+const mapStandardUnit = (unit: string, market: string) => {
+  const u = unit.toLowerCase().trim();
+  if (market === 'JP') {
+    if (u === 'kg') return 'キログラム';
+    if (u === 'cm') return 'センチメートル';
+    if (u === 'lb') return 'ポンド';
+    if (u === 'in') return 'インチ';
+  }
+  if (u === 'kg') return 'Kilograms';
+  if (u === 'cm') return 'Centimeters';
+  if (u === 'lb') return 'Pounds';
+  if (u === 'in') return 'Inches';
+  return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
+};
+
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMarket, setActiveMarket] = useState('US');
@@ -128,16 +146,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   /**
    * 物流换算引擎 (lb->kg, in->cm)
+   * 增强：强制从 Master 站点拉取源数据，解决字段缺失问题
    */
-  const performLogisticsConversion = (source: any, targetMkt: string) => {
+  const performLogisticsConversion = (targetMkt: string) => {
+    // 强制溯源：优先使用 Master 站点的优化数据，其次是清理后的原始数据
+    // Fix: Separately access opt and clean properties to avoid type errors on CleanedData | OptimizedData union
+    const opt = localListing.optimized;
+    const clean = localListing.cleaned;
     const isMetric = !['US', 'CA', 'UK'].includes(targetMkt);
-    const sUnitW = String(source.item_weight_unit || source.optimized_weight_unit || "lb").toLowerCase();
-    const sUnitS = String(source.item_size_unit || source.optimized_size_unit || "in").toLowerCase();
     
-    let valW = source.item_weight_value || source.optimized_weight_value || "";
-    let l = source.item_length || source.optimized_length || "";
-    let w = source.item_width || source.optimized_width || "";
-    let h = source.item_height || source.optimized_height || "";
+    const sUnitW = String(opt?.optimized_weight_unit || clean.item_weight_unit || "lb").toLowerCase();
+    const sUnitS = String(opt?.optimized_size_unit || clean.item_size_unit || "in").toLowerCase();
+    
+    let valW = opt?.optimized_weight_value || clean.item_weight_value || "";
+    let l = opt?.optimized_length || clean.item_length || "";
+    let w = opt?.optimized_width || clean.item_width || "";
+    let h = opt?.optimized_height || clean.item_height || "";
     
     const num = (v: any) => {
       const n = parseFloat(String(v || "0").replace(/[^0-9.]/g, ''));
@@ -145,12 +169,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     };
 
     if (isMetric) {
-      // 重量 lb -> kg (0.453592)
+      // 重量换算: lb -> kg
       if (sUnitW.includes('lb') || sUnitW.includes('pound')) {
         const n = num(valW);
         valW = n > 0 ? (n * 0.453592).toFixed(2) : "";
       }
-      // 尺寸 in -> cm (2.54)
+      // 尺寸换算: in -> cm
       if (sUnitS.includes('in') || sUnitS.includes('inch')) {
         const nl = num(l), nw = num(w), nh = num(h);
         l = nl > 0 ? (nl * 2.54).toFixed(2) : "";
@@ -161,11 +185,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
     return {
       optimized_weight_value: valW, 
-      optimized_weight_unit: isMetric ? 'kg' : 'lb',
+      optimized_weight_unit: mapStandardUnit(isMetric ? 'kg' : 'lb', targetMkt),
       optimized_length: l, 
       optimized_width: w, 
       optimized_height: h, 
-      optimized_size_unit: isMetric ? 'cm' : 'in'
+      optimized_size_unit: mapStandardUnit(isMetric ? 'cm' : 'in', targetMkt)
     };
   };
 
@@ -181,8 +205,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(source, targetLang);
       else trans = await translateListingWithAI(source, targetLang);
       
-      // 核心注入：物流自动换算
-      const logistics = performLogisticsConversion(localListing.optimized || localListing.cleaned, code);
+      // 核心注入：物流自动换算 (始终回溯 Master 源)
+      const logistics = performLogisticsConversion(code);
       const rate = exchangeRates.find(r => r.marketplace === code)?.rate || 1;
       
       const final: OptimizedData = {
@@ -222,7 +246,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
                 <div className="px-10 py-6 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between gap-6">
                    <div className="flex flex-1 overflow-x-auto no-scrollbar gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-inner">
-                      <button onClick={() => setActiveMarket('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 Master</button>
+                      <button onClick={() => setActiveMarket('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>🇺🇸 Master</button>
                       {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
                         const hasTrans = !!localListing.translations?.[m.code];
                         return (
@@ -233,14 +257,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       })}
                    </div>
                 </div>
-                <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={updateField} onSync={() => syncToSupabase(localListing)} onRecalculate={() => { const res = performLogisticsConversion(localListing.optimized || localListing.cleaned, activeMarket); Object.entries(res).forEach(([k,v]) => updateField(k,v)); }} uiLang={uiLang} />
+                <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={updateField} onSync={() => syncToSupabase(localListing)} onRecalculate={() => { const res = performLogisticsConversion(activeMarket); Object.entries(res).forEach(([k,v]) => updateField(k,v)); }} uiLang={uiLang} />
              </div>
           </div>
         </div>
       </div>
       {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(n); updateField('sourcing_data', n.sourcing_data); setShowSourcingModal(false); }} />}
       {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={record => { let data = [...(localListing.sourcing_data || [])]; if (editingSourceRecord) data = data.map(s => s.id === record.id ? record : s); else data.push(record); updateField('sourcing_data', data); setShowSourcingForm(false); }} />}
-      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={u => { updateField('main_image', u); setPreviewImage(u); setShowImageEditor(false); }} uiLang={uiLang} />}
+      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={u => { updateField('main_image', u); setPreviewImage(u); setShowImageEditor(false); }} uiLang={lang} />}
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; setIsSaving(true); const fd = new FormData(); fd.append('file', file); const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd }); const data = await res.json(); const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url; if (u) { updateField('other_images', [...(localListing.cleaned.other_images || []), u]); setPreviewImage(u); } setIsSaving(false); }} />
     </div>
   );
