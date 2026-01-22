@@ -3,11 +3,12 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion for the US marketplace.
+You are an expert Amazon Listing Optimizer. Your goal is to maximize conversion.
 
 [STRICT CONSTRAINTS]
-1. Keys: optimized_title, optimized_features (array), optimized_description, search_keywords.
+1. Keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
 2. PROHIBITED: No Brand Names. Strictly NO Car Brand Names (BMW, Toyota, etc.).
+
 Return ONLY flat JSON.
 `;
 
@@ -42,7 +43,6 @@ const extractJSONObject = (text: string) => {
     if (!match) return null;
     return JSON.parse(match[0]);
   } catch (e) {
-    console.error("OpenAI JSON Extraction failed:", text);
     return null;
   }
 };
@@ -61,7 +61,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "You are a professional Amazon copywriter who outputs raw JSON. DO NOT TRANSLATE JSON KEYS. Strictly avoid mentioning car brands." },
+        { role: "system", content: "You are a professional Amazon copywriter. Output JSON. Strictly no car brands." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
@@ -80,10 +80,11 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const prompt = `
-    Translate this Amazon listing to "${targetLangName}". 
+    Translate Amazon listing to "${targetLangName}". 
     [STRICT]: 
-    1. KEEP JSON KEYS: optimized_title, optimized_features, optimized_description, search_keywords.
-    2. RETURN ONLY JSON. No explanations.
+    1. KEEP JSON KEYS UNCHANGED.
+    2. RETURN ONLY JSON. 
+    3. NO Car Brands.
     Data: ${JSON.stringify(sourceData)}
   `;
   const endpoint = `${baseUrl}/chat/completions`;

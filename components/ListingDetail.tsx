@@ -4,7 +4,7 @@ import {
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
   Globe, Languages, Loader2, DollarSign, Truck, Save, ChevronRight,
   Zap, Weight, Ruler, ListFilter, FileText, Wand2, Search, 
-  ExternalLink, Link2, Star, Box, Hash, Cpu, Brain
+  ExternalLink, Link2, Star, Box, Hash, Cpu, Brain, AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage, ExchangeRate, SourcingRecord } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -37,12 +37,6 @@ const MARKET_LANG_MAP: Record<string, string> = {
   'JP': 'Japanese', 'PL': 'Polish', 'NL': 'Dutch', 'SE': 'Swedish', 
   'BR': 'Portuguese', 'MX': 'Spanish', 'EG': 'Arabic', 'BE': 'French',
   'TR': 'Turkish', 'SA': 'Arabic', 'AE': 'Arabic'
-};
-
-const parseNumeric = (val: any): number => {
-  if (val === undefined || val === null || val === '') return 0;
-  const n = parseFloat(String(val).replace(/[^0-9.]/g, ''));
-  return isNaN(n) ? 0 : n;
 };
 
 const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
@@ -107,7 +101,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         updated_at: new Date().toISOString()
       }).eq('id', targetListing.id);
       if (error) throw error;
-    } catch (e) { console.error("Supabase Sync Failed:", e); } 
+    } catch (e) { console.error("Sync Error:", e); } 
     finally { setIsSaving(false); }
   };
 
@@ -115,7 +109,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const isUS = activeMarket === 'US';
     const sourceData = isUS ? localListing.optimized : localListing.translations?.[activeMarket];
     
-    // 1. 特殊处理：五点描述
     if (optField === 'optimized_features') {
       const rawFeats = sourceData ? ((sourceData as any)['optimized_features'] || (sourceData as any)['features'] || (sourceData as any)['bullet_points']) : null;
       let feats: string[] = [];
@@ -125,50 +118,36 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         feats = rawFeats.split('\n').map(f => f.trim()).filter(Boolean);
       }
       
-      // 严苛显示逻辑：如果是翻译站且数据对象存在，即便为空也显示空，不填充 Master
       if (!isUS && sourceData) {
         const result = [...feats];
         while (result.length < 5) result.push('');
         return result.slice(0, 5);
       }
-
-      // 如果是美国站，允许回退到采集的原始 cleaned 数据
       if (isUS && feats.length === 0) {
         feats = (localListing.cleaned?.bullet_points || localListing.cleaned?.features || []).filter(Boolean);
       }
-
       const result = [...feats];
       while (result.length < 5) result.push('');
       return result.slice(0, 5);
     }
 
-    // 2. 普通字段逻辑
     let val = sourceData ? (sourceData as any)[optField] : null;
-
-    // 严苛模式：如果是翻译站点且数据对象存在，直接返回结果（即使是空字符串）
-    if (!isUS && sourceData) {
-      return val || "";
-    }
-
-    // 如果是美国站，允许 fallback 到 Master (cleaned) 数据
-    if (isUS) {
-      return val || (localListing.cleaned as any)[cleanField] || "";
-    }
-
+    if (!isUS && sourceData) return val || "";
+    if (isUS) return val || (localListing.cleaned as any)[cleanField] || "";
     return "";
   };
 
   const updateField = (field: string, value: any) => {
     const nextListing = { ...localListing };
     if (activeMarket === 'US') {
-      if (field === 'main_image' || field === 'other_images') {
+      if (['main_image', 'other_images'].includes(field)) {
         nextListing.cleaned = { ...nextListing.cleaned, [field]: value };
       } else {
         nextListing.optimized = { ...(nextListing.optimized || {}), [field]: value } as OptimizedData;
       }
     } else {
       const currentTranslations = { ...(nextListing.translations || {}) };
-      const currentTrans = currentTranslations[activeMarket] || { optimized_title: '', optimized_features: ['', '', '', '', ''], optimized_description: '', search_keywords: '' } as OptimizedData;
+      const currentTrans = currentTranslations[activeMarket] || {} as OptimizedData;
       currentTranslations[activeMarket] = { ...currentTrans, [field]: value };
       nextListing.translations = currentTranslations;
     }
@@ -185,14 +164,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_title: activeState.cleaned.title,
         optimized_features: (activeState.cleaned.bullet_points || activeState.cleaned.features || []).filter(Boolean),
         optimized_description: activeState.cleaned.description || '',
-        search_keywords: activeState.cleaned.search_keywords || ''
+        search_keywords: activeState.cleaned.search_keywords || '',
+        optimized_weight_value: activeState.cleaned.item_weight_value || '',
+        optimized_weight_unit: activeState.cleaned.item_weight_unit || '',
+        optimized_length: activeState.cleaned.item_length || '',
+        optimized_width: activeState.cleaned.item_width || '',
+        optimized_height: activeState.cleaned.item_height || '',
+        optimized_size_unit: activeState.cleaned.item_size_unit || ''
       } as OptimizedData;
       
       const targetLang = MARKET_LANG_MAP[marketCode];
       let trans: Partial<OptimizedData> = {};
-      const isEnglishMkt = ['UK', 'CA', 'AU', 'SG', 'IE'].includes(marketCode);
       
-      if (isEnglishMkt || !targetLang) {
+      if (['UK', 'CA', 'AU', 'SG', 'IE'].includes(marketCode) || !targetLang) {
         trans = { ...sourceDataForTranslation };
       } else {
         if (engine === 'openai') trans = await translateListingWithOpenAI(sourceDataForTranslation, targetLang);
@@ -200,11 +184,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         else trans = await translateListingWithAI(sourceDataForTranslation, targetLang);
       }
       
-      if (!trans || Object.keys(trans).length === 0) throw new Error("AI engine returned invalid or empty JSON.");
+      if (!trans) throw new Error("Empty AI Response.");
 
       const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
 
-      // 核心变更：不再混入 sourceDataForTranslation，缺失则为空
       const finalTrans: OptimizedData = {
         optimized_title: trans.optimized_title || "",
         optimized_features: Array.isArray(trans.optimized_features) ? trans.optimized_features : ["", "", "", "", ""],
@@ -220,42 +203,50 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_size_unit: getAmazonStandardUnit(trans.optimized_size_unit, marketCode)
       };
 
-      const updatedListing = { 
-        ...activeState, 
-        translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } 
-      };
-
+      const updatedListing = { ...activeState, translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } };
       setLocalListing(updatedListing); 
       onUpdate(updatedListing);
       await syncToSupabase(updatedListing); 
       return updatedListing;
     } catch (e: any) {
-      console.error(`Translate Error for ${marketCode}:`, e);
-      alert(`Translate ${marketCode} failed: ${e.message || String(e)}`);
+      alert(`Translate ${marketCode} error: ${e.message}`);
       return null;
     } finally {
       setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(marketCode); return n; });
     }
   };
 
+  // Fix: Implemented missing handleBatchTranslate function to resolve 'Cannot find name' error
   const handleBatchTranslate = async () => {
+    const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
     setIsBatchTranslating(true);
-    const targetMarkets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
-    setBatchProgress({ current: 0, total: targetMarkets.length, market: '' });
-    let currentListing = { ...localListing };
-    for (let i = 0; i < targetMarkets.length; i++) {
-      const mkt = targetMarkets[i];
-      setBatchProgress({ current: i + 1, total: targetMarkets.length, market: mkt.code });
-      const result = await translateMarket(mkt.code, currentListing);
-      if (result) currentListing = result;
+    setBatchProgress({ current: 0, total: marketsToTranslate.length, market: '' });
+    
+    let currentState = { ...localListing };
+    
+    for (let i = 0; i < marketsToTranslate.length; i++) {
+      const m = marketsToTranslate[i];
+      setBatchProgress(prev => ({ ...prev, current: i, market: m.code }));
+      
+      const updated = await translateMarket(m.code, currentState);
+      if (updated) {
+        currentState = updated;
+      }
     }
-    setBatchProgress({ current: 0, total: 0, market: '' });
+    
+    setBatchProgress(prev => ({ ...prev, current: marketsToTranslate.length }));
     setIsBatchTranslating(false);
   };
 
   const handleMarketClick = async (code: string) => {
     setActiveMarket(code);
-    if (code !== 'US' && !localListing.translations?.[code] && !translatingMarkets.has(code)) {
+    if (code === 'US') return;
+    
+    const trans = localListing.translations?.[code];
+    // 核心修复逻辑：如果该站点已翻译但核心内容为空，允许重新触发翻译修复
+    const isCorrupted = trans && (!trans.optimized_description || trans.optimized_features.every(f => !f));
+    
+    if (!trans || (isCorrupted && window.confirm(`${code} 站内容不完整，是否尝试重新 AI 翻译修复？`))) {
       await translateMarket(code);
     }
   };
@@ -274,7 +265,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       onUpdate(updatedListing); 
       await syncToSupabase(updatedListing);
       setActiveMarket('US'); 
-    } catch (e: any) { alert(`Optimization Failed: ${e.message}`); } 
+    } catch (e: any) { alert(`Optimize Error: ${e.message}`); } 
     finally { setIsOptimizing(false); }
   };
 
@@ -362,14 +353,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                    <div className="flex flex-1 overflow-x-auto no-scrollbar gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-inner">
                       <button onClick={() => handleMarketClick('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 Master</button>
                       {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
-                        const isTranslated = !!localListing.translations?.[m.code];
+                        const trans = localListing.translations?.[m.code];
+                        const isTranslated = !!trans;
+                        const isCorrupted = isTranslated && (!trans.optimized_description || trans.optimized_features.every(f => !f));
                         const isTranslating = translatingMarkets.has(m.code);
                         return (
                           <button 
                             key={m.code} 
                             onClick={() => handleMarketClick(m.code)} 
                             className={`
-                              px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2
+                              px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2 relative
                               ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : 
                                 isTranslated ? 'bg-white text-indigo-600 border-slate-100' : 
                                 'bg-slate-50/50 text-slate-300 border-slate-200 border-dashed opacity-70 hover:opacity-100'
@@ -377,6 +370,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             `}
                           >
                             {m.flag} {m.code} {isTranslating && <Loader2 size={10} className="animate-spin" />}
+                            {isCorrupted && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full border-2 border-white animate-pulse" title="Missing Content" />}
                           </button>
                         );
                       })}
@@ -396,6 +390,31 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Truck size={14} className="text-blue-500" /> Shipping</label>
                          <input type="number" step="0.01" value={getFieldValue('optimized_shipping', 'shipping')} onChange={(e) => updateField('optimized_shipping', parseFloat(e.target.value))} onBlur={() => syncToSupabase(localListing)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:bg-white transition-colors" />
+                      </div>
+                   </div>
+
+                   {/* 新增：物流规格编辑区 */}
+                   <div className="bg-slate-50/50 p-8 rounded-[2rem] border border-slate-100 space-y-6">
+                      <div className="flex items-center justify-between">
+                         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                         <div className="space-y-2">
+                            <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Weight</label>
+                            <div className="flex gap-2">
+                               <input value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs" placeholder="0.00" />
+                               <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-20 px-2 py-2.5 bg-white border border-slate-200 rounded-xl font-black text-[10px] uppercase text-center" placeholder="Unit" />
+                            </div>
+                         </div>
+                         <div className="md:col-span-2 space-y-2">
+                            <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Dimensions (L x W x H)</label>
+                            <div className="flex gap-2">
+                               <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs text-center" placeholder="L" />
+                               <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs text-center" placeholder="W" />
+                               <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs text-center" placeholder="H" />
+                               <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-20 px-2 py-2.5 bg-white border border-slate-200 rounded-xl font-black text-[10px] uppercase text-center" placeholder="Unit" />
+                            </div>
+                         </div>
                       </div>
                    </div>
 

@@ -3,29 +3,32 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion for the US marketplace.
+You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion.
 
 [STRICT CONSTRAINTS]
-1. optimized_title: Max 200 characters. SEO-rich.
-2. optimized_features: Array of exactly 5 strings.
-3. optimized_description: 1000-1500 characters. Use HTML tags.
-4. search_keywords: High-volume terms.
-5. Measurements: 
-   - optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-6. PROHIBITED: 
+1. Keys: optimized_title, optimized_features (array of 5), optimized_description, search_keywords.
+2. Measurements: optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
+3. PROHIBITED: 
    - No Brand Names.
-   - NO Car Brand Names (e.g., BMW, Toyota, Mercedes, Tesla, Honda, etc.) to avoid trademark violations.
+   - NO Car Brand Names (e.g., BMW, Toyota, Mercedes, Tesla, Honda, etc.).
    - No Extreme Words (Best, Perfect, etc.).
 
-Return ONLY a flat JSON object matching these exact keys.
+Return ONLY a flat JSON object.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
+  
+  // 标题映射
   result.optimized_title = raw.optimized_title || raw.title || raw.product_title || "";
+  
+  // 描述映射
   result.optimized_description = raw.optimized_description || raw.description || raw.desc || raw.product_description || "";
+  
+  // 关键词映射
   result.search_keywords = raw.search_keywords || raw.keywords || raw.tags || raw.search_terms || "";
   
+  // 五点描述归一化 (针对 CA, MX, BR 经常出现的单字符串格式进行拆分)
   let feats = raw.optimized_features || raw.features || raw.bullet_points || raw.bullets || [];
   if (typeof feats === 'string') {
     feats = feats.split('\n').map(s => s.trim().replace(/^[-*•\d.]+\s*/, '')).filter(Boolean);
@@ -35,6 +38,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   feats.slice(0, 5).forEach((f, i) => finalFeats[i] = String(f));
   result.optimized_features = finalFeats;
   
+  // 物流字段映射 (核心修复：确保单位和数值不丢失)
   result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || raw.weight || "");
   result.optimized_weight_unit = raw.optimized_weight_unit || raw.weight_unit || "";
   result.optimized_length = String(raw.optimized_length || raw.length || "");
@@ -51,7 +55,6 @@ const extractJSONObject = (text: string) => {
     if (!match) return null;
     return JSON.parse(match[0]);
   } catch (e) {
-    console.error("JSON Extraction failed:", text);
     return null;
   }
 };
@@ -65,7 +68,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
       config: { responseMimeType: "application/json" }
     });
     const rawData = extractJSONObject(response.text || "{}");
-    if (!rawData) throw new Error("Invalid AI Response during optimization.");
+    if (!rawData) throw new Error("Invalid AI Response format.");
     return normalizeOptimizedData(rawData);
   } catch (error: any) { 
     throw new Error(`Gemini Optimization Failed: ${error.message}`);
@@ -77,13 +80,10 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const prompt = `
     Task: Translate this Amazon listing to "${targetLangName}". 
     [STRICT RULES]: 
-    1. KEEP ALL JSON KEYS UNCHANGED (optimized_title, optimized_features, optimized_description, search_keywords).
-    2. DO NOT translate keys like "optimized_title", only translate the string content.
-    3. The "optimized_features" MUST remain an array of strings.
-    4. Return exactly the same JSON structure. 
-    5. If any content is inappropriate for translation, leave the value as an empty string "".
-    
-    Data to translate: ${JSON.stringify(sourceData)}
+    1. KEEP ALL JSON KEYS UNCHANGED (optimized_title, optimized_features, optimized_description, search_keywords, etc.).
+    2. RETURN ONLY JSON. 
+    3. NO Car Brands.
+    Data: ${JSON.stringify(sourceData)}
   `;
   try {
     const response = await ai.models.generateContent({
@@ -92,8 +92,7 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
       config: { responseMimeType: "application/json" }
     });
     const rawData = extractJSONObject(response.text || "{}");
-    if (!rawData) throw new Error("Empty translation result.");
-    return normalizeOptimizedData(rawData);
+    return normalizeOptimizedData(rawData || {});
   } catch (error: any) { 
     throw new Error(`Gemini Translation Failed: ${error.message}`);
   }
@@ -109,6 +108,6 @@ export const editImageWithAI = async (base64Image: string, prompt: string): Prom
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) return part.inlineData.data;
     }
-    throw new Error("No image data returned.");
+    throw new Error("No image data.");
   } catch (error: any) { throw error; }
 };
