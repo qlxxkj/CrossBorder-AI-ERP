@@ -12,35 +12,29 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and con
 4. search_keywords: High-volume terms.
 5. Measurements: 
    - optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
+6. PROHIBITED: 
+   - No Brand Names.
+   - NO Car Brand Names (e.g., BMW, Toyota, Mercedes, Tesla, Honda, etc.) to avoid trademark violations.
+   - No Extreme Words (Best, Perfect, etc.).
 
 Return ONLY a flat JSON object matching these exact keys.
 `;
 
-// 强力归一化：不进行 Master 填充，仅进行 Key 映射
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
-  
-  // 映射标题
   result.optimized_title = raw.optimized_title || raw.title || raw.product_title || "";
-  
-  // 映射描述
   result.optimized_description = raw.optimized_description || raw.description || raw.desc || raw.product_description || "";
-  
-  // 映射关键词
   result.search_keywords = raw.search_keywords || raw.keywords || raw.tags || raw.search_terms || "";
   
-  // 映射五点 (强制转为数组并过滤空值)
   let feats = raw.optimized_features || raw.features || raw.bullet_points || raw.bullets || [];
   if (typeof feats === 'string') {
     feats = feats.split('\n').map(s => s.trim().replace(/^[-*•\d.]+\s*/, '')).filter(Boolean);
   }
   if (!Array.isArray(feats)) feats = [];
-  // 保证 5 个槽位，但如果 raw 里没给，这里就留空，方便用户排查
   const finalFeats = ["", "", "", "", ""];
   feats.slice(0, 5).forEach((f, i) => finalFeats[i] = String(f));
   result.optimized_features = finalFeats;
   
-  // 映射物流尺寸
   result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || raw.weight || "");
   result.optimized_weight_unit = raw.optimized_weight_unit || raw.weight_unit || "";
   result.optimized_length = String(raw.optimized_length || raw.length || "");

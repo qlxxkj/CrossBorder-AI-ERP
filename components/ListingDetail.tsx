@@ -125,14 +125,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         feats = rawFeats.split('\n').map(f => f.trim()).filter(Boolean);
       }
       
-      // 如果是非美国站且 sourceData 存在（说明翻译过了），即便为空也显示空
+      // 严苛显示逻辑：如果是翻译站且数据对象存在，即便为空也显示空，不填充 Master
       if (!isUS && sourceData) {
         const result = [...feats];
         while (result.length < 5) result.push('');
         return result.slice(0, 5);
       }
 
-      // 如果是美国站，允许回退到 cleaned 数据
+      // 如果是美国站，允许回退到采集的原始 cleaned 数据
       if (isUS && feats.length === 0) {
         feats = (localListing.cleaned?.bullet_points || localListing.cleaned?.features || []).filter(Boolean);
       }
@@ -145,12 +145,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     // 2. 普通字段逻辑
     let val = sourceData ? (sourceData as any)[optField] : null;
 
-    // 严苛模式：如果是翻译站点且数据对象存在，直接返回结果（可能为空）
+    // 严苛模式：如果是翻译站点且数据对象存在，直接返回结果（即使是空字符串）
     if (!isUS && sourceData) {
       return val || "";
     }
 
-    // 如果是美国站，允许 fallback 到采集的原始数据
+    // 如果是美国站，允许 fallback 到 Master (cleaned) 数据
     if (isUS) {
       return val || (localListing.cleaned as any)[cleanField] || "";
     }
@@ -204,7 +204,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
 
-      // 核心变更：不再混入 sourceDataForTranslation，如果 trans 缺失某个字段，则该字段保持为空。
+      // 核心变更：不再混入 sourceDataForTranslation，缺失则为空
       const finalTrans: OptimizedData = {
         optimized_title: trans.optimized_title || "",
         optimized_features: Array.isArray(trans.optimized_features) ? trans.optimized_features : ["", "", "", "", ""],
@@ -361,11 +361,25 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 <div className="px-10 py-6 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between gap-6">
                    <div className="flex flex-1 overflow-x-auto no-scrollbar gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-inner">
                       <button onClick={() => handleMarketClick('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 Master</button>
-                      {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => (
-                        <button key={m.code} onClick={() => handleMarketClick(m.code)} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2 ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : 'bg-white text-indigo-600 border-slate-50'}`}>
-                          {m.flag} {m.code} {translatingMarkets.has(m.code) && <Loader2 size={10} className="animate-spin" />}
-                        </button>
-                      ))}
+                      {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
+                        const isTranslated = !!localListing.translations?.[m.code];
+                        const isTranslating = translatingMarkets.has(m.code);
+                        return (
+                          <button 
+                            key={m.code} 
+                            onClick={() => handleMarketClick(m.code)} 
+                            className={`
+                              px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2
+                              ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : 
+                                isTranslated ? 'bg-white text-indigo-600 border-slate-100' : 
+                                'bg-slate-50/50 text-slate-300 border-slate-200 border-dashed opacity-70 hover:opacity-100'
+                              }
+                            `}
+                          >
+                            {m.flag} {m.code} {isTranslating && <Loader2 size={10} className="animate-spin" />}
+                          </button>
+                        );
+                      })}
                    </div>
                    <button onClick={handleBatchTranslate} disabled={isBatchTranslating} className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all shadow-sm shrink-0 border border-indigo-100 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest">
                       {isBatchTranslating ? <Loader2 size={16} className="animate-spin" /> : <Languages size={16} />} 

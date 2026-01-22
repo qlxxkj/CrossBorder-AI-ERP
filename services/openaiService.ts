@@ -3,8 +3,12 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are an expert Amazon Listing Optimizer. Return ONLY flat JSON.
-Keys: optimized_title, optimized_features (array), optimized_description, search_keywords.
+You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion for the US marketplace.
+
+[STRICT CONSTRAINTS]
+1. Keys: optimized_title, optimized_features (array), optimized_description, search_keywords.
+2. PROHIBITED: No Brand Names. Strictly NO Car Brand Names (BMW, Toyota, etc.).
+Return ONLY flat JSON.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
@@ -57,7 +61,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "You are a professional Amazon copywriter who outputs raw JSON. DO NOT TRANSLATE JSON KEYS." },
+        { role: "system", content: "You are a professional Amazon copywriter who outputs raw JSON. DO NOT TRANSLATE JSON KEYS. Strictly avoid mentioning car brands." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
