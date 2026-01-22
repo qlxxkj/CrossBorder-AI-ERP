@@ -48,6 +48,9 @@ interface SelectionBox {
 }
 
 const CORS_PROXY = 'https://corsproxy.io/?';
+const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
+const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
+const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onSave, uiLang }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -512,11 +515,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   };
 
-  const handleFinalSave = () => {
+  const handleFinalSave = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    setIsProcessing(true);
 
     // Draw all objects onto the canvas before saving
     objects.forEach(obj => {
@@ -561,7 +566,34 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       ctx.restore();
     });
 
-    onSave(canvas.toDataURL('image/jpeg', 0.95));
+    // Upload to Image Host
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        setIsProcessing(false);
+        return;
+      }
+      try {
+        const file = new File([blob], `edit_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        const formDataBody = new FormData();
+        formDataBody.append('file', file);
+        
+        const response = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formDataBody });
+        if (!response.ok) throw new Error("Upload failed");
+        
+        const data = await response.json();
+        const remoteUrl = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+        
+        if (remoteUrl) {
+          onSave(remoteUrl);
+        } else {
+          throw new Error("Invalid response from server");
+        }
+      } catch (err: any) {
+        alert("Upload failed: " + (err.message || String(err)));
+      } finally {
+        setIsProcessing(false);
+      }
+    }, 'image/jpeg', 0.95);
   };
 
   useEffect(() => {
@@ -600,7 +632,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
           <button onClick={undo} disabled={history.length <= 1} className="p-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-xl text-slate-300 transition-all"><Undo size={18} /></button>
           <button onClick={standardize} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-black flex items-center gap-2 border border-slate-700"><Maximize size={16} /> 1600*1600</button>
-          <button onClick={handleFinalSave} className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transform active:scale-95 transition-all"><Save size={16} /> Save & Apply</button>
+          <button onClick={handleFinalSave} disabled={isProcessing} className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transform active:scale-95 transition-all">
+            {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save & Apply
+          </button>
         </div>
       </div>
 
@@ -838,7 +872,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
              )}
           </div>
 
-          {isProcessing && <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/70 backdrop-blur-md"><Loader2 size={40} className="text-indigo-500 animate-spin" /><p className="mt-8 text-white font-black tracking-[0.3em] text-sm uppercase">AI Processing...</p></div>}
+          {isProcessing && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/70 backdrop-blur-md">
+              <Loader2 size={40} className="text-indigo-500 animate-spin" />
+              <p className="mt-8 text-white font-black tracking-[0.3em] text-sm uppercase">AI Processing / Uploading...</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
