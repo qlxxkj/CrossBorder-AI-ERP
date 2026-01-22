@@ -44,7 +44,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
   if (!data.choices?.[0]?.message?.content) throw new Error("DeepSeek empty response");
   
   let content = data.choices[0].message.content;
-  content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').replace(/```/g, '').trim();
   const result = JSON.parse(content);
   
   if (!result.optimized_features || !Array.isArray(result.optimized_features)) {
@@ -79,7 +79,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
     })
   });
   const data = await response.json();
-  let content = data.choices[0].message.content;
-  content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+  let content = data.choices?.[0]?.message?.content || "{}";
+  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').replace(/```/g, '').trim();
   return JSON.parse(content);
 };

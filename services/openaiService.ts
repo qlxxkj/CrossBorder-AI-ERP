@@ -45,7 +45,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   if (!data.choices?.[0]?.message?.content) throw new Error("OpenAI returned empty response");
   
   let content = data.choices[0].message.content;
-  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').replace(/```/g, '').trim();
   
   try {
     const result = JSON.parse(content);
@@ -83,7 +83,7 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     })
   });
   const data = await response.json();
-  let content = data.choices[0].message.content;
-  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+  let content = data.choices?.[0]?.message?.content || "{}";
+  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').replace(/```/g, '').trim();
   return JSON.parse(content);
 };

@@ -47,7 +47,7 @@ const parseNumeric = (val: any): number => {
   return isNaN(n) ? 0 : n;
 };
 
-// 增强版单位本地化函数，支持阿拉伯语及欧洲语系
+// 站点单位本地化映射
 const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
@@ -84,12 +84,12 @@ const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
   if (market === 'DE') {
     const deMap: Record<string, string> = {
       'kg': 'Kilogramm', 'kilograms': 'Kilogramm', 'g': 'Gramm', 'grams': 'Gramm',
-      'lb': 'Pfund', 'lbs': 'Pfund', 'in': 'Zoll', 'inch': 'Zoll', 'cm': 'Zentimeter'
+      'lb': 'Pfund', 'lbs': 'Pfund', 'in': 'Zoll', 'inch': 'Zoll', 'cm': 'Zentimeter', 'centimeter': 'Zentimeter'
     };
     if (deMap[u]) return deMap[u];
   }
 
-  // 法语站点 (FR, BE)
+  // 法语/比利时 (FR, BE)
   if (['FR', 'BE'].includes(market)) {
     const frMap: Record<string, string> = {
       'kg': 'Kilogrammes', 'kilograms': 'Kilogrammes', 'g': 'Grammes', 'in': 'Pouces', 'inch': 'Pouces', 'cm': 'Centimètres'
@@ -97,7 +97,15 @@ const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
     if (frMap[u]) return frMap[u];
   }
 
-  // 默认英语全称
+  // 西班牙/墨西哥 (ES, MX)
+  if (['ES', 'MX'].includes(market)) {
+    const esMap: Record<string, string> = {
+      'kg': 'Kilogramos', 'lb': 'Libras', 'in': 'Pulgadas', 'inch': 'Pulgadas', 'cm': 'Centímetros'
+    };
+    if (esMap[u]) return esMap[u];
+  }
+
+  // 默认英语首字母大写
   const standardMap: Record<string, string> = {
     'lb': 'Pounds', 'lbs': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
@@ -159,7 +167,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       }).eq('id', targetListing.id);
       if (error) throw error;
     } catch (e) { 
-      console.error("Sync Error:", e);
+      console.error("Supabase Sync Failed:", e);
     } finally { 
       setIsSaving(false); 
     }
@@ -232,6 +240,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const targetLang = MARKET_LANG_MAP[marketCode];
       let trans: Partial<OptimizedData> = {};
       const isEnglishMkt = ['UK', 'CA', 'AU', 'SG', 'IE'].includes(marketCode);
+      
       if (isEnglishMkt || !targetLang) {
         trans = { ...sourceDataForTranslation };
       } else {
@@ -239,7 +248,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceDataForTranslation, targetLang);
         else trans = await translateListingWithAI(sourceDataForTranslation, targetLang);
       }
-      if (!trans || Object.keys(trans).length === 0) throw new Error("AI translation failed");
+      
+      if (!trans || Object.keys(trans).length === 0) throw new Error("AI Translation engine returned invalid response.");
 
       const isMetric = METRIC_MARKETS.includes(marketCode);
       const rateEntry = exchangeRates.find(r => r.marketplace === marketCode);
@@ -291,17 +301,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_size_unit: getAmazonStandardUnit(finalSizeUnit, marketCode)
       };
 
-      const nextListing = { 
+      const updatedListing = { 
         ...activeState, 
         translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } 
       };
 
-      setLocalListing(nextListing); 
-      onUpdate(nextListing);
-      await syncToSupabase(nextListing); 
-      return nextListing;
-    } catch (e) {
-      console.error(`Translate ${marketCode} failed:`, e);
+      // 核心：原子化更新 State 并强制同步数据库
+      setLocalListing(updatedListing); 
+      onUpdate(updatedListing);
+      await syncToSupabase(updatedListing); 
+      return updatedListing;
+    } catch (e: any) {
+      console.error(`Translate Error for ${marketCode}:`, e);
+      alert(`Translate ${marketCode} failed: ${e.message || String(e)}`);
       return null;
     } finally {
       setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(marketCode); return n; });
