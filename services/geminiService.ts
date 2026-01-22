@@ -48,7 +48,8 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     });
     
     let text = response.text || "{}";
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    // 强力提取 JSON 部分
+    text = text.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
     const data = JSON.parse(text) as OptimizedData;
     
     if (!data.optimized_features || !Array.isArray(data.optimized_features)) {
@@ -56,18 +57,22 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     }
     while (data.optimized_features.length < 5) data.optimized_features.push("");
     return data;
-  } catch (error) { throw error; }
+  } catch (error: any) { 
+    console.error("Gemini Optimize Error:", error);
+    throw new Error(`Gemini Optimization Failed: ${error.message || "Unknown error"}`);
+  }
 };
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `
-    Translate this Amazon listing to "${targetLangName}". 
-    [STRICT]: 
-    1. Keep HTML tags.
-    2. Maintain "[KEYWORD]: " style for bullets.
-    3. IMPORTANT: Translate measurement units (e.g. Kilograms, Centimeters) into the target language of the marketplace (e.g., 'كيلوجرام' for Arabic, 'Kilogramm' for German).
-    Return ONLY flat JSON. 
+    Task: Translate this Amazon listing to "${targetLangName}". 
+    [STRICT RULES]: 
+    1. DO NOT translate JSON Keys (e.g. optimized_title, search_keywords).
+    2. Keep HTML tags intact.
+    3. Maintain "[KEYWORD]: " style for bullets.
+    4. IMPORTANT: Translate measurement units (e.g. Kilograms, Centimeters) into the official language used in "${targetLangName}" (e.g., 'كيلوجرام' for Arabic, 'Kilogramm' for German, 'Kilogramos' for Spanish).
+    5. Return ONLY valid JSON.
     Source: ${JSON.stringify(sourceData)}
   `;
   try {
@@ -77,9 +82,13 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
       config: { responseMimeType: "application/json" }
     });
     let text = response.text || "{}";
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    // 强力提取 JSON 部分
+    text = text.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
     return JSON.parse(text);
-  } catch (error) { throw error; }
+  } catch (error: any) { 
+    console.error("Gemini Translate Error:", error);
+    throw new Error(`Gemini Translation Failed: ${error.message || "Unknown error"}`);
+  }
 };
 
 export const editImageWithAI = async (base64Image: string, prompt: string): Promise<string> => {
@@ -92,6 +101,6 @@ export const editImageWithAI = async (base64Image: string, prompt: string): Prom
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) return part.inlineData.data;
     }
-    throw new Error("No image data");
-  } catch (error) { throw error; }
+    throw new Error("No image data returned from Gemini Image API.");
+  } catch (error: any) { throw error; }
 };

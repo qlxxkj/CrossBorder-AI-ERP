@@ -52,6 +52,9 @@ const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
   
+  // 如果已经包含非英文字符，说明 AI 已经翻译过了，直接返回
+  if (/[^\x00-\x7F]/.test(unit)) return unit;
+
   // 阿拉伯语站点 (EG, SA, AE)
   if (['EG', 'SA', 'AE'].includes(market)) {
     const arMap: Record<string, string> = {
@@ -105,7 +108,6 @@ const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
     if (esMap[u]) return esMap[u];
   }
 
-  // 默认英语首字母大写
   const standardMap: Record<string, string> = {
     'lb': 'Pounds', 'lbs': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
@@ -249,7 +251,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         else trans = await translateListingWithAI(sourceDataForTranslation, targetLang);
       }
       
-      if (!trans || Object.keys(trans).length === 0) throw new Error("AI Translation engine returned invalid response.");
+      if (!trans || Object.keys(trans).length === 0) throw new Error("AI engine returned invalid or empty JSON.");
 
       const isMetric = METRIC_MARKETS.includes(marketCode);
       const rateEntry = exchangeRates.find(r => r.marketplace === marketCode);
@@ -294,11 +296,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_price: parseFloat(((activeState.cleaned.price || 0) * rate).toFixed(2)),
         optimized_shipping: parseFloat(((activeState.cleaned.shipping || 0) * rate).toFixed(2)),
         optimized_weight_value: finalWeight.toFixed(2),
-        optimized_weight_unit: getAmazonStandardUnit(finalWeightUnit, marketCode),
+        optimized_weight_unit: getAmazonStandardUnit(trans.optimized_weight_unit || finalWeightUnit, marketCode),
         optimized_length: finalL.toFixed(2),
         optimized_width: finalW.toFixed(2),
         optimized_height: finalH.toFixed(2),
-        optimized_size_unit: getAmazonStandardUnit(finalSizeUnit, marketCode)
+        optimized_size_unit: getAmazonStandardUnit(trans.optimized_size_unit || finalSizeUnit, marketCode)
       };
 
       const updatedListing = { 
@@ -306,7 +308,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } 
       };
 
-      // 核心：原子化更新 State 并强制同步数据库
       setLocalListing(updatedListing); 
       onUpdate(updatedListing);
       await syncToSupabase(updatedListing); 
@@ -482,7 +483,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       onUpdate({ ...updatedListing }); 
       await syncToSupabase(updatedListing);
       setActiveMarket('US'); 
-    } catch (e: any) { alert(`Failed: ${e.message}`); } 
+    } catch (e: any) { alert(`Optimization Failed: ${e.message}`); } 
     finally { setIsOptimizing(false); }
   };
 

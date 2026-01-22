@@ -34,41 +34,51 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "You are a professional Amazon copywriter who outputs raw JSON." },
+        { role: "system", content: "You are a professional Amazon copywriter who outputs raw JSON. DO NOT use markdown code blocks." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
     })
   });
   
+  if (!response.ok) {
+    const errText = await response.text();
+    if (response.status === 429) throw new Error("OpenAI Quota Exceeded (429). Please check billing.");
+    throw new Error(`OpenAI API Error (${response.status}): ${errText.slice(0, 100)}`);
+  }
+
   const data = await response.json();
-  if (!data.choices?.[0]?.message?.content) throw new Error("OpenAI returned empty response");
+  let content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("OpenAI returned empty message content.");
   
-  let content = data.choices[0].message.content;
-  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').replace(/```/g, '').trim();
+  // 深度清理可能的 Markdown 容器
+  content = content.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
   
   try {
     const result = JSON.parse(content);
-    if (!result.optimized_features || !Array.isArray(result.optimized_features)) {
-      result.optimized_features = [];
-    }
+    if (!result.optimized_features || !Array.isArray(result.optimized_features)) result.optimized_features = [];
     while (result.optimized_features.length < 5) result.optimized_features.push("");
     return result;
   } catch (parseError) {
-    throw new Error("AI returned invalid JSON structure.");
+    console.error("JSON Cleanup failed. Raw:", content);
+    throw new Error("AI returned malformed JSON that could not be parsed.");
   }
 };
 
 export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OpenAI API Key is missing.");
+  
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const prompt = `
-    Translate this Amazon listing to "${targetLangName}". 
-    [STRICT]: 
-    1. Keep HTML tags.
-    2. Maintain "[KEYWORD]: " style.
-    3. IMPORTANT: Translate measurement units (e.g. Kilograms, Centimeters) into the target language of the marketplace (e.g., 'كيلوجرام' for Arabic, 'Kilogramm' for German).
-    Return ONLY flat JSON: ${JSON.stringify(sourceData)}
+    Task: Translate this Amazon listing to "${targetLangName}". 
+    [STRICT RULES]: 
+    1. KEEP ALL JSON KEYS UNCHANGED (e.g. optimized_title, optimized_features).
+    2. Keep HTML tags intact.
+    3. Maintain "[KEYWORD]: " style for bullets.
+    4. Translate measurement units (e.g. Kilograms, Centimeters) into the official language of ${targetLangName} market.
+    5. Return ONLY a valid JSON object. No preamble, no markdown tags.
+    Data: ${JSON.stringify(sourceData)}
   `;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
@@ -82,8 +92,11 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
       response_format: { type: "json_object" }
     })
   });
+  
+  if (!response.ok) throw new Error(`OpenAI Translate API Error: ${response.status}`);
+
   const data = await response.json();
   let content = data.choices?.[0]?.message?.content || "{}";
-  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').replace(/```/g, '').trim();
+  content = content.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
   return JSON.parse(content);
 };

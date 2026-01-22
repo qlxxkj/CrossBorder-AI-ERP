@@ -34,17 +34,20 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
-        { role: "system", content: "You are a professional Amazon copywriter who outputs raw JSON." },
+        { role: "system", content: "You are a professional Amazon copywriter who outputs raw JSON. DO NOT use markdown code blocks." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
     })
   });
-  const data = await response.json();
-  if (!data.choices?.[0]?.message?.content) throw new Error("DeepSeek empty response");
   
-  let content = data.choices[0].message.content;
-  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').replace(/```/g, '').trim();
+  if (!response.ok) throw new Error(`DeepSeek API Error: ${response.status}`);
+
+  const data = await response.json();
+  let content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("DeepSeek returned empty content");
+  
+  content = content.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
   const result = JSON.parse(content);
   
   if (!result.optimized_features || !Array.isArray(result.optimized_features)) {
@@ -57,14 +60,18 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
 
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) throw new Error("DeepSeek API Key missing.");
+
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const prompt = `
-    Translate this Amazon listing to "${targetLangName}". 
-    [STRICT]: 
-    1. Keep HTML tags.
-    2. Maintain "[KEYWORD]: " style.
-    3. IMPORTANT: Translate measurement units (e.g. Kilograms, Centimeters) into the target language of the marketplace (e.g., 'كيلوجرام' for Arabic, 'Kilogramm' for German).
-    Return ONLY flat JSON: ${JSON.stringify(sourceData)}
+    Task: Translate this Amazon listing to "${targetLangName}". 
+    [STRICT RULES]: 
+    1. DO NOT translate JSON Keys.
+    2. Keep HTML tags.
+    3. Maintain "[KEYWORD]: " style.
+    4. Translate measurement units (e.g. Kilograms, Centimeters) into the official language used in "${targetLangName}" (e.g. 'Kilogramos' for Spanish).
+    5. Return ONLY flat JSON.
+    Source: ${JSON.stringify(sourceData)}
   `;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
@@ -78,8 +85,11 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
       response_format: { type: "json_object" }
     })
   });
+  
+  if (!response.ok) throw new Error(`DeepSeek Translate API Error: ${response.status}`);
+
   const data = await response.json();
   let content = data.choices?.[0]?.message?.content || "{}";
-  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').replace(/```/g, '').trim();
+  content = content.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
   return JSON.parse(content);
 };
