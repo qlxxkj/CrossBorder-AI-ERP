@@ -61,9 +61,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [fillColor, setFillColor] = useState('#ffffff');
   
-  // Decoupled size states
-  const [strokeWidth, setStrokeWidth] = useState(5); // For shapes/lines
-  const [fontSize, setFontSize] = useState(40);      // For text (Standard px)
+  const [strokeWidth, setStrokeWidth] = useState(5); 
+  const [fontSize, setFontSize] = useState(40);      
   
   const [opacity, setOpacity] = useState(1); 
   const [zoom, setZoom] = useState(1);
@@ -84,11 +83,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const [history, setHistory] = useState<EditorState[]>([]);
 
-  // Derived state to determine which size property we are currently editing
   const selectedObject = objects.find(o => o.id === selectedObjectId);
   const isEditingText = selectedObject?.type === 'text' || (currentTool === 'text' && !selectedObject);
 
-  // Sync controls when selected object changes
   useEffect(() => {
     if (selectedObjectId) {
       const obj = objects.find(o => o.id === selectedObjectId);
@@ -397,6 +394,33 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     
     const pos = getMousePos(e);
 
+    // 核心改进：如果是填充工具，松开鼠标立即应用填充
+    if (currentTool === 'select-fill') {
+      const x = Math.min(startPos.x, pos.x);
+      const y = Math.min(startPos.y, pos.y);
+      const w = Math.abs(startPos.x - pos.x);
+      const h = Math.abs(startPos.y - pos.y);
+
+      // 只有当选择区域大于一定阈值时才进行填充，防止误触
+      if (w > 2 && h > 2) {
+        const newObj: EditorObject = {
+          id: crypto.randomUUID(),
+          type: 'rect',
+          x, y, width: w, height: h,
+          rotation: 0,
+          stroke: 'transparent',
+          fill: fillColor,
+          strokeWidth: 0,
+          opacity: opacity
+        };
+        const nextObjects = [...objects, newObj];
+        setObjects(nextObjects);
+        saveToHistory(nextObjects);
+      }
+      setSelection(null);
+      return;
+    }
+
     if (['rect', 'circle', 'line'].includes(currentTool)) {
       const newObj: EditorObject = {
         id: crypto.randomUUID(),
@@ -425,13 +449,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           type: 'text',
           x: pos.x,
           y: pos.y,
-          // Roughly estimate size for text box
           width: text.length * fontSize * 0.6,
           height: fontSize,
           rotation: 0,
           stroke: strokeColor,
           fill: fillColor,
-          strokeWidth: 1, // Fix stroke weight for text to standard 1
+          strokeWidth: 1,
           fontSize: fontSize, 
           opacity: opacity,
           text: text
@@ -445,31 +468,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     } else if (currentTool === 'brush') {
       saveToHistory();
     }
-  };
-
-  const handleFill = () => {
-    if (currentTool !== 'select-fill' || !selection) return;
-    
-    const newObj: EditorObject = {
-      id: crypto.randomUUID(),
-      type: 'rect',
-      x: Math.min(selection.x1, selection.x2),
-      y: Math.min(selection.y1, selection.y2),
-      width: Math.abs(selection.x1 - selection.x2),
-      height: Math.abs(selection.y1 - selection.y2),
-      rotation: 0,
-      stroke: 'transparent',
-      fill: fillColor,
-      strokeWidth: 0,
-      opacity: opacity
-    };
-    
-    const nextObjects = [...objects, newObj];
-    setObjects(nextObjects);
-    setSelectedObjectId(newObj.id);
-    saveToHistory(nextObjects);
-    setSelection(null); 
-    setCurrentTool('select');
   };
 
   const handleCrop = () => {
@@ -523,7 +521,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
     setIsProcessing(true);
 
-    // Draw all objects onto the canvas before saving
     objects.forEach(obj => {
       ctx.save();
       const cx = obj.x + obj.width / 2;
@@ -566,7 +563,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       ctx.restore();
     });
 
-    // Upload to Image Host
     canvas.toBlob(async (blob) => {
       if (!blob) {
         setIsProcessing(false);
@@ -598,20 +594,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace')) {
-         if (selectedObjectId) {
-            const nextObjects = objects.filter(o => o.id !== selectedObjectId);
-            setObjects(nextObjects);
-            setSelectedObjectId(null);
-            saveToHistory(nextObjects);
-         } else if (currentTool === 'select-fill' && selection) {
-            handleFill();
-         }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObjectId) {
+        const nextObjects = objects.filter(o => o.id !== selectedObjectId);
+        setObjects(nextObjects);
+        setSelectedObjectId(null);
+        saveToHistory(nextObjects);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectId, objects, saveToHistory, currentTool, selection, fillColor, opacity]);
+  }, [selectedObjectId, objects, saveToHistory]);
 
   const ShapeIcon = lastUsedShape === 'rect' ? Square : lastUsedShape === 'circle' ? Circle : Minus;
 
@@ -639,7 +631,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       </div>
 
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Toolbar */}
         <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-6 gap-6 z-40 relative">
           <ToolIcon active={currentTool === 'select'} onClick={() => { setCurrentTool('select'); setShowShapeMenu(false); }} icon={<MousePointer2 size={20} />} label="Select" />
           <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Palette size={20} />} label="Brush" />
@@ -698,7 +689,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
         </div>
 
-        {/* Canvas Area */}
         <div ref={containerRef} className="flex-1 bg-slate-950 overflow-auto flex items-center justify-center p-20 relative z-10">
           <div className="relative shadow-2xl transition-transform duration-75 origin-center" style={{ transform: `scale(${zoom})` }}>
             <canvas ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} className="block relative" style={{ cursor: currentTool === 'none' ? 'default' : currentTool === 'select' ? 'default' : 'crosshair' }} />
@@ -707,19 +697,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               className="absolute inset-0 pointer-events-none w-full h-full"
               viewBox={`0 0 ${canvasRef.current?.width || 0} ${canvasRef.current?.height || 0}`}
             >
-              {/* Render Temporary Drawing Preview */}
-              {isDrawing && selection && ['rect', 'circle', 'line'].includes(currentTool) && (
+              {isDrawing && selection && ['rect', 'circle', 'line', 'select-fill'].includes(currentTool) && (
                 <g opacity={opacity}>
-                  {currentTool === 'rect' && (
+                  {['rect', 'select-fill'].includes(currentTool) && (
                     <rect 
                       x={Math.min(selection.x1, selection.x2)} 
                       y={Math.min(selection.y1, selection.y2)} 
                       width={Math.abs(selection.x1 - selection.x2)} 
                       height={Math.abs(selection.y1 - selection.y2)} 
-                      stroke={strokeColor} 
-                      fill={fillColor} 
-                      strokeWidth={strokeWidth} 
-                      strokeDasharray="5,5"
+                      stroke={currentTool === 'select-fill' ? '#fff' : strokeColor} 
+                      fill={currentTool === 'select-fill' ? fillColor : fillColor} 
+                      strokeWidth={currentTool === 'select-fill' ? 1 : strokeWidth} 
+                      strokeDasharray={currentTool === 'select-fill' ? "5,5" : "none"}
                     />
                   )}
                   {currentTool === 'circle' && (
@@ -731,7 +720,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                       stroke={strokeColor} 
                       fill={fillColor} 
                       strokeWidth={strokeWidth} 
-                      strokeDasharray="5,5"
                     />
                   )}
                   {currentTool === 'line' && (
@@ -742,7 +730,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                       y2={selection.y2} 
                       stroke={strokeColor} 
                       strokeWidth={strokeWidth} 
-                      strokeDasharray="5,5"
                     />
                   )}
                 </g>
@@ -791,14 +778,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               ))}
             </svg>
 
-            {selection && (['select-fill', 'crop'].includes(currentTool)) && (
+            {selection && (currentTool === 'crop') && (
                <div className="absolute pointer-events-none border-2 border-white" style={{ left: Math.min(selection.x1, selection.x2), top: Math.min(selection.y1, selection.y2), width: Math.abs(selection.x1 - selection.x2), height: Math.abs(selection.y1 - selection.y2) }}>
-                 <div className="absolute inset-0 border-2 border-dashed border-black/50 animate-pulse" style={{ backgroundColor: currentTool === 'select-fill' ? fillColor : 'transparent', opacity: currentTool === 'select-fill' ? opacity : 1 }}></div>
+                 <div className="absolute inset-0 border-2 border-dashed border-black/50 animate-pulse"></div>
                </div>
             )}
           </div>
 
-          {/* Bottom Control Bar */}
           <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 rounded-[2.5rem] shadow-2xl z-30 min-w-[700px]">
              <div className="flex flex-col gap-3 flex-1">
                <div className="flex justify-between">
@@ -820,7 +806,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                     setFontSize(v);
                     if (selectedObject?.type === 'text') {
                       updateSelectedObjectProperty('fontSize', v);
-                      // Update estimated bbox
                       updateSelectedObjectProperty('width', (selectedObject.text?.length || 1) * v * 0.6);
                       updateSelectedObjectProperty('height', v);
                     }
@@ -858,16 +843,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                  {isProcessing ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} />} AI ERASE
                </button>
              )}
-             {currentTool === 'select-fill' && (
-               <button onClick={handleFill} disabled={!selection} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black shadow-xl active:scale-95 transition-all">FILL AREA</button>
-             )}
              {currentTool === 'crop' && (
                <button onClick={handleCrop} disabled={!selection} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black shadow-xl active:scale-95 transition-all">CONFIRM CROP</button>
              )}
-             {!['ai-erase', 'select-fill', 'crop'].includes(currentTool) && (
+             {!['ai-erase', 'crop'].includes(currentTool) && (
                 <div className="px-6 text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
-                  {currentTool === 'select' ? (selectedObjectId ? 'Object Selected' : 'Select Tool') : `${currentTool} tool`}
+                  {currentTool === 'select' ? (selectedObjectId ? 'Object Selected' : 'Select Tool') : currentTool === 'select-fill' ? 'Fill (Drag to apply)' : `${currentTool} tool`}
                 </div>
              )}
           </div>
