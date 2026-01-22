@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { DollarSign, Truck, Box, Scale, ImageIcon, ListFilter, Plus, FileText, Hash } from 'lucide-react';
+import { DollarSign, Truck, Box, Scale, ListFilter, Plus, FileText } from 'lucide-react';
 import { Listing, OptimizedData, UILanguage } from '../types';
 
 interface ListingEditorAreaProps {
@@ -13,7 +13,7 @@ interface ListingEditorAreaProps {
 }
 
 /**
- * 核心单位本地化显示映射 (Sentence Case)
+ * 核心单位显示标准映射
  */
 const getLocalizedUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
@@ -24,12 +24,17 @@ const getLocalizedUnit = (unit: string | undefined, market: string) => {
     const jp: Record<string, string> = { 'kg': 'キログラム', 'cm': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ', 'oz': 'オンス' };
     return jp[u] || unit;
   }
-  // 2. 阿拉伯
+  // 2. 拉美 (MX/BR) / 西语 (ES)
+  if (['MX', 'BR', 'ES'].includes(market)) {
+    const latinExt: Record<string, string> = { 'kg': 'Kilogramos', 'cm': 'Centímetros', 'lb': 'Libras', 'in': 'Pulgadas', 'oz': 'Onzas' };
+    return latinExt[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
+  }
+  // 3. 阿拉伯
   if (['EG', 'SA', 'AE'].includes(market)) {
     const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية' };
     return ar[u] || unit;
   }
-  // 3. 拉丁语系强制 Sentence Case
+  // 4. 标准拉丁语系强制 Sentence Case
   const latin: Record<string, string> = {
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
     'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
@@ -49,7 +54,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
   const getVal = (optField: string, cleanField: string) => {
     const data = isUS ? listing.optimized : listing.translations?.[activeMarket];
     
-    // 单位字段：执行清洗与本地化映射，防止存量数据全大写显示
+    // 单位字段本地化映射显示
     if (optField === 'optimized_weight_unit' || optField === 'optimized_size_unit') {
       const rawUnit = (data ? (data as any)[optField] : null) || (isUS ? (listing.cleaned as any)[cleanField] : "");
       return getLocalizedUnit(rawUnit, activeMarket);
@@ -69,7 +74,6 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
 
   return (
     <div className="p-10 space-y-10">
-      {/* 价格与运费区 */}
       <div className="grid grid-cols-2 gap-8">
         <div className="space-y-3">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={14} className="text-emerald-500" /> Price ({activeMarket})</label>
@@ -81,7 +85,6 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         </div>
       </div>
 
-      {/* 物流规格区 */}
       <div className="bg-slate-50/50 px-10 py-8 rounded-[2.5rem] border border-slate-100 shadow-inner space-y-8">
         <div className="flex items-center justify-between">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
