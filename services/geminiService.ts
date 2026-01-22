@@ -1,12 +1,8 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
-/**
- * Optimizes an Amazon listing using Gemini 3 Flash model.
- * GUARANTEES structured non-empty results for all core fields.
- */
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
-  // Always create a new GoogleGenAI instance right before making an API call
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
@@ -15,7 +11,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 
     [STRICT REQUIREMENTS]
     1. Title: Create an SEO-rich title (max 200 chars).
-    2. Bullets: Provide EXACTLY 5 high-impact bullet points. Each must be non-empty and start with a [KEYWORD] or emoji.
+    2. Bullets: Provide EXACTLY 5 high-impact bullet points. Each MUST be a non-empty string. Start each with a [KEYWORD] or emoji.
     3. Description: Write a persuasive product description (1000-1500 chars) using basic HTML.
     4. Search Keywords: Provide 250 characters of high-converting search terms.
     5. Logistics: Standardize weight and size. Units MUST be Title Case (e.g., "Pounds", "Inches").
@@ -36,7 +32,11 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
           type: Type.OBJECT,
           properties: {
             optimized_title: { type: Type.STRING },
-            optimized_features: { type: Type.ARRAY, items: { type: Type.STRING }, minItems: 5 },
+            optimized_features: { 
+              type: Type.ARRAY, 
+              items: { type: Type.STRING },
+              description: "Exactly 5 bullet points"
+            },
             optimized_description: { type: Type.STRING },
             search_keywords: { type: Type.STRING },
             optimized_weight_value: { type: Type.STRING },
@@ -52,7 +52,14 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     });
 
     const text = response.text || "{}";
-    return JSON.parse(text.trim()) as OptimizedData;
+    const data = JSON.parse(text.trim()) as OptimizedData;
+    
+    // Ensure features always has 5 elements
+    if (data.optimized_features && data.optimized_features.length < 5) {
+      while (data.optimized_features.length < 5) data.optimized_features.push("");
+    }
+    
+    return data;
   } catch (error: any) {
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
@@ -62,22 +69,16 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
   }
 };
 
-/**
- * Translates and localizes an Amazon listing for a specific target marketplace.
- */
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLang: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Task: Translate and LOCALIZE the following listing data for Amazon into "${targetLang}".
+    Task: Translate and LOCALIZE the listing into "${targetLang}".
+    RULES: 
+    - 5 Bullet Points MUST remain 5 points.
+    - Translate units to "${targetLang}" local terminology (e.g. "ポンド" for JP).
+    - Strip brands.
     
-    [LOCALIZATION RULES]
-    1. Translate everything except brand names (if any remain) and numeric values.
-    2. LOCALIZE UNIT NAMES into "${targetLang}" official terminology.
-       - JP (Japan): Use "ポンド", "キログラム", "インチ", "センチメートル".
-       - EU (DE/FR/IT/ES): Use local full names in Title Case (e.g., "Kilogramm" for DE).
-    3. Maintain 5 high-impact bullet points.
-
     Source: ${JSON.stringify(sourceData)}
   `;
 
@@ -91,7 +92,7 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
           type: Type.OBJECT,
           properties: {
             optimized_title: { type: Type.STRING },
-            optimized_features: { type: Type.ARRAY, items: { type: Type.STRING }, minItems: 5 },
+            optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
             optimized_description: { type: Type.STRING },
             search_keywords: { type: Type.STRING },
             optimized_weight_unit: { type: Type.STRING },
@@ -112,12 +113,8 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   }
 };
 
-/**
- * Edits an image using the gemini-2.5-flash-image model.
- */
 export const editImageWithAI = async (base64Image: string, prompt: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
@@ -128,13 +125,10 @@ export const editImageWithAI = async (base64Image: string, prompt: string): Prom
         ]
       },
     });
-
     if (!response.candidates?.[0]?.content?.parts) throw new Error("Empty response from AI");
-
     for (const part of response.candidates[0].content.parts) {
       if (part.inlineData) return part.inlineData.data;
     }
-    
     throw new Error("No image data returned in AI response");
   } catch (error: any) {
     if (error.message?.includes("Requested entity was not found.")) {

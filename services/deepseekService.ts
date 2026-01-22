@@ -11,24 +11,17 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
   if (!apiKey) throw new Error("DeepSeek API Key is missing.");
 
   const prompt = `
-    You are an expert Amazon Listing Optimizer. Extract and optimize product data from:
+    You are an expert Amazon Listing Optimizer. Optimize this data:
     ${JSON.stringify(cleanedData)}
 
-    [CORE TASKS]
-    1. Title: Max 200 chars, SEO high-conversion.
-    2. Bullets: Exactly 5 high-impact points. Start each with [KEYWORD].
-    3. Description: 1000-1500 chars, use HTML (<p>, <br>).
-    4. Logistics: 
-       - Extract weight and dimensions. 
-       - Standardize to English Title Case FULL NAMES: "Pounds", "Kilograms", "Inches", "Centimeters". 
-       - NEVER use all caps like "KILOGRAMS".
-       - Format numbers to 2 decimal places.
+    JSON OUTPUT FIELDS:
+    - optimized_title: string
+    - optimized_features: array of exactly 5 non-empty strings
+    - optimized_description: HTML string
+    - search_keywords: string
+    - optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit
 
-    [CRITICAL - BRAND REMOVAL RULE]
-    - STRICT: Remove ALL specific brand names from the output.
-    - REPLACE brands with generic terms like "select vehicles", "specified models", or "compatible vehicle series".
-    
-    Return valid JSON.
+    REMOVE BRANDS.
   `;
 
   const endpoint = `${baseUrl}/chat/completions`;
@@ -44,7 +37,11 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     })
   });
   const data = await response.json();
-  return JSON.parse(data.choices[0].message.content) as OptimizedData;
+  const result = JSON.parse(data.choices[0].message.content) as OptimizedData;
+  if (result.optimized_features && result.optimized_features.length < 5) {
+    while (result.optimized_features.length < 5) result.optimized_features.push("");
+  }
+  return result;
 };
 
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLang: string): Promise<Partial<OptimizedData>> => {
@@ -53,25 +50,9 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const model = process.env.DEEPSEEK_MODEL || "deepseek-chat";
   
   const prompt = `
-    Task: Translate and LOCALIZE the content for Amazon listing into "${targetLang}".
-    
-    [STRICT RULES]
-    1. Translate Title, 5 Bullets, Description, and Keywords.
-    2. LOCALIZE UNIT NAMES: You MUST translate units into the native official terminology of "${targetLang}". 
-       - For JP (Japan): Use "ポンド" (Pounds), "キログラム" (Kilograms), "インチ" (Inches), "センチメートル" (Centimeters).
-       - For Latin languages (DE, FR, IT, ES): Use Title Case like "Kilogramm", "Gramm", "Zentimeter".
-       - NEVER leave units in all caps or raw English if target is not US/UK.
-    3. BRAND REMOVAL: Strip specific brands and use generic terms in "${targetLang}".
-    4. Numeric values must remain untouched.
-
-    Source: ${JSON.stringify({
-      title: sourceData.optimized_title,
-      features: sourceData.optimized_features,
-      description: sourceData.optimized_description,
-      keywords: sourceData.search_keywords,
-      weight_unit: sourceData.optimized_weight_unit,
-      size_unit: sourceData.optimized_size_unit
-    })}
+    Translate and localize for Amazon "${targetLang}". 
+    Must maintain 5 bullet points. Localize units.
+    Source: ${JSON.stringify(sourceData)}
   `;
 
   const endpoint = `${baseUrl}/chat/completions`;
