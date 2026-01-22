@@ -47,7 +47,7 @@ const parseNumeric = (val: any): number => {
   return isNaN(n) ? 0 : n;
 };
 
-// 站点单位本地化映射
+// 增强版：站点单位本地化映射
 const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();

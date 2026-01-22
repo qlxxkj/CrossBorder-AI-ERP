@@ -20,6 +20,17 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and con
 Return ONLY a flat JSON object matching these keys.
 `;
 
+const extractJSONObject = (text: string) => {
+  try {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    return JSON.parse(match[0]);
+  } catch (e) {
+    console.error("DeepSeek JSON Extraction failed. Raw:", text);
+    return null;
+  }
+};
+
 export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Promise<OptimizedData> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DeepSeek API Key missing.");
@@ -44,18 +55,17 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
   if (!response.ok) throw new Error(`DeepSeek API Error: ${response.status}`);
 
   const data = await response.json();
-  let content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("DeepSeek returned empty content");
+  const content = data.choices?.[0]?.message?.content || "{}";
+  const result = extractJSONObject(content);
   
-  content = content.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
-  const result = JSON.parse(content);
+  if (!result) throw new Error("DeepSeek returned invalid or unparsable JSON.");
   
   if (!result.optimized_features || !Array.isArray(result.optimized_features)) {
     result.optimized_features = [];
   }
   while (result.optimized_features.length < 5) result.optimized_features.push("");
   
-  return result;
+  return result as OptimizedData;
 };
 
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
@@ -70,7 +80,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
     2. Keep HTML tags.
     3. Maintain "[KEYWORD]: " style.
     4. Translate measurement units (e.g. Kilograms, Centimeters) into the official language used in "${targetLangName}" (e.g. 'Kilogramos' for Spanish).
-    5. Return ONLY flat JSON.
+    5. Return ONLY a valid JSON object.
     Source: ${JSON.stringify(sourceData)}
   `;
   const endpoint = `${baseUrl}/chat/completions`;
@@ -89,7 +99,8 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   if (!response.ok) throw new Error(`DeepSeek Translate API Error: ${response.status}`);
 
   const data = await response.json();
-  let content = data.choices?.[0]?.message?.content || "{}";
-  content = content.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
-  return JSON.parse(content);
+  const content = data.choices?.[0]?.message?.content || "{}";
+  const result = extractJSONObject(content);
+  if (!result) throw new Error("DeepSeek returned empty or malformed translation JSON.");
+  return result;
 };

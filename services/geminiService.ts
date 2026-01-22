@@ -20,6 +20,18 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and con
 Return ONLY a flat JSON object matching these keys.
 `;
 
+// 辅助函数：从杂乱文本中强制提取 JSON 对象
+const extractJSONObject = (text: string) => {
+  try {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    return JSON.parse(match[0]);
+  } catch (e) {
+    console.error("JSON Extraction failed for text:", text);
+    return null;
+  }
+};
+
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
@@ -47,16 +59,14 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
       }
     });
     
-    let text = response.text || "{}";
-    // 强力提取 JSON 部分
-    text = text.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
-    const data = JSON.parse(text) as OptimizedData;
+    const data = extractJSONObject(response.text || "{}");
+    if (!data) throw new Error("Gemini returned invalid or unparsable JSON during optimization.");
     
     if (!data.optimized_features || !Array.isArray(data.optimized_features)) {
       data.optimized_features = [];
     }
     while (data.optimized_features.length < 5) data.optimized_features.push("");
-    return data;
+    return data as OptimizedData;
   } catch (error: any) { 
     console.error("Gemini Optimize Error:", error);
     throw new Error(`Gemini Optimization Failed: ${error.message || "Unknown error"}`);
@@ -71,9 +81,9 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     1. DO NOT translate JSON Keys (e.g. optimized_title, search_keywords).
     2. Keep HTML tags intact.
     3. Maintain "[KEYWORD]: " style for bullets.
-    4. IMPORTANT: Translate measurement units (e.g. Kilograms, Centimeters) into the official language used in "${targetLangName}" (e.g., 'كيلوجرام' for Arabic, 'Kilogramm' for German, 'Kilogramos' for Spanish).
-    5. Return ONLY valid JSON.
-    Source: ${JSON.stringify(sourceData)}
+    4. IMPORTANT: Translate measurement units (e.g. Kilograms, Centimeters) into the official language used in "${targetLangName}" market (e.g., 'كيلوجرام' for Arabic, 'Kilogramm' for German, 'Kilogramos' for Spanish).
+    5. Return ONLY a valid JSON object.
+    Source Data: ${JSON.stringify(sourceData)}
   `;
   try {
     const response = await ai.models.generateContent({
@@ -81,10 +91,12 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
       contents: prompt,
       config: { responseMimeType: "application/json" }
     });
-    let text = response.text || "{}";
-    // 强力提取 JSON 部分
-    text = text.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
-    return JSON.parse(text);
+    
+    const data = extractJSONObject(response.text || "{}");
+    if (!data || Object.keys(data).length === 0) {
+      throw new Error("Gemini returned empty or malformed translation JSON.");
+    }
+    return data;
   } catch (error: any) { 
     console.error("Gemini Translate Error:", error);
     throw new Error(`Gemini Translation Failed: ${error.message || "Unknown error"}`);

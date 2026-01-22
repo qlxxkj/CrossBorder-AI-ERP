@@ -17,8 +17,19 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and con
    - optimized_size_unit: "Inches".
 6. PROHIBITED: No Brand Names, No Extreme Words (Best, Perfect, etc.).
 
-Return ONLY a flat JSON object matching these keys. Do not include markdown formatting or "\`\`\`json" tags.
+Return ONLY a flat JSON object matching these keys.
 `;
+
+const extractJSONObject = (text: string) => {
+  try {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    return JSON.parse(match[0]);
+  } catch (e) {
+    console.error("OpenAI JSON Extraction failed. Raw:", text);
+    return null;
+  }
+};
 
 export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -34,7 +45,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "You are a professional Amazon copywriter who outputs raw JSON. DO NOT use markdown code blocks." },
+        { role: "system", content: "You are a professional Amazon copywriter who outputs raw JSON. NO markdown." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
@@ -43,26 +54,19 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   
   if (!response.ok) {
     const errText = await response.text();
-    if (response.status === 429) throw new Error("OpenAI Quota Exceeded (429). Please check billing.");
+    if (response.status === 429) throw new Error("OpenAI Quota Exceeded (429).");
     throw new Error(`OpenAI API Error (${response.status}): ${errText.slice(0, 100)}`);
   }
 
   const data = await response.json();
-  let content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("OpenAI returned empty message content.");
+  const content = data.choices?.[0]?.message?.content || "{}";
+  const result = extractJSONObject(content);
   
-  // 深度清理可能的 Markdown 容器
-  content = content.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
+  if (!result) throw new Error("OpenAI returned invalid or unparsable JSON.");
   
-  try {
-    const result = JSON.parse(content);
-    if (!result.optimized_features || !Array.isArray(result.optimized_features)) result.optimized_features = [];
-    while (result.optimized_features.length < 5) result.optimized_features.push("");
-    return result;
-  } catch (parseError) {
-    console.error("JSON Cleanup failed. Raw:", content);
-    throw new Error("AI returned malformed JSON that could not be parsed.");
-  }
+  if (!result.optimized_features || !Array.isArray(result.optimized_features)) result.optimized_features = [];
+  while (result.optimized_features.length < 5) result.optimized_features.push("");
+  return result as OptimizedData;
 };
 
 export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
@@ -73,11 +77,11 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   const prompt = `
     Task: Translate this Amazon listing to "${targetLangName}". 
     [STRICT RULES]: 
-    1. KEEP ALL JSON KEYS UNCHANGED (e.g. optimized_title, optimized_features).
-    2. Keep HTML tags intact.
+    1. KEEP ALL JSON KEYS UNCHANGED.
+    2. Keep HTML tags.
     3. Maintain "[KEYWORD]: " style for bullets.
     4. Translate measurement units (e.g. Kilograms, Centimeters) into the official language of ${targetLangName} market.
-    5. Return ONLY a valid JSON object. No preamble, no markdown tags.
+    5. Return ONLY a valid JSON object.
     Data: ${JSON.stringify(sourceData)}
   `;
   const endpoint = `${baseUrl}/chat/completions`;
@@ -96,7 +100,8 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   if (!response.ok) throw new Error(`OpenAI Translate API Error: ${response.status}`);
 
   const data = await response.json();
-  let content = data.choices?.[0]?.message?.content || "{}";
-  content = content.replace(/^[\s\S]*?\{/, '{').replace(/\}[^\}]*?$/, '}').trim();
-  return JSON.parse(content);
+  const content = data.choices?.[0]?.message?.content || "{}";
+  const result = extractJSONObject(content);
+  if (!result) throw new Error("OpenAI returned empty or malformed translation JSON.");
+  return result;
 };
