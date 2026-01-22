@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
@@ -190,7 +191,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const rateEntry = exchangeRates.find(r => r.marketplace === marketCode);
       const rate = rateEntry ? rateEntry.rate : 1;
 
-      // 核心换算逻辑（纯前端计算）
       const rawWeightValue = parseNumeric(activeState.optimized?.optimized_weight_value || activeState.cleaned.item_weight_value || activeState.cleaned.item_weight);
       const rawWeightUnit = (activeState.optimized?.optimized_weight_unit || activeState.cleaned.item_weight_unit || 'lb').toLowerCase();
       
@@ -276,18 +276,66 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
-  const uploadImageToHost = async (dataUrlOrFile: string | File, asin: string): Promise<string> => {
+  const uploadImageToHost = async (dataUrlOrBlob: string | Blob, asin: string): Promise<string> => {
     let file: File;
-    if (typeof dataUrlOrFile === 'string') {
-      const res = await fetch(dataUrlOrFile);
+    if (typeof dataUrlOrBlob === 'string' && dataUrlOrBlob.startsWith('data:')) {
+      const res = await fetch(dataUrlOrBlob);
       const blob = await res.blob();
       file = new File([blob], `${asin}_${Date.now()}.jpg`, { type: 'image/jpeg' });
-    } else { file = dataUrlOrFile; }
+    } else if (dataUrlOrBlob instanceof Blob) {
+      file = new File([dataUrlOrBlob], `${asin}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+    } else if (typeof dataUrlOrBlob === 'string') {
+      const res = await fetch(`${CORS_PROXY}${encodeURIComponent(dataUrlOrBlob)}`);
+      const blob = await res.blob();
+      file = new File([blob], `${asin}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+    } else {
+      throw new Error("Invalid image data");
+    }
     const formDataBody = new FormData();
     formDataBody.append('file', file);
     const response = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formDataBody });
     const data = await response.json();
     return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+  };
+
+  /**
+   * 图像标准化核心辅助函数
+   * 将任意比例图片缩放到 1500*1500 以内，并置于 1600*1600 白色背景画布中央
+   */
+  const processImageTo1600 = async (imageUrl: string): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1600;
+        canvas.height = 1600;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject("Canvas context fail");
+
+        // 纯白背景
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, 1600, 1600);
+
+        // 计算缩放比例 (最大占用 1500 像素，留白 50 像素边距)
+        const targetInnerSize = 1500;
+        const scale = Math.min(targetInnerSize / img.width, targetInnerSize / img.height);
+        const drawW = img.width * scale;
+        const drawH = img.height * scale;
+        
+        // 居中坐标
+        const x = (1600 - drawW) / 2;
+        const y = (1600 - drawH) / 2;
+
+        ctx.drawImage(img, x, y, drawW, drawH);
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject("Blob generation fail");
+        }, 'image/jpeg', 0.95);
+      };
+      img.onerror = () => reject("Image load fail");
+    });
   };
 
   const handleBatchStandardize = async () => {
@@ -296,15 +344,28 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const nextListing = { ...localListing };
       const allImgs = [nextListing.cleaned.main_image, ...(nextListing.cleaned.other_images || [])].filter(Boolean) as string[];
       const processed: string[] = [];
+      
       for (const url of allImgs) {
-        const hostedUrl = await uploadImageToHost(url, localListing.asin);
+        // 1. 本地 Canvas 处理
+        const blob = await processImageTo1600(url);
+        // 2. 上传到图床
+        const hostedUrl = await uploadImageToHost(blob, localListing.asin);
         processed.push(hostedUrl);
       }
+      
       nextListing.cleaned.main_image = processed[0];
       nextListing.cleaned.other_images = processed.slice(1);
-      setLocalListing(nextListing); setPreviewImage(processed[0]); onUpdate(nextListing); await syncToSupabase(nextListing);
-    } catch (e) { alert("Standardize failed"); } 
-    finally { setIsStandardizing(false); }
+      
+      setLocalListing(nextListing); 
+      setPreviewImage(processed[0]); 
+      onUpdate(nextListing); 
+      await syncToSupabase(nextListing);
+    } catch (e: any) { 
+      console.error("Standardize Error:", e);
+      alert("Standardize failed: " + (e.message || String(e))); 
+    } finally { 
+      setIsStandardizing(false); 
+    }
   };
 
   const handleAddImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
