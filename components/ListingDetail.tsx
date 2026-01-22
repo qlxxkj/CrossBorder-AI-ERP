@@ -474,7 +474,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </button>
                    </div>
                 </div>
-                <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-3">
+                {/* 修改此处：从横向滚动 overflow-x-auto 切换为 flex-wrap 自动换行 */}
+                <div className="flex flex-wrap gap-2 pb-3">
                    {allImages.map((img, i) => (
                      <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
                         <img src={img} className="w-full h-full object-cover" />
@@ -488,7 +489,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                              <Star size={10} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} />
                            </button>
 
-                           {/* 删除按钮 - 右上角 (与标准化功能彻底分离) */}
+                           {/* 删除按钮 - 右上角 */}
                            <button 
                              onClick={(e) => { 
                                e.stopPropagation(); 
