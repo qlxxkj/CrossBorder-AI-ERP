@@ -31,10 +31,30 @@ const formatExportVal = (val: any) => {
   return parseFloat(num.toFixed(2));
 };
 
-const getFullUnitName = (unit: string | undefined) => {
+// 核心修复：增强本地化单位转换，支持日语和其他语言映射
+const getLocalizedUnitName = (unit: string | undefined, marketplace: string) => {
   if (!unit) return "";
   const u = unit.toLowerCase().trim();
-  const map: Record<string, string> = {
+  
+  // 1. 如果单位已经包含非 ASCII 字符（说明 AI 已经翻译成功），则直接返回，不要强制转换回英文
+  if (/[^\x00-\x7F]/.test(unit)) return unit;
+
+  // 2. 日本站特定映射 (符合 Amazon JP 模板的 Valid Values)
+  if (marketplace === 'JP') {
+     const jpMap: Record<string, string> = {
+       'kilograms': 'キログラム', 'kilogram': 'キログラム', 'kg': 'キログラム',
+       'grams': 'グラム', 'gram': 'グラム', 'g': 'グラム',
+       'pounds': 'ポンド', 'pound': 'ポンド', 'lb': 'ポンド', 'lbs': 'ポンド',
+       'ounces': 'オンス', 'ounce': 'オンス', 'oz': 'オンス',
+       'inches': 'インチ', 'inch': 'インチ', 'in': 'インチ',
+       'centimeters': 'センチメートル', 'centimeter': 'センチメートル', 'cm': 'センチメートル',
+       'millimeters': 'ミリメートル', 'millimeter': 'ミリメートル', 'mm': 'ミリメートル'
+     };
+     if (jpMap[u]) return jpMap[u];
+  }
+
+  // 3. 基础英文/公制全称映射 (用于其他欧美站点)
+  const baseMap: Record<string, string> = {
     'lb': 'Pounds', 'lbs': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
     'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces',
@@ -44,7 +64,10 @@ const getFullUnitName = (unit: string | undefined) => {
     'mm': 'Millimeters', 'millimeter': 'Millimeters', 'millimeters': 'Millimeters',
     'ft': 'Feet', 'foot': 'Feet', 'feet': 'Feet'
   };
-  if (map[u]) return map[u];
+  
+  if (baseMap[u]) return baseMap[u];
+  
+  // 兜底：首字母大写
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
@@ -198,7 +221,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const sheet = workbook.Sheets[tplSheetName];
       
       const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] ?? 3;
-      
       const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
 
       selectedListings.forEach((listing, rowOffset) => {
@@ -244,11 +266,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               val = otherImages[idx] || '';
             }
             else if (f === 'item_weight_value') val = formatExportVal(localOpt?.optimized_weight_value || cleaned.item_weight_value || '');
-            else if (f === 'item_weight_unit') val = getFullUnitName(localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '');
+            else if (f === 'item_weight_unit') val = getLocalizedUnitName(localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '', targetMarket);
             else if (f === 'item_length') val = formatExportVal(localOpt?.optimized_length || cleaned.item_length || '');
             else if (f === 'item_width') val = formatExportVal(localOpt?.optimized_width || cleaned.item_width || '');
             else if (f === 'item_height') val = formatExportVal(localOpt?.optimized_height || cleaned.item_height || '');
-            else if (f === 'item_size_unit') val = getFullUnitName(localOpt?.optimized_size_unit || cleaned.item_size_unit || '');
+            else if (f === 'item_size_unit') val = getLocalizedUnitName(localOpt?.optimized_size_unit || cleaned.item_size_unit || '', targetMarket);
           } 
           else if (mapping.source === 'custom') val = mapping.defaultValue || '';
           else if (mapping.source === 'random') val = generateRandomValue(mapping.randomType);
@@ -264,7 +286,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url;
       
-      // 核心修复：文件名包含时分秒 [分类]_[站点]_[时间戳]
       const currentCatId = selectedTemplate.category_id || targetCategory;
       const catName = categories.find(c => c.id === currentCatId)?.name || (uiLang === 'zh' ? '通用分类' : 'General');
       
@@ -277,7 +298,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
                         now.getSeconds().toString().padStart(2, '0');
 
       link.download = `${catName}_${targetMarket}_${timestamp}.xlsm`;
-      
       link.click();
       URL.revokeObjectURL(url);
       await updateExportHistory(targetMarket);

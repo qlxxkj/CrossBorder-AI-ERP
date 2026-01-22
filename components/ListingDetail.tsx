@@ -235,6 +235,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsBatchTranslating(true);
     const nextListing = { ...localListing };
     const currentTranslations = { ...(nextListing.translations || {}) };
+    
+    // 获取兜底单位名称
+    const getFallbackUnit = (mkt: string, type: 'weight' | 'size') => {
+      const isMetric = METRIC_MARKETS.includes(mkt);
+      if (mkt === 'JP') return type === 'weight' ? 'キログラム' : 'センチメートル';
+      if (isMetric) return type === 'weight' ? 'Kilograms' : 'Centimeters';
+      return type === 'weight' ? 'Pounds' : 'Inches';
+    };
+
     for (const mkt of AMAZON_MARKETPLACES) {
       if (mkt.code === 'US') continue;
       try {
@@ -259,9 +268,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const rawW = parseFloat(localListing.optimized?.optimized_width || localListing.cleaned.item_width || '0');
         const rawH = parseFloat(localListing.optimized?.optimized_height || localListing.cleaned.item_height || '0');
 
-        // 核心修复：强制使用引擎返回的本地化单位，若无则兜底
-        const finalWeightUnit = trans.optimized_weight_unit || (isMetric ? 'Kilograms' : 'Pounds');
-        const finalSizeUnit = trans.optimized_size_unit || (isMetric ? 'Centimeters' : 'Inches');
+        // 核心修复：更智能的本地化单位逻辑，优先使用 AI 结果，回退使用特定语言硬编码而非全英文大写
+        const finalWeightUnit = trans.optimized_weight_unit || getFallbackUnit(mkt.code, 'weight');
+        const finalSizeUnit = trans.optimized_size_unit || getFallbackUnit(mkt.code, 'size');
 
         currentTranslations[mkt.code] = {
           ...trans,
