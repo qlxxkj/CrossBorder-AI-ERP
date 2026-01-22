@@ -29,16 +29,16 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 /**
- * 单位全拼标准 Sentence Case 映射
+ * 核心单位格式化映射 (Sentence Case)
  */
 const mapStandardUnit = (unit: string, market: string) => {
   const u = unit.toLowerCase().trim();
   if (market === 'JP') {
-    const jp: Record<string, string> = { 'kg': 'キログラム', 'cm': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ' };
+    const jp: Record<string, string> = { 'kg': 'キログラム', 'cm': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ', 'oz': 'オンス' };
     return jp[u] || unit;
   }
   if (market === 'EG' || market === 'SA' || market === 'AE') {
-    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة' };
+    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية' };
     return ar[u] || unit;
   }
   
@@ -46,7 +46,8 @@ const mapStandardUnit = (unit: string, market: string) => {
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
     'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
     'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
-    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches'
+    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
+    'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces'
   };
   return latin[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
 };
@@ -95,6 +96,62 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } catch (e) {} finally { setIsSaving(false); }
   };
 
+  // Standardizes an image to 1600x1600 with white background and uploads it to the hosting service
+  const standardizeImage = async (url: string): Promise<string> => {
+    if (!url) return "";
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = url.startsWith('http') ? `${CORS_PROXY}${encodeURIComponent(url)}` : url;
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const targetSize = 1600;
+        const safeArea = 1500;
+        canvas.width = targetSize;
+        canvas.height = targetSize;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(url);
+          return;
+        }
+
+        // White background
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, targetSize, targetSize);
+
+        // Center and scale
+        const scale = Math.min(safeArea / img.width, safeArea / img.height);
+        const drawW = img.width * scale;
+        const drawH = img.height * scale;
+        const offsetX = (targetSize - drawW) / 2;
+        const offsetY = (targetSize - drawH) / 2;
+
+        ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+
+        canvas.toBlob(async (blob) => {
+          if (!blob) {
+            resolve(url);
+            return;
+          }
+          try {
+            const file = new File([blob], `standardized_${Date.now()}.jpg`, { type: 'image/jpeg' });
+            const fd = new FormData();
+            fd.append('file', file);
+            const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
+            const data = await res.json();
+            const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+            resolve(u || url);
+          } catch (e) {
+            console.error("Standardize upload failed:", e);
+            resolve(url);
+          }
+        }, 'image/jpeg', 0.9);
+      };
+      img.onerror = () => resolve(url);
+    });
+  };
+
   const updateField = (field: string, value: any) => {
     setLocalListing(prev => {
       const next = { ...prev };
@@ -115,98 +172,86 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  const standardizeImage = async (url: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return reject();
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = `${CORS_PROXY}${encodeURIComponent(url)}`;
-      img.onload = () => {
-        canvas.width = 1600; canvas.height = 1600;
-        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, 1600, 1600);
-        const scale = Math.min(1500 / img.width, 1500 / img.height);
-        const w = img.width * scale, h = img.height * scale;
-        ctx.drawImage(img, (1600 - w) / 2, (1600 - h) / 2, w, h);
-        canvas.toBlob(async (blob) => {
-          if (!blob) return reject();
-          const fd = new FormData(); fd.append('file', new File([blob], `std_${Date.now()}.jpg`, { type: 'image/jpeg' }));
-          const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
-          const data = await res.json();
-          resolve(Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url);
-        }, 'image/jpeg', 0.95);
-      };
-      img.onerror = reject;
-    });
-  };
-
-  const handleStandardizeAll = async () => {
-    setIsProcessingImages(true);
-    try {
-      const newMain = await standardizeImage(localListing.cleaned.main_image || '');
-      const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImage(u)));
-      updateField('main_image', newMain);
-      updateField('other_images', newOthers);
-      setPreviewImage(newMain);
-    } catch (e) { alert("Failed"); } finally { setIsProcessingImages(false); }
-  };
-
   /**
-   * 物流换算强制溯源引擎
+   * 物流换算强制回溯引擎 (增强版：支持 Ounce /盎司)
    */
   const performLogisticsConversion = (targetMkt: string) => {
-    // 强制回溯 Master 站点
     const opt = localListing.optimized;
     const clean = localListing.cleaned;
     const isMetric = !['US', 'CA', 'UK'].includes(targetMkt);
     
-    // 基础源数据：优先取 Master 优化后的，没有则取采集原始的
-    const sUnitW = String(opt?.optimized_weight_unit || clean.item_weight_unit || "lb").toLowerCase();
-    const sUnitS = String(opt?.optimized_size_unit || clean.item_size_unit || "in").toLowerCase();
+    // 强制取 Master 站点基准数据
+    const rawUnitW = String(opt?.optimized_weight_unit || clean.item_weight_unit || "lb").toLowerCase();
+    const rawUnitS = String(opt?.optimized_size_unit || clean.item_size_unit || "in").toLowerCase();
     
-    let valW = opt?.optimized_weight_value || clean.item_weight_value || "";
-    let l = opt?.optimized_length || clean.item_length || "";
-    let w = opt?.optimized_width || clean.item_width || "";
-    let h = opt?.optimized_height || clean.item_height || "";
+    const rawValW = opt?.optimized_weight_value || clean.item_weight_value || "";
+    const rawL = opt?.optimized_length || clean.item_length || "";
+    const rawW = opt?.optimized_width || clean.item_width || "";
+    const rawH = opt?.optimized_height || clean.item_height || "";
     
     const num = (v: any) => {
       const n = parseFloat(String(v || "0").replace(/[^0-9.]/g, ''));
       return isNaN(n) ? 0 : n;
     };
 
+    const nW = num(rawValW);
+    const nL = num(rawL);
+    const nWd = num(rawW);
+    const nH = num(rawH);
+
+    let vW = String(rawValW), vL = String(rawL), vWd = String(rawW), vH = String(rawH);
+
     if (isMetric) {
       // 换算至公制
-      if (sUnitW.includes('lb') || sUnitW.includes('pound')) {
-        const n = num(valW); valW = n > 0 ? (n * 0.453592).toFixed(2) : "";
+      if (rawUnitW.includes('lb') || rawUnitW.includes('pound')) {
+        vW = nW > 0 ? (nW * 0.453592).toFixed(2) : "";
+      } else if (rawUnitW.includes('oz') || rawUnitW.includes('ounce')) {
+        vW = nW > 0 ? (nW * 0.0283495).toFixed(3) : "";
+      } else if (rawUnitW.includes('g') && !rawUnitW.includes('k')) {
+        vW = nW > 0 ? (nW / 1000).toFixed(3) : "";
       }
-      if (sUnitS.includes('in') || sUnitS.includes('inch')) {
-        const nl = num(l), nw = num(w), nh = num(h);
-        l = nl > 0 ? (nl * 2.54).toFixed(2) : "";
-        w = nw > 0 ? (nw * 2.54).toFixed(2) : "";
-        h = nh > 0 ? (nh * 2.54).toFixed(2) : "";
+      
+      if (rawUnitS.includes('in') || rawUnitS.includes('inch')) {
+        vL = nL > 0 ? (nL * 2.54).toFixed(2) : "";
+        vWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : "";
+        vH = nH > 0 ? (nH * 2.54).toFixed(2) : "";
       }
     } else {
-      // 换算至英制 (针对 CA/UK 等虽然有时用公制但模板常要求英制的情况，或者反向同步)
-      if (sUnitW.includes('kg') || sUnitW.includes('kilogram')) {
-        const n = num(valW); valW = n > 0 ? (n / 0.453592).toFixed(2) : "";
+      // 换算至英制
+      if (rawUnitW.includes('kg') || rawUnitW.includes('kilogram')) {
+        vW = nW > 0 ? (nW / 0.453592).toFixed(2) : "";
+      } else if (rawUnitW.includes('g')) {
+        vW = nW > 0 ? (nW / 453.592).toFixed(2) : "";
       }
-      if (sUnitS.includes('cm') || sUnitS.includes('centimeter')) {
-        const nl = num(l), nw = num(w), nh = num(h);
-        l = nl > 0 ? (nl / 2.54).toFixed(2) : "";
-        w = nw > 0 ? (nw / 2.54).toFixed(2) : "";
-        h = nh > 0 ? (nh / 2.54).toFixed(2) : "";
+      
+      if (rawUnitS.includes('cm') || rawUnitS.includes('centimeter')) {
+        vL = nL > 0 ? (nL / 2.54).toFixed(2) : "";
+        vWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : "";
+        vH = nH > 0 ? (nH * 2.54).toFixed(2) : "";
       }
     }
 
     return {
-      optimized_weight_value: valW, 
+      optimized_weight_value: vW, 
       optimized_weight_unit: mapStandardUnit(isMetric ? 'kg' : 'lb', targetMkt),
-      optimized_length: l, 
-      optimized_width: w, 
-      optimized_height: h, 
+      optimized_length: vL, 
+      optimized_width: vWd, 
+      optimized_height: vH, 
       optimized_size_unit: mapStandardUnit(isMetric ? 'cm' : 'in', targetMkt)
     };
+  };
+
+  const handleBulkRecalculate = () => {
+    const results = performLogisticsConversion(activeMarket);
+    // 关键修复：批量应用更新，避免循环调用导致的异步状态丢失
+    setLocalListing(prev => {
+      const next = { ...prev };
+      const trans = { ...(next.translations || {}) };
+      trans[activeMarket] = { ...(trans[activeMarket] || {}), ...results } as OptimizedData;
+      next.translations = trans;
+      onUpdate(next);
+      return next;
+    });
   };
 
   const translateMarket = async (code: string, force: boolean = false) => {
@@ -245,8 +290,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleTranslateAll = async () => {
     setIsTranslatingAll(true);
-    const untranslatedMarkets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
-    for (const market of untranslatedMarkets) {
+    const targetMarkets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
+    for (const market of targetMarkets) {
       await translateMarket(market.code);
       await new Promise(r => setTimeout(r, 600));
     }
@@ -272,7 +317,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
-             <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={updateField} isSaving={isSaving} isProcessing={isProcessingImages} onStandardizeAll={handleStandardizeAll} onStandardizeOne={(u) => standardizeImage(u).then(n => { if(u === localListing.cleaned.main_image) { updateField('main_image', n); setPreviewImage(n); } else { updateField('other_images', localListing.cleaned.other_images?.map(x => x === u ? n : x)); } })} setShowEditor={setShowImageEditor} fileInputRef={fileInputRef} />
+             <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={updateField} isSaving={isSaving} isProcessing={isProcessingImages} onStandardizeAll={async () => { setIsProcessingImages(true); try { const newMain = await standardizeImage(localListing.cleaned.main_image || ''); const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImage(u))); updateField('main_image', newMain); updateField('other_images', newOthers); setPreviewImage(newMain); } finally { setIsProcessingImages(false); } }} onStandardizeOne={(u) => standardizeImage(u).then(n => { if(u === localListing.cleaned.main_image) { updateField('main_image', n); setPreviewImage(n); } else { updateField('other_images', localListing.cleaned.other_images?.map(x => x === u ? n : x)); } })} setShowEditor={setShowImageEditor} fileInputRef={fileInputRef} />
              <ListingSourcingSection listing={localListing} updateField={updateField} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
           </div>
           <div className="lg:col-span-8">
@@ -295,7 +340,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                <button 
                                 onClick={(e) => { e.stopPropagation(); translateMarket(m.code, true); }}
                                 className={`px-2 py-2.5 rounded-r-xl border-y-2 border-r-2 transition-all ${activeMarket === m.code ? 'bg-indigo-700 text-white border-indigo-600 hover:bg-indigo-800' : 'bg-slate-50 text-slate-400 border-slate-100 hover:text-indigo-600'}`}
-                                title="Re-translate"
+                                title="Force Refresh Translation"
                                >
                                  <RefreshCw size={10} className={isTranslating ? 'animate-spin' : ''} />
                                </button>
@@ -312,7 +357,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                      {isTranslatingAll ? <Loader2 size={14} className="animate-spin" /> : <Languages size={14} />} AI Translate All
                    </button>
                 </div>
-                <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={updateField} onSync={() => syncToSupabase(localListing)} onRecalculate={() => { const res = performLogisticsConversion(activeMarket); Object.entries(res).forEach(([k,v]) => updateField(k,v)); }} uiLang={uiLang} />
+                <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={updateField} onSync={() => syncToSupabase(localListing)} onRecalculate={handleBulkRecalculate} uiLang={uiLang} />
              </div>
           </div>
         </div>

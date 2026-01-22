@@ -21,12 +21,12 @@ const getLocalizedUnit = (unit: string | undefined, market: string) => {
   
   // 1. 日本站
   if (market === 'JP') {
-    const jp: Record<string, string> = { 'kg': 'キログラム', 'cm': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ' };
+    const jp: Record<string, string> = { 'kg': 'キログラム', 'cm': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ', 'oz': 'オンス' };
     return jp[u] || unit;
   }
   // 2. 阿拉伯
   if (['EG', 'SA', 'AE'].includes(market)) {
-    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة' };
+    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية' };
     return ar[u] || unit;
   }
   // 3. 拉丁语系强制 Sentence Case
@@ -34,7 +34,8 @@ const getLocalizedUnit = (unit: string | undefined, market: string) => {
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
     'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
     'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
-    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches'
+    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
+    'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces'
   };
   if (latin[u]) return latin[u];
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
@@ -48,7 +49,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
   const getVal = (optField: string, cleanField: string) => {
     const data = isUS ? listing.optimized : listing.translations?.[activeMarket];
     
-    // 单位字段特殊映射显示
+    // 单位字段：执行清洗与本地化映射，防止存量数据全大写显示
     if (optField === 'optimized_weight_unit' || optField === 'optimized_size_unit') {
       const rawUnit = (data ? (data as any)[optField] : null) || (isUS ? (listing.cleaned as any)[cleanField] : "");
       return getLocalizedUnit(rawUnit, activeMarket);
@@ -80,7 +81,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         </div>
       </div>
 
-      {/* 物流规格区 - 移除强制大写 */}
+      {/* 物流规格区 */}
       <div className="bg-slate-50/50 px-10 py-8 rounded-[2.5rem] border border-slate-100 shadow-inner space-y-8">
         <div className="flex items-center justify-between">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
