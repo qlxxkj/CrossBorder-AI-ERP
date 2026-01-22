@@ -478,8 +478,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                    {allImages.map((img, i) => (
                      <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
                         <img src={img} className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                           {/* 删除按钮 移至右上角 防止误点 */}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
+                           {/* 设为主图 - 左上角 */}
+                           <button 
+                             onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} 
+                             className="absolute top-1 left-1 p-1 bg-white/20 hover:bg-amber-500 rounded-lg text-white transition-colors" 
+                             title="Set as Main"
+                           >
+                             <Star size={10} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} />
+                           </button>
+
+                           {/* 删除按钮 - 右上角 (与标准化功能彻底分离) */}
                            <button 
                              onClick={(e) => { 
                                e.stopPropagation(); 
@@ -497,14 +506,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                              <Trash2 size={10} />
                            </button>
 
-                           {/* 设为主图 */}
-                           <button onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} className="p-1.5 text-white hover:text-amber-400 transition-colors" title="Set as Main">
-                             <Star size={14} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} />
-                           </button>
-
-                           {/* 单图标准化 */}
-                           <button onClick={(e) => { e.stopPropagation(); handleSingleStandardize(img); }} className="p-1.5 text-white hover:text-indigo-400 transition-colors" title="Standardize 1600">
-                             <Box size={14} />
+                           {/* 单图标准化 - 居中隔离 */}
+                           <button 
+                             onClick={(e) => { e.stopPropagation(); handleSingleStandardize(img); }} 
+                             className="absolute inset-0 m-auto w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-indigo-500 rounded-xl text-white transition-all hover:scale-110" 
+                             title="Standardize 1600"
+                           >
+                             <Box size={16} />
                            </button>
                         </div>
                      </div>
