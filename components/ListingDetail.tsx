@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Languages, RefreshCw, Zap } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage, ExchangeRate, SourcingRecord } from '../types';
 import { ListingTopBar } from './ListingTopBar';
 import { ListingImageSection } from './ListingImageSection';
@@ -29,22 +29,26 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 /**
- * 核心换算后单位格式映射 (Sentence Case)
+ * 单位全拼标准 Sentence Case 映射
  */
 const mapStandardUnit = (unit: string, market: string) => {
   const u = unit.toLowerCase().trim();
   if (market === 'JP') {
-    if (u === 'kg') return 'キログラム';
-    if (u === 'cm') return 'センチメートル';
-    if (u === 'lb') return 'ポンド';
-    if (u === 'in') return 'インチ';
+    const jp: Record<string, string> = { 'kg': 'キログラム', 'cm': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ' };
+    return jp[u] || unit;
   }
-  if (u === 'kg') return 'Kilograms';
-  if (u === 'cm') return 'Centimeters';
-  if (u === 'lb') return 'Pounds';
-  if (u === 'in') return 'Inches';
-  // 兜底全拼首字母大写
-  return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
+  if (market === 'EG' || market === 'SA' || market === 'AE') {
+    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة' };
+    return ar[u] || unit;
+  }
+  
+  const latin: Record<string, string> = {
+    'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
+    'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
+    'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
+    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches'
+  };
+  return latin[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
 };
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
@@ -92,21 +96,23 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const updateField = (field: string, value: any) => {
-    const next = { ...localListing };
-    if (activeMarket === 'US') {
-      if (['main_image', 'other_images', 'sourcing_data'].includes(field)) {
-        if (field === 'sourcing_data') next.sourcing_data = value;
-        else next.cleaned = { ...next.cleaned, [field]: value };
+    setLocalListing(prev => {
+      const next = { ...prev };
+      if (activeMarket === 'US') {
+        if (['main_image', 'other_images', 'sourcing_data'].includes(field)) {
+          if (field === 'sourcing_data') next.sourcing_data = value;
+          else next.cleaned = { ...next.cleaned, [field]: value };
+        } else {
+          next.optimized = { ...(next.optimized || {}), [field]: value } as OptimizedData;
+        }
       } else {
-        next.optimized = { ...(next.optimized || {}), [field]: value } as OptimizedData;
+        const trans = { ...(next.translations || {}) };
+        trans[activeMarket] = { ...(trans[activeMarket] || {}), [field]: value } as OptimizedData;
+        next.translations = trans;
       }
-    } else {
-      const trans = { ...(next.translations || {}) };
-      trans[activeMarket] = { ...(trans[activeMarket] || {}), [field]: value } as OptimizedData;
-      next.translations = trans;
-    }
-    setLocalListing(next);
-    onUpdate(next);
+      onUpdate(next);
+      return next;
+    });
   };
 
   const standardizeImage = async (url: string): Promise<string> => {
@@ -147,15 +153,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   /**
-   * 物流换算引擎 (lb->kg, in->cm)
-   * 增强：强制从 Master 站点拉取源数据，解决字段缺失问题
+   * 物流换算强制溯源引擎
    */
   const performLogisticsConversion = (targetMkt: string) => {
-    // 强制溯源：优先使用 Master 站点的优化数据，其次是清理后的原始数据
+    // 强制回溯 Master 站点
     const opt = localListing.optimized;
     const clean = localListing.cleaned;
     const isMetric = !['US', 'CA', 'UK'].includes(targetMkt);
     
+    // 基础源数据：优先取 Master 优化后的，没有则取采集原始的
     const sUnitW = String(opt?.optimized_weight_unit || clean.item_weight_unit || "lb").toLowerCase();
     const sUnitS = String(opt?.optimized_size_unit || clean.item_size_unit || "in").toLowerCase();
     
@@ -170,17 +176,26 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     };
 
     if (isMetric) {
-      // 重量换算: lb -> kg
+      // 换算至公制
       if (sUnitW.includes('lb') || sUnitW.includes('pound')) {
-        const n = num(valW);
-        valW = n > 0 ? (n * 0.453592).toFixed(2) : "";
+        const n = num(valW); valW = n > 0 ? (n * 0.453592).toFixed(2) : "";
       }
-      // 尺寸换算: in -> cm
       if (sUnitS.includes('in') || sUnitS.includes('inch')) {
         const nl = num(l), nw = num(w), nh = num(h);
         l = nl > 0 ? (nl * 2.54).toFixed(2) : "";
         w = nw > 0 ? (nw * 2.54).toFixed(2) : "";
         h = nh > 0 ? (nh * 2.54).toFixed(2) : "";
+      }
+    } else {
+      // 换算至英制 (针对 CA/UK 等虽然有时用公制但模板常要求英制的情况，或者反向同步)
+      if (sUnitW.includes('kg') || sUnitW.includes('kilogram')) {
+        const n = num(valW); valW = n > 0 ? (n / 0.453592).toFixed(2) : "";
+      }
+      if (sUnitS.includes('cm') || sUnitS.includes('centimeter')) {
+        const nl = num(l), nw = num(w), nh = num(h);
+        l = nl > 0 ? (nl / 2.54).toFixed(2) : "";
+        w = nw > 0 ? (nw / 2.54).toFixed(2) : "";
+        h = nh > 0 ? (nh / 2.54).toFixed(2) : "";
       }
     }
 
@@ -194,8 +209,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     };
   };
 
-  const translateMarket = async (code: string) => {
-    if (code === 'US' || translatingMarkets.has(code)) return;
+  const translateMarket = async (code: string, force: boolean = false) => {
+    if (code === 'US' || (translatingMarkets.has(code) && !force)) return;
     setTranslatingMarkets(prev => new Set(prev).add(code));
     try {
       const source = localListing.optimized || { optimized_title: localListing.cleaned.title, optimized_features: localListing.cleaned.features || [] } as OptimizedData;
@@ -206,7 +221,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(source, targetLang);
       else trans = await translateListingWithAI(source, targetLang);
       
-      // 核心注入：物流自动换算 (始终回溯 Master 源)
       const logistics = performLogisticsConversion(code);
       const rate = exchangeRates.find(r => r.marketplace === code)?.rate || 1;
       
@@ -217,10 +231,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2))
       };
       
-      const next = { ...localListing, translations: { ...(localListing.translations || {}), [code]: final } };
-      setLocalListing(prev => ({ ...prev, translations: next.translations }));
-      onUpdate(next);
-      return next;
+      setLocalListing(prev => {
+        const next = { ...prev, translations: { ...(prev.translations || {}), [code]: final } };
+        onUpdate(next);
+        return next;
+      });
     } catch (e) {
       console.error(`Translation failed for ${code}`, e);
     } finally {
@@ -230,14 +245,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleTranslateAll = async () => {
     setIsTranslatingAll(true);
-    const untranslatedMarkets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US' && !localListing.translations?.[m.code]);
-    
+    const untranslatedMarkets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
     for (const market of untranslatedMarkets) {
       await translateMarket(market.code);
-      // 微小延时防止请求过于密集
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 600));
     }
-    
     setIsTranslatingAll(false);
     await syncToSupabase(localListing);
   };
@@ -256,19 +268,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-inter text-slate-900">
-      <ListingTopBar 
-        onBack={onBack} 
-        engine={engine} 
-        setEngine={(e) => { setEngine(e); localStorage.setItem('amzbot_preferred_engine', e); }} 
-        onOptimize={handleOptimize} 
-        isOptimizing={isOptimizing} 
-        onTranslateAll={handleTranslateAll}
-        isTranslatingAll={isTranslatingAll}
-        onSave={() => syncToSupabase(localListing)} 
-        isSaving={isSaving} 
-        onNext={onNext} 
-        uiLang={uiLang} 
-      />
+      <ListingTopBar onBack={onBack} engine={engine} setEngine={(e) => { setEngine(e); localStorage.setItem('amzbot_preferred_engine', e); }} onOptimize={handleOptimize} isOptimizing={isOptimizing} onSave={() => syncToSupabase(localListing)} isSaving={isSaving} onNext={onNext} uiLang={uiLang} />
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
@@ -277,18 +277,40 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
           <div className="lg:col-span-8">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
-                <div className="px-10 py-6 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between gap-6">
+                <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-6">
                    <div className="flex flex-1 overflow-x-auto no-scrollbar gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-inner">
                       <button onClick={() => setActiveMarket('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>🇺🇸 Master</button>
                       {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
                         const hasTrans = !!localListing.translations?.[m.code];
+                        const isTranslating = translatingMarkets.has(m.code);
                         return (
-                          <button key={m.code} onClick={async () => { setActiveMarket(m.code); if (!hasTrans) await translateMarket(m.code); }} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2 ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600' : hasTrans ? 'bg-white text-indigo-600 border-slate-100' : 'bg-slate-50 text-slate-300 border-slate-200 border-dashed opacity-60 hover:opacity-100'}`}>
-                            {m.flag} {m.code} {translatingMarkets.has(m.code) && <Loader2 size={10} className="animate-spin" />}
-                          </button>
+                          <div key={m.code} className="flex shrink-0">
+                             <button 
+                              onClick={async () => { setActiveMarket(m.code); if (!hasTrans) await translateMarket(m.code); }} 
+                              className={`px-4 py-2.5 rounded-l-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 border-y-2 border-l-2 ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : hasTrans ? 'bg-white text-indigo-600 border-slate-100' : 'bg-slate-50 text-slate-300 border-slate-200 border-dashed opacity-60 hover:opacity-100'}`}
+                             >
+                              {m.flag} {m.code} {isTranslating && <Loader2 size={10} className="animate-spin" />}
+                             </button>
+                             {hasTrans && (
+                               <button 
+                                onClick={(e) => { e.stopPropagation(); translateMarket(m.code, true); }}
+                                className={`px-2 py-2.5 rounded-r-xl border-y-2 border-r-2 transition-all ${activeMarket === m.code ? 'bg-indigo-700 text-white border-indigo-600 hover:bg-indigo-800' : 'bg-slate-50 text-slate-400 border-slate-100 hover:text-indigo-600'}`}
+                                title="Re-translate"
+                               >
+                                 <RefreshCw size={10} className={isTranslating ? 'animate-spin' : ''} />
+                               </button>
+                             )}
+                          </div>
                         );
                       })}
                    </div>
+                   <button 
+                    onClick={handleTranslateAll} 
+                    disabled={isTranslatingAll}
+                    className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 transition-all flex items-center gap-2 disabled:opacity-50 shrink-0"
+                   >
+                     {isTranslatingAll ? <Loader2 size={14} className="animate-spin" /> : <Languages size={14} />} AI Translate All
+                   </button>
                 </div>
                 <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={updateField} onSync={() => syncToSupabase(localListing)} onRecalculate={() => { const res = performLogisticsConversion(activeMarket); Object.entries(res).forEach(([k,v]) => updateField(k,v)); }} uiLang={uiLang} />
              </div>
