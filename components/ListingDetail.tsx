@@ -152,7 +152,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const updateField = (field: string, value: any) => {
     const nextListing = { ...localListing };
     if (activeMarket === 'US') {
-      nextListing.optimized = { ...(nextListing.optimized || {}), [field]: value } as OptimizedData;
+      // 核心修复：如果是图片字段，更新 cleaned 对象
+      if (field === 'main_image' || field === 'other_images') {
+        nextListing.cleaned = { ...nextListing.cleaned, [field]: value };
+      } else {
+        nextListing.optimized = { ...(nextListing.optimized || {}), [field]: value } as OptimizedData;
+      }
     } else {
       const currentTranslations = { ...(nextListing.translations || {}) };
       const currentTrans = currentTranslations[activeMarket] || { optimized_title: '', optimized_features: ['', '', '', '', ''], optimized_description: '', search_keywords: '' } as OptimizedData;
@@ -298,10 +303,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
   };
 
-  /**
-   * 图像标准化核心辅助函数
-   * 将任意比例图片缩放到 1500*1500 以内，并置于 1600*1600 白色背景画布中央
-   */
   const processImageTo1600 = async (imageUrl: string): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -313,21 +314,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         canvas.height = 1600;
         const ctx = canvas.getContext('2d');
         if (!ctx) return reject("Canvas context fail");
-
-        // 纯白背景
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, 1600, 1600);
-
-        // 计算缩放比例 (最大占用 1500 像素，留白 50 像素边距)
         const targetInnerSize = 1500;
         const scale = Math.min(targetInnerSize / img.width, targetInnerSize / img.height);
         const drawW = img.width * scale;
         const drawH = img.height * scale;
-        
-        // 居中坐标
         const x = (1600 - drawW) / 2;
         const y = (1600 - drawH) / 2;
-
         ctx.drawImage(img, x, y, drawW, drawH);
         canvas.toBlob((blob) => {
           if (blob) resolve(blob);
@@ -344,18 +338,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const nextListing = { ...localListing };
       const allImgs = [nextListing.cleaned.main_image, ...(nextListing.cleaned.other_images || [])].filter(Boolean) as string[];
       const processed: string[] = [];
-      
       for (const url of allImgs) {
-        // 1. 本地 Canvas 处理
         const blob = await processImageTo1600(url);
-        // 2. 上传到图床
         const hostedUrl = await uploadImageToHost(blob, localListing.asin);
         processed.push(hostedUrl);
       }
-      
       nextListing.cleaned.main_image = processed[0];
       nextListing.cleaned.other_images = processed.slice(1);
-      
       setLocalListing(nextListing); 
       setPreviewImage(processed[0]); 
       onUpdate(nextListing); 
@@ -389,7 +378,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       if (engine === 'openai') opt = await optimizeListingWithOpenAI(sourceData);
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(sourceData);
       else opt = await optimizeListingWithAI(sourceData);
-      
       const updatedListing: Listing = { 
         ...localListing, 
         optimized: opt, 
@@ -597,7 +585,36 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       {showSourcingForm.show && <SourcingFormModal initialData={showSourcingForm.data} onClose={() => setShowSourcingForm({show: false, data: null})} onSave={res => { const nextData = [...(localListing.sourcing_data || [])]; const existingIdx = nextData.findIndex(s => s.id === res.id); if (existingIdx >= 0) nextData[existingIdx] = res; else nextData.push(res); const next = { ...localListing, sourcing_data: nextData }; setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowSourcingForm({show: false, data: null}); }} />}
       {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const next = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowSourcingModal(false); }} />}
-      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={url => { setPreviewImage(url); updateField('main_image', url); setShowImageEditor(false); }} uiLang={uiLang} />}
+      {showImageEditor && (
+        <ImageEditor 
+          imageUrl={previewImage} 
+          onClose={() => setShowImageEditor(false)} 
+          onSave={async (url) => { 
+            // 核心修复逻辑开始
+            const nextListing = { ...localListing };
+            // 判断当前编辑的是主图还是副图
+            if (previewImage === localListing.cleaned.main_image) {
+              nextListing.cleaned.main_image = url;
+            } else {
+              const others = [...(localListing.cleaned.other_images || [])];
+              const idx = others.indexOf(previewImage);
+              if (idx !== -1) {
+                others[idx] = url;
+                nextListing.cleaned.other_images = others;
+              }
+            }
+            
+            // 同步状态
+            setPreviewImage(url); 
+            setLocalListing(nextListing);
+            onUpdate(nextListing);
+            await syncToSupabase(nextListing);
+            setShowImageEditor(false); 
+            // 核心修复逻辑结束
+          }} 
+          uiLang={uiLang} 
+        />
+      )}
     </div>
   );
 };
