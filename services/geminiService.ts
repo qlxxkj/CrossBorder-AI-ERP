@@ -3,31 +3,28 @@ import { CleanedData, OptimizedData } from "../types";
 
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
   const prompt = `
-    You are an expert Amazon Listing Optimizer. Optimize product data:
-    ${JSON.stringify(cleanedData)}
+    You are an expert Amazon Listing Optimizer. 
+    Source: ${JSON.stringify(cleanedData)}
 
     [CORE REQUIREMENTS]
-    1. Title: Create an SEO-rich title (max 200 chars).
-    2. Bullets: Provide EXACTLY 5 high-impact bullet points.
-       - Each point MUST be UNDER 250 characters.
-       - Each point MUST start with a [KEYWORD] or [PHRASE] in brackets.
-    3. Description: persuasive HTML description (1000-1500 chars).
+    1. Title: SEO-rich, max 200 chars.
+    2. Bullets: Exactly 5 points. EACH UNDER 250 CHARACTERS. MUST START with a [KEYWORD] or [PHRASE].
+    3. Description: HTML format, 1000-1500 chars.
     
-    [STRICT PROHIBITIONS - CRITICAL]
-    - NO BRAND NAMES: Absolutely no brands (including "Bosch", "Nike", etc.).
-    - NO AUTOMOTIVE BRANDS: No "Toyota", "Tesla", "Honda", etc. Use generic compatibility terms.
-    - NO EXTREME WORDS: No "Best", "Ultimate", "Perfect", "Top-rated", "Number 1".
+    [STRICT PROHIBITIONS]
+    - NO BRAND NAMES.
+    - NO EXTREME WORDS (Best, Perfect, etc.).
+    - NO AUTOMOTIVE BRANDS (Toyota, Tesla, etc.).
     
-    Return ONLY valid JSON.
+    Return ONLY JSON with: optimized_title, optimized_features[], optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
   `;
 
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
-      config: {
+      config: { 
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -35,13 +32,17 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
             optimized_title: { type: Type.STRING },
             optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
             optimized_description: { type: Type.STRING },
-            search_keywords: { type: Type.STRING }
-          },
-          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
+            search_keywords: { type: Type.STRING },
+            optimized_weight_value: { type: Type.STRING },
+            optimized_weight_unit: { type: Type.STRING },
+            optimized_length: { type: Type.STRING },
+            optimized_width: { type: Type.STRING },
+            optimized_height: { type: Type.STRING },
+            optimized_size_unit: { type: Type.STRING }
+          }
         }
       }
     });
-
     const data = JSON.parse(response.text || "{}") as OptimizedData;
     if (data.optimized_features && data.optimized_features.length < 5) {
       while (data.optimized_features.length < 5) data.optimized_features.push("");
@@ -49,16 +50,15 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     return data;
   } catch (error: any) {
     if (error.message?.includes("Requested entity was not found.")) {
-      const aistudio = (window as any).aistudio;
-      if (aistudio) aistudio.openSelectKey();
+      (window as any).aistudio?.openSelectKey();
     }
     throw error;
   }
 };
 
-export const translateListingWithAI = async (sourceData: OptimizedData, targetLang: string): Promise<Partial<OptimizedData>> => {
+export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Translate to "${targetLang}". Keep [KEYWORD] prefix. NO brands. Source: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate this Amazon listing to "${targetLangName}". Keep [KEYWORD] prefix in bullets. No brands. Source: ${JSON.stringify(sourceData)}`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
