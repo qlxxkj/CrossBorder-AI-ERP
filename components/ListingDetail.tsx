@@ -14,6 +14,7 @@ import { optimizeListingWithAI, translateListingWithAI } from '../services/gemin
 import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
 import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
+import { getLocalizedUnit } from './LogisticsEditor';
 
 interface ListingDetailProps {
   listing: Listing;
@@ -27,72 +28,6 @@ const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
-
-/**
- * 亚马逊官方模板单位本地化格式映射 - 严格遵循各站点 Sentence Case 全称
- */
-const mapStandardUnit = (unit: string, market: string) => {
-  const u = unit.toLowerCase().trim();
-  
-  // 1. 日本站
-  if (market === 'JP') {
-    const jp: Record<string, string> = { 
-      'kg': 'キログラム', 'kilogram': 'キログラム', 
-      'cm': 'センチメートル', 'centimeter': 'センチメートル', 
-      'lb': 'ポンド', 'in': 'インチ', 'oz': 'オンス', 'g': 'グラム' 
-    };
-    return jp[u] || unit;
-  }
-  
-  // 2. 德语站点
-  if (market === 'DE') {
-    const de: Record<string, string> = {
-      'kg': 'Kilogramm', 'kilogram': 'Kilogramm',
-      'cm': 'Zentimeter', 'centimeter': 'Zentimeter',
-      'lb': 'Pfund', 'oz': 'Unze'
-    };
-    return de[u] || unit;
-  }
-
-  // 3. 法语站点
-  if (['FR', 'BE'].includes(market)) {
-    const fr: Record<string, string> = {
-      'kg': 'Kilogrammes', 'kilogram': 'Kilogrammes',
-      'cm': 'Centimètres', 'centimeter': 'Centimètres',
-      'lb': 'Livres', 'oz': 'Onces'
-    };
-    return fr[u] || unit;
-  }
-
-  // 4. 拉美 (MX, BR) / 西语 (ES)
-  if (['MX', 'BR', 'ES'].includes(market)) {
-    const es: Record<string, string> = { 
-      'kg': 'Kilogramos', 'cm': 'Centímetros', 
-      'lb': 'Libras', 'in': 'Pulgadas', 'oz': 'Onzas', 'g': 'Gramos' 
-    };
-    return es[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
-  }
-  
-  // 5. 阿拉伯
-  if (['EG', 'SA', 'AE'].includes(market)) {
-    const ar: Record<string, string> = { 
-      'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 
-      'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية', 'g': 'جرام' 
-    };
-    return ar[u] || unit;
-  }
-  
-  // 6. 其他欧美站点 (US, UK, CA, etc.)
-  const latin: Record<string, string> = {
-    'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
-    'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
-    'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
-    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
-    'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces',
-    'g': 'Grams', 'gram': 'Grams', 'grams': 'Grams'
-  };
-  return latin[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
-};
 
 const standardizeImage = async (imageUrl: string): Promise<string> => {
   if (!imageUrl) return "";
@@ -276,11 +211,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
     return {
       optimized_weight_value: finalW, 
-      optimized_weight_unit: mapStandardUnit(isMetric ? 'kg' : 'lb', targetMkt),
+      optimized_weight_unit: getLocalizedUnit(isMetric ? 'kg' : 'lb', targetMkt),
       optimized_length: finalL, 
       optimized_width: finalWd, 
       optimized_height: finalH, 
-      optimized_size_unit: mapStandardUnit(isMetric ? 'cm' : 'in', targetMkt)
+      optimized_size_unit: getLocalizedUnit(isMetric ? 'cm' : 'in', targetMkt)
     };
   };
 

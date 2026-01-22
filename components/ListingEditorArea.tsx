@@ -1,7 +1,8 @@
 
 import React from 'react';
-import { DollarSign, Truck, Box, Scale, ListFilter, Plus, FileText } from 'lucide-react';
+import { DollarSign, Truck, ListFilter, Plus } from 'lucide-react';
 import { Listing, OptimizedData, UILanguage } from '../types';
+import { LogisticsEditor } from './LogisticsEditor';
 
 interface ListingEditorAreaProps {
   listing: Listing;
@@ -12,82 +13,6 @@ interface ListingEditorAreaProps {
   uiLang: UILanguage;
 }
 
-/**
- * 核心单位显示标准映射 - 严格遵循亚马逊 Valid Values
- */
-const getLocalizedUnit = (unit: string | undefined, market: string) => {
-  if (!unit) return '';
-  const u = unit.toLowerCase().trim();
-  
-  // 1. 日本站 (JP)
-  if (market === 'JP') {
-    const jp: Record<string, string> = { 
-      'kg': 'キログラム', 'kilogram': 'キログラム', 
-      'cm': 'センチメートル', 'centimeter': 'センチメートル', 
-      'lb': 'ポンド', 'pound': 'ポンド', 
-      'in': 'インチ', 'inch': 'インチ', 
-      'oz': 'オンス', 'ounce': 'オンス',
-      'g': 'グラム', 'gram': 'グラム'
-    };
-    return jp[u] || unit;
-  }
-
-  // 2. 德语 (DE)
-  if (market === 'DE') {
-    const de: Record<string, string> = {
-      'kg': 'Kilogramm', 'kilogram': 'Kilogramm',
-      'cm': 'Zentimeter', 'centimeter': 'Zentimeter',
-      'lb': 'Pfund', 'oz': 'Unze'
-    };
-    return de[u] || unit;
-  }
-
-  // 3. 法语 (FR)
-  if (['FR', 'BE'].includes(market)) {
-    const fr: Record<string, string> = {
-      'kg': 'Kilogrammes', 'kilogram': 'Kilogrammes',
-      'cm': 'Centimètres', 'centimeter': 'Centimètres',
-      'lb': 'Livres', 'oz': 'Onces'
-    };
-    return fr[u] || unit;
-  }
-  
-  // 4. 拉美 (MX, BR) / 西语 (ES) 
-  if (['MX', 'BR', 'ES'].includes(market)) {
-    const latinExt: Record<string, string> = { 
-      'kg': 'Kilogramos', 'kilogram': 'Kilogramos',
-      'cm': 'Centímetros', 'centimeter': 'Centímetros',
-      'lb': 'Libras', 'pound': 'Libras',
-      'in': 'Pulgadas', 'inch': 'Pulgadas',
-      'oz': 'Onzas', 'ounce': 'Onzas',
-      'g': 'Gramos', 'gram': 'Gramos'
-    };
-    return latinExt[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
-  }
-  
-  // 5. 阿拉伯 (EG, SA, AE)
-  if (['EG', 'SA', 'AE'].includes(market)) {
-    const ar: Record<string, string> = { 
-      'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 
-      'lb': 'رطل', 'in': 'بوصة', 
-      'oz': 'أوقية', 'g': 'جرام' 
-    };
-    return ar[u] || unit;
-  }
-  
-  // 6. 标准拉丁语系强制 Sentence Case (US, UK, CA, etc.)
-  const latin: Record<string, string> = {
-    'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
-    'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
-    'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
-    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
-    'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces',
-    'g': 'Grams', 'gram': 'Grams', 'grams': 'Grams'
-  };
-  if (latin[u]) return latin[u];
-  return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
-};
-
 export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
   listing, activeMarket, updateField, onSync, onRecalculate, uiLang
 }) => {
@@ -96,12 +21,6 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
   const getVal = (optField: string, cleanField: string) => {
     const data = isUS ? listing.optimized : listing.translations?.[activeMarket];
     
-    // 单位字段本地化映射显示 - 移除强制大写，适配各语言 Sentence Case
-    if (optField === 'optimized_weight_unit' || optField === 'optimized_size_unit') {
-      const rawUnit = (data ? (data as any)[optField] : null) || (isUS ? (listing.cleaned as any)[cleanField] : "");
-      return getLocalizedUnit(rawUnit, activeMarket);
-    }
-
     if (optField === 'optimized_features') {
       const raw = data ? ((data as any).optimized_features || (data as any).features || (data as any).bullet_points) : null;
       let res: string[] = [];
@@ -128,40 +47,15 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         </div>
       </div>
 
-      {/* 物流规格区 - 优化输入框比例与本地化显示 */}
-      <div className="bg-slate-50/50 px-10 py-8 rounded-[2.5rem] border border-slate-100 shadow-inner space-y-8">
-        <div className="flex items-center justify-between">
-           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
-           {!isUS && (
-             <button onClick={onRecalculate} className="flex items-center gap-1.5 text-[9px] font-black text-indigo-600 uppercase bg-white px-4 py-2 rounded-xl border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
-               <Scale size={12} /> Force Recalculate from Master
-             </button>
-           )}
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-           <div className="space-y-3 min-w-0">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">Item Weight</label>
-              <div className="flex gap-3 w-full">
-                 <input value={getVal('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={onSync} className="flex-1 min-w-0 px-5 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="0.00" />
-                 {/* 拓宽重量单位输入框，满足长词汇显示 */}
-                 <input value={getVal('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={onSync} className="min-w-[150px] flex-1 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-[11px] text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="Unit" />
-              </div>
-           </div>
-           
-           <div className="space-y-3 min-w-0">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">Dimensions (L × W × H)</label>
-              <div className="flex gap-2 w-full">
-                 {/* 拓宽尺寸数值输入框比例由 flex-2.5 提升至 flex-3 */}
-                 <input value={getVal('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={onSync} className="flex-[3] min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="L" />
-                 <input value={getVal('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={onSync} className="flex-[3] min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="W" />
-                 <input value={getVal('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={onSync} className="flex-[3] min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="H" />
-                 {/* 尺寸单位框适配，保证多语种 Sentence Case 长度 */}
-                 <input value={getVal('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={onSync} className="min-w-[150px] flex-1 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-[11px] text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="Unit" />
-              </div>
-           </div>
-        </div>
-      </div>
+      {/* 独立物流规格编辑器 */}
+      <LogisticsEditor 
+        listing={listing}
+        activeMarket={activeMarket}
+        updateField={updateField}
+        onSync={onSync}
+        onRecalculate={onRecalculate}
+        uiLang={uiLang}
+      />
 
       <EditBlock label="Product Title" value={getVal('optimized_title', 'title')} onChange={v => updateField('optimized_title', v)} onBlur={onSync} limit={200} className="text-xl font-black" />
 
