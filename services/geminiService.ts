@@ -6,9 +6,12 @@ const UNIFIED_OPTIMIZE_PROMPT = `
 You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion.
 
 [STRICT CONSTRAINTS]
-1. Keys: optimized_title, optimized_features (array of 5), optimized_description, search_keywords.
+1. Keys: optimized_title, optimized_features (array of 5-10), optimized_description, search_keywords.
 2. Measurements: optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-3. [IMPORTANT] Units: Always use full words for units with only the first letter capitalized (e.g., "Kilograms", "Centimeters", "Pounds", "Inches"). NO ALL-CAPS.
+3. [IMPORTANT] Units: Always use full words for units. 
+   - For Latin markets (English, German, French, Spanish, etc.): Use Sentence Case (e.g., "Kilograms", "Centimeters", "Pounds", "Inches").
+   - For Japan market: Use Japanese full words (e.g., "キログラム", "センチメートル").
+   - For Arabic markets: Use Arabic full words (e.g., "كيلوجرام").
 4. PROHIBITED: 
    - No Brand Names.
    - NO Car or Motorcycle Brand Names (e.g., BMW, Toyota, Mercedes, Tesla, Honda, Yamaha, Kawasaki, Ducati, etc.) to avoid trademark issues.
@@ -26,16 +29,19 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   if (typeof feats === 'string') feats = feats.split('\n').map(s => s.trim().replace(/^[-*•\d.]+\s*/, '')).filter(Boolean);
   if (!Array.isArray(feats)) feats = [];
   const finalFeats = ["", "", "", "", ""];
-  feats.slice(0, 5).forEach((f, i) => finalFeats[i] = String(f));
-  result.optimized_features = finalFeats;
+  feats.forEach((f, i) => { if(i < 10) finalFeats[i] = String(f); });
+  result.optimized_features = finalFeats.filter(Boolean);
+  if (result.optimized_features.length < 5) {
+    while(result.optimized_features.length < 5) result.optimized_features.push("");
+  }
+  
   result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || "");
-  const wUnit = String(raw.optimized_weight_unit || raw.weight_unit || "").toLowerCase();
-  result.optimized_weight_unit = wUnit ? wUnit.charAt(0).toUpperCase() + wUnit.slice(1) : "";
+  result.optimized_weight_unit = String(raw.optimized_weight_unit || raw.weight_unit || "");
   result.optimized_length = String(raw.optimized_length || raw.length || "");
   result.optimized_width = String(raw.optimized_width || raw.width || "");
   result.optimized_height = String(raw.optimized_height || raw.height || "");
-  const sUnit = String(raw.optimized_size_unit || raw.size_unit || "").toLowerCase();
-  result.optimized_size_unit = sUnit ? sUnit.charAt(0).toUpperCase() + sUnit.slice(1) : "";
+  result.optimized_size_unit = String(raw.optimized_size_unit || raw.size_unit || "");
+  
   return result as OptimizedData;
 };
 

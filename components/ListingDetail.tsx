@@ -38,9 +38,12 @@ const convertValue = (val: string | number | undefined, factor: number) => {
   return (num * factor).toFixed(2);
 };
 
+// 核心：单位本地化处理函数（支持全拼、首字母大写、非拉丁语翻译）
 const getLocalizedUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
+  
+  // 日本站：显示日语全拼
   if (market === 'JP') {
     const jpMap: Record<string, string> = { 
       'lb': 'ポンド', 'pound': 'ポンド', 'pounds': 'ポンド',
@@ -50,6 +53,8 @@ const getLocalizedUnit = (unit: string | undefined, market: string) => {
     };
     return jpMap[u] || unit;
   }
+
+  // 阿拉伯站点：显示阿语全拼
   if (['EG', 'SA', 'AE'].includes(market)) {
     const arMap: Record<string, string> = { 
       'lb': 'رطل', 'pound': 'رطل', 'pounds': 'رطل',
@@ -59,13 +64,18 @@ const getLocalizedUnit = (unit: string | undefined, market: string) => {
     };
     return arMap[u] || unit;
   }
+
+  // 拉丁语系站点：Sentence Case 全拼
   const latinMap: Record<string, string> = {
     'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
     'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
     'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters'
   };
+
   if (latinMap[u]) return latinMap[u];
+  
+  // 兜底：强制首字母大写
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
@@ -134,9 +144,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       let feats: string[] = [];
       if (Array.isArray(rawFeats)) feats = rawFeats.map(f => String(f || "").trim());
       else if (typeof rawFeats === 'string' && rawFeats.trim() !== '') feats = rawFeats.split('\n').map(f => f.trim()).filter(Boolean);
-      if (!isUS && sourceData) { const res = [...feats]; while (res.length < 5) res.push(''); return res.slice(0, 5); }
-      if (isUS && feats.length === 0) feats = (localListing.cleaned?.bullet_points || localListing.cleaned?.features || []).filter(Boolean);
-      const res = [...feats]; while (res.length < 5) res.push(''); return res.slice(0, 5);
+      
+      if (feats.length === 0 && isUS) {
+        feats = (localListing.cleaned?.bullet_points || localListing.cleaned?.features || []).filter(Boolean);
+      }
+      
+      const res = [...feats];
+      // 保持至少5个框，最多不限（由UI控制）
+      while (res.length < 5) res.push('');
+      return res;
     }
     let val = sourceData ? (sourceData as any)[optField] : null;
     if (!isUS && sourceData) return val || "";
@@ -163,7 +179,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     onUpdate(nextListing);
   };
 
-  // 图片标准化并上传
   const standardizeImageAndUpload = async (url: string): Promise<string> => {
     return new Promise((resolve, reject) => {
       const canvas = document.createElement('canvas');
@@ -438,6 +453,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </div>
                    </div>
 
+                   {/* 修复后的物流规格区：深度对齐 */}
                    <div className="bg-slate-50/50 px-10 py-8 rounded-[2.5rem] border border-slate-100 space-y-8">
                       <div className="flex items-center justify-between">
                          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
@@ -447,12 +463,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            </button>
                          )}
                       </div>
+                      
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                          <div className="space-y-3">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-indigo-400"/> Item Weight</label>
                             <div className="flex gap-3">
                                <input value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="flex-1 px-5 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="0.00" />
-                               <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-28 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
+                               {/* 固定宽度 128px 以对齐价格框右侧 */}
+                               <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-32 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
                             </div>
                          </div>
                          <div className="space-y-3">
@@ -461,24 +479,73 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="L" />
                                <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="W" />
                                <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="H" />
-                               <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-24 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
+                               {/* 固定宽度 112px 以对齐运费框右侧 */}
+                               <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-28 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
                             </div>
                          </div>
                       </div>
                    </div>
 
                    <EditSection label="Product Title" icon={<ImageIcon size={14}/>} value={getFieldValue('optimized_title', 'title')} onChange={v => updateField('optimized_title', v)} onBlur={() => syncToSupabase(localListing)} limit={200} className="text-xl font-black" />
+                   
+                   {/* 增强后的五点描述区 */}
                    <div className="space-y-4">
-                      <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullets)</label>
-                      <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullet Points)</label>
+                        <button 
+                          onClick={() => {
+                            const cur = [...(getFieldValue('optimized_features', 'features') as string[])];
+                            if (cur.length < 10) {
+                              cur.push('');
+                              updateField('optimized_features', cur);
+                            }
+                          }}
+                          className="flex items-center gap-1.5 text-[9px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                        >
+                          <Plus size={12} /> Add Point
+                        </button>
+                      </div>
+                      <div className="space-y-4">
                          {(getFieldValue('optimized_features', 'features') as string[]).map((f: string, i: number) => (
-                           <div key={i} className="flex gap-4 group">
-                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-2 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
-                              <textarea value={f || ''} onChange={e => { const cur = [...(getFieldValue('optimized_features', 'features') as string[])]; cur[i] = e.target.value; updateField('optimized_features', cur); }} onBlur={() => syncToSupabase(localListing)} className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold leading-relaxed outline-none transition-all focus:bg-white" placeholder={`Bullet Point ${i+1}...`} />
+                           <div key={i} className="flex gap-4 group items-start">
+                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-3 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
+                              <div className="flex-1 space-y-1.5">
+                                <textarea 
+                                  value={f || ''} 
+                                  maxLength={500}
+                                  onChange={e => { 
+                                    const cur = [...(getFieldValue('optimized_features', 'features') as string[])]; 
+                                    cur[i] = e.target.value; 
+                                    updateField('optimized_features', cur); 
+                                  }} 
+                                  onBlur={() => syncToSupabase(localListing)} 
+                                  className={`w-full p-4 bg-slate-50 border ${f.length > 450 ? 'border-amber-200' : 'border-slate-200'} rounded-2xl text-sm font-bold leading-relaxed outline-none transition-all focus:bg-white focus:ring-4 focus:ring-indigo-500/5`} 
+                                  placeholder={`Detailed Feature ${i+1}...`} 
+                                  rows={2}
+                                />
+                                <div className="flex justify-between items-center px-1">
+                                  <span className={`text-[8px] font-black uppercase ${f.length > 480 ? 'text-red-500' : 'text-slate-400'}`}>
+                                    {f.length} / 500
+                                  </span>
+                                  {i >= 5 && (
+                                    <button 
+                                      onClick={() => {
+                                        const cur = (getFieldValue('optimized_features', 'features') as string[]).filter((_, idx) => idx !== i);
+                                        updateField('optimized_features', cur);
+                                        syncToSupabase({...localListing, optimized: {...(localListing.optimized || {}), optimized_features: cur} as OptimizedData});
+                                      }}
+                                      className="text-[8px] font-black text-red-400 uppercase hover:text-red-600"
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
                            </div>
                          ))}
                       </div>
                    </div>
+
                    <EditSection label="Description (HTML)" icon={<FileText size={14}/>} value={getFieldValue('optimized_description', 'description')} onChange={v => updateField('optimized_description', v)} onBlur={() => syncToSupabase(localListing)} limit={2000} isMono className="min-h-[250px] text-xs" />
                    <EditSection label="Search Keywords" icon={<Hash size={14}/>} value={getFieldValue('search_keywords', 'search_keywords')} onChange={v => updateField('search_keywords', v)} onBlur={() => syncToSupabase(localListing)} limit={250} className="bg-amber-50/20 border-amber-100 text-sm font-bold" />
                 </div>

@@ -5,7 +5,7 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 const UNIFIED_OPTIMIZE_PROMPT = `
 You are an expert Amazon Listing Optimizer. Return ONLY flat JSON.
 Keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-[UNIT RULE]: Always use full names for units in Sentence case (e.g., "Kilograms").
+[UNIT RULE]: Always use full names for units. For Latin markets use Sentence Case. For JP/AR use target language script.
 PROHIBITED: NO Car or Motorcycle Brand Names (Honda, BMW, Yamaha, etc.).
 `;
 
@@ -18,16 +18,19 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   if (typeof feats === 'string') feats = feats.split('\n').filter(Boolean);
   if (!Array.isArray(feats)) feats = [];
   const finalFeats = ["", "", "", "", ""];
-  feats.slice(0, 5).forEach((f, i) => finalFeats[i] = String(f));
-  result.optimized_features = finalFeats;
+  feats.forEach((f, i) => { if(i < 10) finalFeats[i] = String(f); });
+  result.optimized_features = finalFeats.filter(Boolean);
+  if (result.optimized_features.length < 5) {
+    while(result.optimized_features.length < 5) result.optimized_features.push("");
+  }
+  
   result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || "");
-  const wUnit = String(raw.optimized_weight_unit || raw.weight_unit || "").toLowerCase();
-  result.optimized_weight_unit = wUnit ? wUnit.charAt(0).toUpperCase() + wUnit.slice(1) : "";
+  result.optimized_weight_unit = String(raw.optimized_weight_unit || raw.weight_unit || "");
   result.optimized_length = String(raw.optimized_length || raw.length || "");
   result.optimized_width = String(raw.optimized_width || raw.width || "");
   result.optimized_height = String(raw.optimized_height || raw.height || "");
-  const sUnit = String(raw.optimized_size_unit || raw.size_unit || "").toLowerCase();
-  result.optimized_size_unit = sUnit ? sUnit.charAt(0).toUpperCase() + sUnit.slice(1) : "";
+  result.optimized_size_unit = String(raw.optimized_size_unit || raw.size_unit || "");
+  
   return result as OptimizedData;
 };
 
@@ -51,7 +54,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
-        { role: "system", content: "Amazon copywriter. Output JSON. Use full unit names in Sentence case. No car/motorcycle brands." },
+        { role: "system", content: "Amazon copywriter. Output JSON. Use full unit names. No car/motorcycle brands." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
@@ -75,6 +78,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   `;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
+
   const response = await fetch(finalUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
