@@ -40,23 +40,15 @@ const MARKET_LANG_MAP: Record<string, string> = {
 
 const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'UK', 'CA', 'MX', 'PL', 'NL', 'SE', 'BE', 'SG', 'AU', 'EG', 'TR', 'SA', 'AE'];
 
-/**
- * 提取数字的辅助函数
- */
 const parseNumeric = (val: any): number => {
   if (val === undefined || val === null || val === '') return 0;
   const n = parseFloat(String(val).replace(/[^0-9.]/g, ''));
   return isNaN(n) ? 0 : n;
 };
 
-/**
- * 亚马逊标准单位格式化 (严格全拼 + 首字母大写/本地化)
- */
 const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
-  
-  // 日本站本地化全拼 (Amazon JP 要求)
   if (market === 'JP') {
     const jpMap: Record<string, string> = {
       'lb': 'ポンド', 'lbs': 'ポンド', 'pounds': 'ポンド', 'pound': 'ポンド',
@@ -69,8 +61,6 @@ const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
     };
     return jpMap[u] || unit;
   }
-
-  // 拉丁语系站点：严格全拼且首字母大写
   const standardMap: Record<string, string> = {
     'lb': 'Pounds', 'lbs': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
@@ -80,7 +70,6 @@ const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
     'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
     'mm': 'Millimeters', 'millimeter': 'Millimeters', 'millimeters': 'Millimeters'
   };
-
   return standardMap[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
 };
 
@@ -173,17 +162,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     onUpdate(nextListing);
   };
 
-  /**
-   * 核心翻译与换算逻辑：修复数值丢失问题
-   */
   const translateMarket = async (marketCode: string, currentListingState?: Listing) => {
     if (marketCode === 'US' || translatingMarkets.has(marketCode)) return;
     
+    // 强制使用最新的状态，防止并行或连续翻译时的竞争
     const activeState = currentListingState || localListing;
     setTranslatingMarkets(prev => new Set(prev).add(marketCode));
     
     try {
-      // 准备翻译源文本 (优先取优化后的，否则取原始的)
       const sourceDataForTranslation = activeState.optimized || {
         optimized_title: activeState.cleaned.title,
         optimized_features: activeState.cleaned.features || [],
@@ -203,21 +189,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         else trans = await translateListingWithAI(sourceDataForTranslation, targetLang);
       }
 
-      // --- 关键修复：换算逻辑 ---
-      const isMetric = METRIC_MARKETS.includes(marketCode);
-      const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
+      if (!trans || Object.keys(trans).length === 0) throw new Error("AI translation failed");
 
-      // 1. 获取最原始的数值
+      const isMetric = METRIC_MARKETS.includes(marketCode);
+      const rateEntry = exchangeRates.find(r => r.marketplace === marketCode);
+      const rate = rateEntry ? rateEntry.rate : 1;
+
+      // 数值换算逻辑 (增加回退到原始采集数据的稳定性)
       const rawWeight = parseNumeric(activeState.optimized?.optimized_weight_value || activeState.cleaned.item_weight_value || activeState.cleaned.item_weight);
       const rawL = parseNumeric(activeState.optimized?.optimized_length || activeState.cleaned.item_length);
       const rawW = parseNumeric(activeState.optimized?.optimized_width || activeState.cleaned.item_width);
       const rawH = parseNumeric(activeState.optimized?.optimized_height || activeState.cleaned.item_height);
       
-      // 2. 获取最原始的单位
       const rawWeightUnit = (activeState.optimized?.optimized_weight_unit || activeState.cleaned.item_weight_unit || 'lb').toLowerCase();
       const rawSizeUnit = (activeState.optimized?.optimized_size_unit || activeState.cleaned.item_size_unit || 'in').toLowerCase();
 
-      // 3. 执行物理换算 (如果主站是英制且目标站是公制)
       const needsWeightConv = isMetric && (rawWeightUnit.includes('lb') || rawWeightUnit.includes('pound'));
       const needsDimConv = isMetric && (rawSizeUnit.includes('in') || rawSizeUnit.includes('inch'));
 
@@ -231,7 +217,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         ...trans,
         optimized_price: parseFloat(((activeState.cleaned.price || 0) * rate).toFixed(2)),
         optimized_shipping: parseFloat(((activeState.cleaned.shipping || 0) * rate).toFixed(2)),
-        // 写入换算后的数值
         optimized_weight_value: finalWeight,
         optimized_weight_unit: getAmazonStandardUnit(isMetric ? 'kg' : 'lb', marketCode),
         optimized_length: finalL,
@@ -240,6 +225,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_size_unit: getAmazonStandardUnit(isMetric ? 'cm' : 'in', marketCode)
       };
 
+      // 深度合并翻译状态，防止 MX 覆盖 CA
       const nextListing = { 
         ...activeState, 
         translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } 
@@ -247,7 +233,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       setLocalListing(nextListing); 
       onUpdate(nextListing);
-      await syncToSupabase(nextListing); // 确保持久化
+      
+      // 关键修复：翻译完后强制执行存库
+      await syncToSupabase(nextListing); 
       return nextListing;
     } catch (e) {
       console.error(`Translate ${marketCode} failed:`, e);
@@ -334,13 +322,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(sourceData);
       else opt = await optimizeListingWithAI(sourceData);
       
-      const updatedListing = { ...localListing };
-      if (activeMarket === 'US') {
-        updatedListing.optimized = opt;
-        updatedListing.status = 'optimized';
-      } else {
-        updatedListing.translations = { ...(updatedListing.translations || {}), [activeMarket]: opt };
-      }
+      // Fix: Explicitly type updatedListing as Listing to satisfy status union type (collected | optimizing | optimized)
+      const updatedListing: Listing = { ...localListing, optimized: opt, status: 'optimized' };
       setLocalListing(updatedListing); onUpdate(updatedListing); await syncToSupabase(updatedListing);
     } catch (e: any) { alert(`Failed: ${e.message}`); } 
     finally { setIsOptimizing(false); }

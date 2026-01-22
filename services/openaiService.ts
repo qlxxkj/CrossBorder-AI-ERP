@@ -6,10 +6,11 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   if (!apiKey) throw new Error("OpenAI API Key is missing.");
 
   const prompt = `
-    Optimize this product: ${JSON.stringify(cleanedData)}
-    1. 5 Bullets, EACH < 250 chars, START with [KEYWORD].
-    2. NO brand names, NO automotive names, NO superlatives.
-    3. Return JSON with optimized_title, optimized_features[], optimized_description, search_keywords, logistics fields.
+    Optimize this Amazon product: ${JSON.stringify(cleanedData)}
+    Requirements:
+    - 5 Bullets, title, description.
+    - Extract Logistics: optimized_weight_value (number), optimized_weight_unit (full word), optimized_length, optimized_width, optimized_height (numbers), optimized_size_unit (full word).
+    - Return JSON only.
   `;
 
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -32,7 +33,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
 export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const apiKey = process.env.OPENAI_API_KEY;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const prompt = `Translate this Amazon listing to "${targetLangName}". Keep [KEYWORD]. Source: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate to "${targetLangName}": ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 

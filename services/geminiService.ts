@@ -5,19 +5,20 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `
     You are an expert Amazon Listing Optimizer. 
-    Source: ${JSON.stringify(cleanedData)}
+    Source Data: ${JSON.stringify(cleanedData)}
 
     [CORE REQUIREMENTS]
     1. Title: SEO-rich, max 200 chars.
-    2. Bullets: Exactly 5 points. EACH UNDER 250 CHARACTERS. MUST START with a [KEYWORD] or [PHRASE].
-    3. Description: HTML format, 1000-1500 chars.
+    2. Bullets: Exactly 5 points. EACH UNDER 250 CHARACTERS.
+    3. Description: HTML format.
+    4. Logistics Extraction (CRITICAL): 
+       - Find weight and dimensions in the source.
+       - 'optimized_weight_value': Pure number string (e.g. "3.5").
+       - 'optimized_weight_unit': Standard full word (e.g. "Pounds", "Kilograms").
+       - 'optimized_length', 'optimized_width', 'optimized_height': Pure number strings.
+       - 'optimized_size_unit': Standard full word (e.g. "Inches", "Centimeters").
     
-    [STRICT PROHIBITIONS]
-    - NO BRAND NAMES.
-    - NO EXTREME WORDS (Best, Perfect, etc.).
-    - NO AUTOMOTIVE BRANDS (Toyota, Tesla, etc.).
-    
-    Return ONLY JSON with: optimized_title, optimized_features[], optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
+    Return ONLY JSON.
   `;
 
   try {
@@ -43,22 +44,18 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
         }
       }
     });
+    
     const data = JSON.parse(response.text || "{}") as OptimizedData;
     if (data.optimized_features && data.optimized_features.length < 5) {
       while (data.optimized_features.length < 5) data.optimized_features.push("");
     }
     return data;
-  } catch (error: any) {
-    if (error.message?.includes("Requested entity was not found.")) {
-      (window as any).aistudio?.openSelectKey();
-    }
-    throw error;
-  }
+  } catch (error) { throw error; }
 };
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Translate this Amazon listing to "${targetLangName}". Keep [KEYWORD] prefix in bullets. No brands. Source: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate this Amazon listing to "${targetLangName}". Maintain HTML tags. Source: ${JSON.stringify(sourceData)}`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
