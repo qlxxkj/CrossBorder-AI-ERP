@@ -37,6 +37,43 @@ const MARKET_LANG_MAP: Record<string, string> = {
   'BR': 'Portuguese', 'MX': 'Spanish', 'EG': 'Arabic', 'BE': 'French'
 };
 
+const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'UK', 'CA', 'MX', 'PL', 'NL', 'SE', 'BE', 'SG', 'AU', 'EG'];
+
+/**
+ * 亚马逊标准单位格式化
+ */
+const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
+  if (!unit) return '';
+  const u = unit.toLowerCase().trim();
+  
+  // 日本站本地化全拼
+  if (market === 'JP') {
+    const jpMap: Record<string, string> = {
+      'lb': 'ポンド', 'lbs': 'ポンド', 'pounds': 'ポンド', 'pound': 'ポンド',
+      'kg': 'キログラム', 'kilogram': 'キログラム', 'kilograms': 'キログラム',
+      'oz': 'オンス', 'ounce': 'オンス', 'ounces': 'オンス',
+      'g': 'グラム', 'gram': 'グラム', 'grams': 'グラム',
+      'in': 'インチ', 'inch': 'インチ', 'inches': 'インチ',
+      'cm': 'センチメートル', 'centimeter': 'センチメートル', 'centimeters': 'センチメートル',
+      'mm': 'ミリメートル', 'millimeter': 'ミリメートル', 'millimeters': 'ミリメートル'
+    };
+    return jpMap[u] || unit;
+  }
+
+  // 拉丁语系站点：全拼且首字母大写
+  const standardMap: Record<string, string> = {
+    'lb': 'Pounds', 'lbs': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
+    'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
+    'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces',
+    'g': 'Grams', 'gram': 'Grams', 'grams': 'Grams',
+    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
+    'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
+    'mm': 'Millimeters', 'millimeter': 'Millimeters', 'millimeters': 'Millimeters'
+  };
+
+  return standardMap[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
+};
+
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -47,6 +84,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, market: '' });
   const [isStandardizing, setIsStandardizing] = useState(false);
   const [translatingMarkets, setTranslatingMarkets] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
@@ -87,12 +125,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
-  /**
-   * 核心重构：多站点数据隔离逻辑
-   */
   const getFieldValue = (optField: string, cleanField: string) => {
     if (activeMarket === 'US') {
-      // 主站：显示优化数据或采集数据
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
       if (optField.includes('features')) {
         if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && String(v).trim() !== '')) return optVal;
@@ -101,7 +135,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') return optVal;
       return (localListing.cleaned as any)[cleanField] || '';
     } else {
-      // 非主站：仅显示翻译数据，翻译前默认为空
       const trans = localListing.translations?.[activeMarket];
       if (trans) {
         const val = (trans as any)[optField];
@@ -124,6 +157,94 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
     setLocalListing(nextListing);
     onUpdate(nextListing);
+  };
+
+  const translateMarket = async (marketCode: string) => {
+    if (marketCode === 'US' || translatingMarkets.has(marketCode)) return;
+    setTranslatingMarkets(prev => new Set(prev).add(marketCode));
+    try {
+      const sourceData = localListing.optimized || {
+        optimized_title: localListing.cleaned.title,
+        optimized_features: localListing.cleaned.features || [],
+        optimized_description: localListing.cleaned.description || '',
+        search_keywords: localListing.cleaned.search_keywords || '',
+        optimized_weight_value: localListing.cleaned.item_weight_value,
+        optimized_weight_unit: localListing.cleaned.item_weight_unit,
+        optimized_length: localListing.cleaned.item_length,
+        optimized_width: localListing.cleaned.item_width,
+        optimized_height: localListing.cleaned.item_height,
+        optimized_size_unit: localListing.cleaned.item_size_unit
+      } as OptimizedData;
+      
+      const targetLang = MARKET_LANG_MAP[marketCode];
+      let trans: Partial<OptimizedData>;
+
+      const isEnglishMkt = ['UK', 'CA', 'AU', 'SG', 'IE'].includes(marketCode);
+      if (isEnglishMkt || !targetLang) {
+        trans = { ...sourceData };
+      } else {
+        if (engine === 'openai') trans = await translateListingWithOpenAI(sourceData, targetLang);
+        else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceData, targetLang);
+        else trans = await translateListingWithAI(sourceData, targetLang);
+      }
+
+      const isMetric = METRIC_MARKETS.includes(marketCode);
+      const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
+      
+      const convertVal = (val: any, factor: number) => {
+        const n = parseFloat(String(val || '0'));
+        return isNaN(n) ? val : (n * factor).toFixed(2);
+      };
+
+      const needsWeightConv = isMetric && sourceData.optimized_weight_unit?.toLowerCase().includes('lb');
+      const needsDimConv = isMetric && sourceData.optimized_size_unit?.toLowerCase().includes('in');
+
+      const finalTrans: OptimizedData = {
+        ...sourceData,
+        ...trans,
+        optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
+        optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2)),
+        // 重量与尺寸标准化
+        optimized_weight_value: needsWeightConv ? convertVal(sourceData.optimized_weight_value, 0.453) : sourceData.optimized_weight_value,
+        optimized_weight_unit: getAmazonStandardUnit(isMetric ? 'kg' : 'lb', marketCode),
+        optimized_length: needsDimConv ? convertVal(sourceData.optimized_length, 2.54) : sourceData.optimized_length,
+        optimized_width: needsDimConv ? convertVal(sourceData.optimized_width, 2.54) : sourceData.optimized_width,
+        optimized_height: needsDimConv ? convertVal(sourceData.optimized_height, 2.54) : sourceData.optimized_height,
+        optimized_size_unit: getAmazonStandardUnit(isMetric ? 'cm' : 'in', marketCode)
+      };
+
+      const nextListing = { ...localListing };
+      nextListing.translations = { ...(nextListing.translations || {}), [marketCode]: finalTrans };
+      setLocalListing(nextListing); 
+      onUpdate(nextListing);
+      return nextListing;
+    } catch (e) {
+      console.error(`Translate ${marketCode} failed:`, e);
+    } finally {
+      setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(marketCode); return n; });
+    }
+  };
+
+  const handleBatchTranslate = async () => {
+    setIsBatchTranslating(true);
+    const targetMarkets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
+    setBatchProgress({ current: 0, total: targetMarkets.length, market: '' });
+    
+    for (let i = 0; i < targetMarkets.length; i++) {
+      const mkt = targetMarkets[i];
+      setBatchProgress({ current: i + 1, total: targetMarkets.length, market: mkt.code });
+      await translateMarket(mkt.code);
+    }
+    
+    setIsBatchTranslating(false);
+  };
+
+  const handleMarketClick = (code: string) => {
+    setActiveMarket(code);
+    // 交互增强：如果点击了未翻译站点，自动触发单点翻译
+    if (code !== 'US' && !localListing.translations?.[code] && !translatingMarkets.has(code)) {
+      translateMarket(code);
+    }
   };
 
   const uploadImageToHost = async (dataUrlOrFile: string | File, asin: string): Promise<string> => {
@@ -191,36 +312,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsOptimizing(false); }
   };
 
-  const translateMarket = async (marketCode: string) => {
-    if (marketCode === 'US') return;
-    setTranslatingMarkets(prev => new Set(prev).add(marketCode));
-    try {
-      const sourceData = localListing.optimized || {
-        optimized_title: localListing.cleaned.title,
-        optimized_features: localListing.cleaned.features || [],
-        optimized_description: localListing.cleaned.description || '',
-        search_keywords: localListing.cleaned.search_keywords || ''
-      } as OptimizedData;
-      
-      const targetLang = MARKET_LANG_MAP[marketCode] || 'English';
-      let trans: Partial<OptimizedData>;
-      if (engine === 'openai') trans = await translateListingWithOpenAI(sourceData, targetLang);
-      else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceData, targetLang);
-      else trans = await translateListingWithAI(sourceData, targetLang);
-      
-      const nextListing = { ...localListing };
-      nextListing.translations = { ...(nextListing.translations || {}), [marketCode]: trans as OptimizedData };
-      setLocalListing(nextListing); onUpdate(nextListing);
-    } catch (e) { console.error(e); } 
-    finally { setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(marketCode); return n; }); }
-  };
-
-  const handleBatchTranslate = async () => {
-    setIsBatchTranslating(true);
-    for (const mkt of AMAZON_MARKETPLACES) { if (mkt.code !== 'US') await translateMarket(mkt.code); }
-    setIsBatchTranslating(false);
-  };
-
   const allImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].filter(Boolean) as string[];
 
   return (
@@ -258,7 +349,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
-          {/* 左侧：图片管理 + 搜货 */}
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
                 <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
@@ -313,22 +403,48 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
              </div>
           </div>
 
-          {/* 右侧：编辑器 */}
           <div className="lg:col-span-8">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="px-10 py-6 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between gap-6">
-                   <div className="flex flex-1 overflow-x-auto no-scrollbar gap-1 bg-white p-1 rounded-2xl border border-slate-200">
-                      <button onClick={() => setActiveMarket('US')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 Master</button>
-                      {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => (
-                        <button key={m.code} onClick={() => setActiveMarket(m.code)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-300 hover:text-slate-500'}`}>
-                          {m.flag} {m.code}
-                          {translatingMarkets.has(m.code) && <Loader2 size={10} className="animate-spin" />}
-                        </button>
-                      ))}
+                   <div className="flex flex-1 overflow-x-auto no-scrollbar gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-inner">
+                      <button 
+                        onClick={() => handleMarketClick('US')} 
+                        className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+                      >
+                        🇺🇸 Master
+                      </button>
+                      {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
+                        const isTranslated = !!localListing.translations?.[m.code];
+                        const isTranslating = translatingMarkets.has(m.code);
+                        return (
+                          <button 
+                            key={m.code} 
+                            onClick={() => handleMarketClick(m.code)} 
+                            className={`
+                              px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2
+                              ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : 
+                                isTranslated ? 'bg-white text-indigo-600 border-slate-50' : 
+                                'bg-slate-50/50 text-slate-300 border-slate-200 border-dashed opacity-70 hover:opacity-100'
+                              }
+                            `}
+                          >
+                            {m.flag} {m.code}
+                            {isTranslating && <Loader2 size={10} className="animate-spin" />}
+                          </button>
+                        );
+                      })}
                    </div>
-                   <button onClick={handleBatchTranslate} disabled={isBatchTranslating} className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all shadow-sm shrink-0 border border-indigo-100 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest">
+                   <button 
+                    onClick={handleBatchTranslate} 
+                    disabled={isBatchTranslating} 
+                    className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all shadow-sm shrink-0 border border-indigo-100 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest min-w-[160px] justify-center"
+                   >
                       {isBatchTranslating ? <Loader2 size={16} className="animate-spin" /> : <Languages size={16} />} 
-                      <span className="hidden sm:inline">Translate All</span>
+                      <span className="truncate">
+                        {isBatchTranslating 
+                          ? `${batchProgress.market} (${batchProgress.current}/${batchProgress.total})` 
+                          : 'Translate All'}
+                      </span>
                    </button>
                 </div>
 
@@ -346,10 +462,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
                    <div className="grid grid-cols-2 gap-8 pt-4 border-t border-slate-50">
                       <div className="space-y-3">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} /> Item Weight</label>
+                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} /> Item Weight (Standard)</label>
                          <div className="flex gap-2">
                             <input value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm" placeholder="Value" />
-                            <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-20 px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-center" placeholder="Unit" />
+                            <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-32 px-2 py-3 bg-white border border-slate-200 rounded-xl font-black text-[10px] text-center" placeholder="Pounds / Kilograms" />
                          </div>
                       </div>
                       <div className="space-y-3">
@@ -358,7 +474,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" placeholder="L" />
                             <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" placeholder="W" />
                             <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" placeholder="H" />
-                            <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-16 px-1 py-3 bg-slate-50 border border-slate-200 rounded-xl font-black text-[9px] text-center" placeholder="Unit" />
+                            <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-28 px-1 py-3 bg-white border border-slate-200 rounded-xl font-black text-[9px] text-center" placeholder="Inches / Centimeters" />
                          </div>
                       </div>
                    </div>
