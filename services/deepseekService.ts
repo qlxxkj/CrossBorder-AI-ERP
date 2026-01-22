@@ -1,27 +1,22 @@
-
 import { CleanedData, OptimizedData } from "../types";
-
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Promise<OptimizedData> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
-  const model = process.env.DEEPSEEK_MODEL || "deepseek-chat";
-  
-  if (!apiKey) throw new Error("DeepSeek API Key is missing.");
+  if (!apiKey) throw new Error("DeepSeek API Key missing.");
 
   const prompt = `
-    You are an expert Amazon Listing Optimizer. Optimize this data:
+    Optimize this Amazon listing:
     ${JSON.stringify(cleanedData)}
 
-    JSON OUTPUT FIELDS:
+    [JSON FIELDS]
     - optimized_title: string
-    - optimized_features: array of exactly 5 non-empty strings
+    - optimized_features: array of exactly 5 strings, each < 250 chars, starting with [KEYWORD]
     - optimized_description: HTML string
     - search_keywords: string
-    - optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit
 
-    REMOVE BRANDS.
+    [CRITICAL] NO brands, NO automotive names, NO superlatives.
   `;
 
   const endpoint = `${baseUrl}/chat/completions`;
@@ -31,7 +26,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: model,
+      model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" }
     })
@@ -47,14 +42,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLang: string): Promise<Partial<OptimizedData>> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
-  const model = process.env.DEEPSEEK_MODEL || "deepseek-chat";
-  
-  const prompt = `
-    Translate and localize for Amazon "${targetLang}". 
-    Must maintain 5 bullet points. Localize units.
-    Source: ${JSON.stringify(sourceData)}
-  `;
-
+  const prompt = `Translate to "${targetLang}". Keep [KEYWORD]. No brands. Source: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
@@ -62,7 +50,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: model,
+      model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" }
     })
