@@ -29,34 +29,35 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 /**
- * 亚马逊官方模板单位本地化格式映射
+ * 亚马逊官方模板单位本地化格式映射 - 严格遵循 Sentence Case
  */
 const mapStandardUnit = (unit: string, market: string) => {
   const u = unit.toLowerCase().trim();
   
   // 1. 日本站
   if (market === 'JP') {
-    const jp: Record<string, string> = { 'kg': 'キログラム', 'cm': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ', 'oz': 'オンス' };
+    const jp: Record<string, string> = { 'kg': 'キログラム', 'cm': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ', 'oz': 'オンス', 'g': 'グラム' };
     return jp[u] || unit;
   }
-  // 2. 拉美/西语站点
+  // 2. 拉美/西语/葡语站点 (MX, BR, ES)
   if (['MX', 'BR', 'ES'].includes(market)) {
-    const latinExt: Record<string, string> = { 'kg': 'Kilogramos', 'cm': 'Centímetros', 'lb': 'Libras', 'in': 'Pulgadas', 'oz': 'Onzas' };
+    const latinExt: Record<string, string> = { 'kg': 'Kilogramos', 'cm': 'Centímetros', 'lb': 'Libras', 'in': 'Pulgadas', 'oz': 'Onzas', 'g': 'Gramos' };
     return latinExt[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
   }
-  // 3. 阿拉伯站点
+  // 3. 阿拉伯站点 (EG, SA, AE)
   if (['EG', 'SA', 'AE'].includes(market)) {
-    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية' };
+    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية', 'g': 'جرام' };
     return ar[u] || unit;
   }
   
-  // 4. 标准拉丁语系 (Sentence Case)
+  // 4. 标准拉丁语系 (US, UK, DE, FR, etc.)
   const latin: Record<string, string> = {
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
     'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
     'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
     'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
-    'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces'
+    'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces',
+    'g': 'Grams', 'gram': 'Grams', 'grams': 'Grams'
   };
   return latin[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
 };
@@ -153,67 +154,74 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   /**
-   * 物流换算引擎 (深度修复：支持 Ounce 换算 & 强制溯源)
+   * 智能物流换算引擎 - 强制溯源 Master 站点数据
    */
   const performLogisticsConversion = (targetMkt: string) => {
-    const opt = localListing.optimized;
-    const clean = localListing.cleaned;
+    // 强制获取 Master (US) 数据作为物理基准
+    const optMaster = localListing.optimized;
+    const cleanMaster = localListing.cleaned;
     const isMetric = !['US', 'CA', 'UK'].includes(targetMkt);
     
-    // 强制回溯基准：优先 Master 优化版，其次采集原始版
-    const sUnitW = String(opt?.optimized_weight_unit || clean.item_weight_unit || "lb").toLowerCase();
-    const sUnitS = String(opt?.optimized_size_unit || clean.item_size_unit || "in").toLowerCase();
+    // 溯源单位：优先取优化后的，没有则取原始采集的
+    const sourceUnitW = String(optMaster?.optimized_weight_unit || cleanMaster.item_weight_unit || "lb").toLowerCase();
+    const sourceUnitS = String(optMaster?.optimized_size_unit || cleanMaster.item_size_unit || "in").toLowerCase();
     
-    const rawValW = opt?.optimized_weight_value || clean.item_weight_value || "";
-    const rawL = opt?.optimized_length || clean.item_length || "";
-    const rawW = opt?.optimized_width || clean.item_width || "";
-    const rawH = opt?.optimized_height || clean.item_height || "";
+    const sourceValW = optMaster?.optimized_weight_value || cleanMaster.item_weight_value || "";
+    const sourceL = optMaster?.optimized_length || cleanMaster.item_length || "";
+    const sourceW = optMaster?.optimized_width || cleanMaster.item_width || "";
+    const sourceH = optMaster?.optimized_height || cleanMaster.item_height || "";
     
-    const parseNum = (v: any) => {
+    const parse = (v: any) => {
       const n = parseFloat(String(v || "0").replace(/[^0-9.]/g, ''));
       return isNaN(n) ? 0 : n;
     };
 
-    const nW = parseNum(rawValW);
-    const nL = parseNum(rawL);
-    const nWd = parseNum(rawW);
-    const nH = parseNum(rawH);
+    const nW = parse(sourceValW);
+    const nL = parse(sourceL);
+    const nWd = parse(sourceW);
+    const nH = parse(sourceH);
 
-    let vW = String(rawValW), vL = String(rawL), vWd = String(rawW), vH = String(rawH);
+    let finalW = String(sourceValW), finalL = String(sourceL), finalWd = String(sourceW), finalH = String(sourceH);
 
+    // 换算逻辑核心
     if (isMetric) {
       // 换算至公制 (KG / CM)
-      if (sUnitW.includes('lb') || sUnitW.includes('pound')) {
-        vW = nW > 0 ? (nW * 0.453592).toFixed(2) : "";
-      } else if (sUnitW.includes('oz') || sUnitW.includes('ounce')) {
-        vW = nW > 0 ? (nW * 0.0283495).toFixed(3) : "";
-      } else if (sUnitW.includes('g') && !sUnitW.includes('k')) {
-        vW = nW > 0 ? (nW / 1000).toFixed(3) : "";
+      if (sourceUnitW.includes('lb') || sourceUnitW.includes('pound')) {
+        finalW = nW > 0 ? (nW * 0.453592).toFixed(2) : "";
+      } else if (sourceUnitW.includes('oz') || sourceUnitW.includes('ounce')) {
+        finalW = nW > 0 ? (nW * 0.0283495).toFixed(3) : "";
+      } else if (sourceUnitW.includes('g') && !sourceUnitW.includes('k')) {
+        finalW = nW > 0 ? (nW / 1000).toFixed(3) : "";
+      } else {
+        finalW = nW > 0 ? nW.toString() : "";
       }
       
-      if (sUnitS.includes('in') || sUnitS.includes('inch')) {
-        vL = nL > 0 ? (nL * 2.54).toFixed(2) : "";
-        vWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : "";
-        vH = nH > 0 ? (nH * 2.54).toFixed(2) : "";
+      if (sourceUnitS.includes('in') || sourceUnitS.includes('inch')) {
+        finalL = nL > 0 ? (nL * 2.54).toFixed(2) : "";
+        finalWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : "";
+        finalH = nH > 0 ? (nH * 2.54).toFixed(2) : "";
       }
     } else {
-      // 换算至英制 (针对可能的回溯换算)
-      if (sUnitW.includes('kg')) {
-        vW = nW > 0 ? (nW / 0.453592).toFixed(2) : "";
+      // 换算至英制 (Pounds / Inches)
+      if (sourceUnitW.includes('kg') || sourceUnitW.includes('kilogram')) {
+        finalW = nW > 0 ? (nW / 0.453592).toFixed(2) : "";
+      } else if (sourceUnitW.includes('g')) {
+        finalW = nW > 0 ? (nW / 453.592).toFixed(2) : "";
       }
-      if (sUnitS.includes('cm')) {
-        vL = nL > 0 ? (nL / 2.54).toFixed(2) : "";
-        vWd = nWd > 0 ? (nWd / 2.54).toFixed(2) : "";
-        vH = nH > 0 ? (nH / 2.54).toFixed(2) : "";
+      
+      if (sourceUnitS.includes('cm') || sourceUnitS.includes('centimeter')) {
+        finalL = nL > 0 ? (nL / 2.54).toFixed(2) : "";
+        finalWd = nWd > 0 ? (nWd / 2.54).toFixed(2) : "";
+        finalH = nH > 0 ? (nH / 2.54).toFixed(2) : "";
       }
     }
 
     return {
-      optimized_weight_value: vW, 
+      optimized_weight_value: finalW, 
       optimized_weight_unit: mapStandardUnit(isMetric ? 'kg' : 'lb', targetMkt),
-      optimized_length: vL, 
-      optimized_width: vWd, 
-      optimized_height: vH, 
+      optimized_length: finalL, 
+      optimized_width: finalWd, 
+      optimized_height: finalH, 
       optimized_size_unit: mapStandardUnit(isMetric ? 'cm' : 'in', targetMkt)
     };
   };
@@ -265,6 +273,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleRecalculateCurrent = () => {
     const results = performLogisticsConversion(activeMarket);
+    // 关键：使用函数式更新批量应用结果，确保状态同步
     setLocalListing(prev => {
       const next = { ...prev };
       const trans = { ...(next.translations || {}) };
@@ -316,7 +325,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                <button 
                                 onClick={(e) => { e.stopPropagation(); translateMarket(m.code, true); }}
                                 className={`px-2.5 py-2.5 rounded-r-xl border-y-2 border-r-2 transition-all ${activeMarket === m.code ? 'bg-indigo-700 text-white border-indigo-600 hover:bg-indigo-800' : 'bg-slate-50 text-slate-400 border-slate-100 hover:text-indigo-600'}`}
-                                title="Re-Translate"
+                                title="Force Refresh Translation"
                                >
                                  <RefreshCw size={11} className={isTranslating ? 'animate-spin' : ''} />
                                </button>
