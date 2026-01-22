@@ -43,6 +43,7 @@ const mapStandardUnit = (unit: string, market: string) => {
   if (u === 'cm') return 'Centimeters';
   if (u === 'lb') return 'Pounds';
   if (u === 'in') return 'Inches';
+  // 兜底全拼首字母大写
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
@@ -51,6 +52,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [activeMarket, setActiveMarket] = useState('US');
   const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isTranslatingAll, setIsTranslatingAll] = useState(false);
   const [translatingMarkets, setTranslatingMarkets] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [isProcessingImages, setIsProcessingImages] = useState(false);
@@ -149,6 +151,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
    * 增强：强制从 Master 站点拉取源数据，解决字段缺失问题
    */
   const performLogisticsConversion = (targetMkt: string) => {
+    // 强制溯源：优先使用 Master 站点的优化数据，其次是清理后的原始数据
     const opt = localListing.optimized;
     const clean = localListing.cleaned;
     const isMetric = !['US', 'CA', 'UK'].includes(targetMkt);
@@ -167,10 +170,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     };
 
     if (isMetric) {
+      // 重量换算: lb -> kg
       if (sUnitW.includes('lb') || sUnitW.includes('pound')) {
         const n = num(valW);
         valW = n > 0 ? (n * 0.453592).toFixed(2) : "";
       }
+      // 尺寸换算: in -> cm
       if (sUnitS.includes('in') || sUnitS.includes('inch')) {
         const nl = num(l), nw = num(w), nh = num(h);
         l = nl > 0 ? (nl * 2.54).toFixed(2) : "";
@@ -201,6 +206,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(source, targetLang);
       else trans = await translateListingWithAI(source, targetLang);
       
+      // 核心注入：物流自动换算 (始终回溯 Master 源)
       const logistics = performLogisticsConversion(code);
       const rate = exchangeRates.find(r => r.marketplace === code)?.rate || 1;
       
@@ -212,8 +218,28 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       };
       
       const next = { ...localListing, translations: { ...(localListing.translations || {}), [code]: final } };
-      setLocalListing(next); onUpdate(next); await syncToSupabase(next);
-    } catch (e) {} finally { setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(code); return n; }); }
+      setLocalListing(prev => ({ ...prev, translations: next.translations }));
+      onUpdate(next);
+      return next;
+    } catch (e) {
+      console.error(`Translation failed for ${code}`, e);
+    } finally {
+      setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(code); return n; });
+    }
+  };
+
+  const handleTranslateAll = async () => {
+    setIsTranslatingAll(true);
+    const untranslatedMarkets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US' && !localListing.translations?.[m.code]);
+    
+    for (const market of untranslatedMarkets) {
+      await translateMarket(market.code);
+      // 微小延时防止请求过于密集
+      await new Promise(r => setTimeout(r, 500));
+    }
+    
+    setIsTranslatingAll(false);
+    await syncToSupabase(localListing);
   };
 
   const handleOptimize = async () => {
@@ -230,7 +256,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-inter text-slate-900">
-      <ListingTopBar onBack={onBack} engine={engine} setEngine={(e) => { setEngine(e); localStorage.setItem('amzbot_preferred_engine', e); }} onOptimize={handleOptimize} isOptimizing={isOptimizing} onSave={() => syncToSupabase(localListing)} isSaving={isSaving} onNext={onNext} uiLang={uiLang} />
+      <ListingTopBar 
+        onBack={onBack} 
+        engine={engine} 
+        setEngine={(e) => { setEngine(e); localStorage.setItem('amzbot_preferred_engine', e); }} 
+        onOptimize={handleOptimize} 
+        isOptimizing={isOptimizing} 
+        onTranslateAll={handleTranslateAll}
+        isTranslatingAll={isTranslatingAll}
+        onSave={() => syncToSupabase(localListing)} 
+        isSaving={isSaving} 
+        onNext={onNext} 
+        uiLang={uiLang} 
+      />
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">

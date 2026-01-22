@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { ArrowLeft, Sparkles, Loader2, Save, ChevronRight, Zap, Brain, Cpu } from 'lucide-react';
+import { ArrowLeft, Sparkles, Loader2, Save, ChevronRight, Zap, Brain, Cpu, Languages } from 'lucide-react';
 import { UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 
@@ -10,6 +10,8 @@ interface ListingTopBarProps {
   setEngine: (e: any) => void;
   onOptimize: () => void;
   isOptimizing: boolean;
+  onTranslateAll: () => void;
+  isTranslatingAll: boolean;
   onSave: () => void;
   isSaving: boolean;
   onNext: () => void;
@@ -17,7 +19,7 @@ interface ListingTopBarProps {
 }
 
 export const ListingTopBar: React.FC<ListingTopBarProps> = ({
-  onBack, engine, setEngine, onOptimize, isOptimizing, onSave, isSaving, onNext, uiLang
+  onBack, engine, setEngine, onOptimize, isOptimizing, onTranslateAll, isTranslatingAll, onSave, isSaving, onNext, uiLang
 }) => {
   const t = useTranslation(uiLang);
   return (
@@ -36,7 +38,15 @@ export const ListingTopBar: React.FC<ListingTopBarProps> = ({
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <button onClick={onOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-6 py-2.5 rounded-2xl font-black text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-all uppercase shadow-sm">
+        <button 
+          onClick={onTranslateAll} 
+          disabled={isTranslatingAll || isOptimizing} 
+          className="flex items-center gap-2 px-6 py-2.5 rounded-2xl font-black text-xs text-purple-600 bg-purple-50 border border-purple-100 hover:bg-purple-100 transition-all uppercase shadow-sm disabled:opacity-50"
+        >
+          {isTranslatingAll ? <Loader2 className="animate-spin" size={16} /> : <Languages size={16} />} 
+          AI Translate All
+        </button>
+        <button onClick={onOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-6 py-2.5 rounded-2xl font-black text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-all uppercase shadow-sm disabled:opacity-50">
           {isOptimizing ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} AI Optimize
         </button>
         <div className="flex items-center bg-slate-900 rounded-2xl p-0.5 shadow-xl">
