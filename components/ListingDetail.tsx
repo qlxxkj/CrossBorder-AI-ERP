@@ -14,7 +14,7 @@ import { optimizeListingWithAI, translateListingWithAI } from '../services/gemin
 import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
 import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
-import { getLocalizedUnit } from './LogisticsEditor';
+import { getLocalizedUnit, calculateMarketLogistics } from './LogisticsEditor';
 
 interface ListingDetailProps {
   listing: Listing;
@@ -154,71 +154,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  const performLogisticsConversion = (targetMkt: string) => {
-    const optMaster = localListing.optimized;
-    const cleanMaster = localListing.cleaned;
-    const isMetric = targetMkt !== 'US';
-    
-    const sourceUnitW = String(optMaster?.optimized_weight_unit || cleanMaster.item_weight_unit || "lb").toLowerCase();
-    const sourceUnitS = String(optMaster?.optimized_size_unit || cleanMaster.item_size_unit || "in").toLowerCase();
-    
-    const sourceValW = optMaster?.optimized_weight_value || cleanMaster.item_weight_value || "";
-    const sourceL = optMaster?.optimized_length || cleanMaster.item_length || "";
-    const sourceW = optMaster?.optimized_width || cleanMaster.item_width || "";
-    const sourceH = optMaster?.optimized_height || cleanMaster.item_height || "";
-    
-    const parse = (v: any) => {
-      const n = parseFloat(String(v || "0").replace(/[^0-9.]/g, ''));
-      return isNaN(n) ? 0 : n;
-    };
-
-    const nW = parse(sourceValW);
-    const nL = parse(sourceL);
-    const nWd = parse(sourceW);
-    const nH = parse(sourceH);
-
-    let finalW = String(sourceValW), finalL = String(sourceL), finalWd = String(sourceW), finalH = String(sourceH);
-
-    if (isMetric) {
-      if (sourceUnitW.includes('lb') || sourceUnitW.includes('pound')) {
-        finalW = nW > 0 ? (nW * 0.453592).toFixed(2) : "";
-      } else if (sourceUnitW.includes('oz') || sourceUnitW.includes('ounce')) {
-        finalW = nW > 0 ? (nW * 0.0283495).toFixed(3) : ""; 
-      } else if (sourceUnitW.includes('g') && !sourceUnitW.includes('k')) {
-        finalW = nW > 0 ? (nW / 1000).toFixed(3) : "";
-      } else {
-        finalW = nW > 0 ? nW.toString() : "";
-      }
-      
-      if (sourceUnitS.includes('in') || sourceUnitS.includes('inch')) {
-        finalL = nL > 0 ? (nL * 2.54).toFixed(2) : "";
-        finalWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : "";
-        finalH = nH > 0 ? (nH * 2.54).toFixed(2) : "";
-      }
-    } else {
-      if (sourceUnitW.includes('kg') || sourceUnitW.includes('kilogram')) {
-        finalW = nW > 0 ? (nW / 0.453592).toFixed(2) : "";
-      } else if (sourceUnitW.includes('g')) {
-        finalW = nW > 0 ? (nW / 453.592).toFixed(2) : "";
-      }
-      
-      if (sourceUnitS.includes('cm') || sourceUnitS.includes('centimeter')) {
-        finalL = nL > 0 ? (nL / 2.54).toFixed(2) : "";
-        finalWd = nWd > 0 ? (nWd / 2.54).toFixed(2) : "";
-        finalH = nH > 0 ? (nH / 2.54).toFixed(2) : "";
-      }
-    }
-
-    return {
-      optimized_weight_value: finalW, 
-      optimized_weight_unit: getLocalizedUnit(isMetric ? 'kg' : 'lb', targetMkt),
-      optimized_length: finalL, 
-      optimized_width: finalWd, 
-      optimized_height: finalH, 
-      optimized_size_unit: getLocalizedUnit(isMetric ? 'cm' : 'in', targetMkt)
-    };
-  };
-
   const translateMarket = async (code: string, force: boolean = false) => {
     if (code === 'US' || (translatingMarkets.has(code) && !force)) return;
     setTranslatingMarkets(prev => new Set(prev).add(code));
@@ -231,7 +166,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(source, targetLang);
       else trans = await translateListingWithAI(source, targetLang);
       
-      const logistics = performLogisticsConversion(code);
+      // 换算逻辑：调用组件库提供的核心换算函数
+      const logistics = calculateMarketLogistics(localListing, code);
       const rate = exchangeRates.find(r => r.marketplace === code)?.rate || 1;
       
       const final: OptimizedData = {
@@ -264,14 +200,26 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     await syncToSupabase(localListing);
   };
 
-  const handleRecalculateCurrent = () => {
-    const results = performLogisticsConversion(activeMarket);
+  /**
+   * 增强型强制换算：执行后立即同步数据库
+   */
+  const handleRecalculateCurrent = async () => {
+    if (activeMarket === 'US') return;
+
+    const results = calculateMarketLogistics(localListing, activeMarket);
+    
     setLocalListing(prev => {
       const next = { ...prev };
       const trans = { ...(next.translations || {}) };
       trans[activeMarket] = { ...(trans[activeMarket] || {}), ...results } as OptimizedData;
       next.translations = trans;
+      
+      // 执行 React 状态向上同步
       onUpdate(next);
+      
+      // 核心：在状态闭包中立即触发数据库同步
+      syncToSupabase(next);
+      
       return next;
     });
   };

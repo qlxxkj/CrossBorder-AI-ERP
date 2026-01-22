@@ -1,7 +1,7 @@
 
 import React from 'react';
-import { Box, Scale } from 'lucide-react';
-import { Listing, UILanguage } from '../types';
+import { Box, Scale, RefreshCw } from 'lucide-react';
+import { Listing, OptimizedData, UILanguage } from '../types';
 
 interface LogisticsEditorProps {
   listing: Listing;
@@ -13,7 +13,8 @@ interface LogisticsEditorProps {
 }
 
 /**
- * 亚马逊 18 个站点物流单位本地化字典 (Sentence Case 全称)
+ * 亚马逊全球 18 个站点物流单位本地化字典 (Sentence Case 全称)
+ * 严格适配亚马逊 Valid Values 标准
  */
 export const getLocalizedUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
@@ -118,8 +119,79 @@ export const getLocalizedUnit = (unit: string | undefined, market: string) => {
   };
   if (latin[u]) return latin[u];
   
-  // 默认 Sentence Case
+  // 默认 Sentence Case (首字母大写)
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
+};
+
+/**
+ * 核心物理换算逻辑函数 - 独立封装，支持跨组件调用
+ */
+export const calculateMarketLogistics = (listing: Listing, targetMkt: string) => {
+  const optMaster = listing.optimized;
+  const cleanMaster = listing.cleaned;
+  const isMetric = targetMkt !== 'US'; // 只要不是美国，强制公制
+  
+  // 溯源：优先取优化后的 Master，其次采集的 Master
+  const sourceUnitW = String(optMaster?.optimized_weight_unit || cleanMaster.item_weight_unit || "lb").toLowerCase();
+  const sourceUnitS = String(optMaster?.optimized_size_unit || cleanMaster.item_size_unit || "in").toLowerCase();
+  
+  const sourceValW = optMaster?.optimized_weight_value || cleanMaster.item_weight_value || "";
+  const sourceL = optMaster?.optimized_length || cleanMaster.item_length || "";
+  const sourceW = optMaster?.optimized_width || cleanMaster.item_width || "";
+  const sourceH = optMaster?.optimized_height || cleanMaster.item_height || "";
+  
+  const parse = (v: any) => {
+    const n = parseFloat(String(v || "0").replace(/[^0-9.]/g, ''));
+    return isNaN(n) ? 0 : n;
+  };
+
+  const nW = parse(sourceValW);
+  const nL = parse(sourceL);
+  const nWd = parse(sourceW);
+  const nH = parse(sourceH);
+
+  let finalW = String(sourceValW), finalL = String(sourceL), finalWd = String(sourceW), finalH = String(sourceH);
+
+  if (isMetric) {
+    // 换算至公制 (KG / CM)
+    if (sourceUnitW.includes('lb') || sourceUnitW.includes('pound')) {
+      finalW = nW > 0 ? (nW * 0.453592).toFixed(2) : "";
+    } else if (sourceUnitW.includes('oz') || sourceUnitW.includes('ounce')) {
+      finalW = nW > 0 ? (nW * 0.0283495).toFixed(3) : ""; 
+    } else if (sourceUnitW.includes('g') && !sourceUnitW.includes('k')) {
+      finalW = nW > 0 ? (nW / 1000).toFixed(3) : "";
+    } else {
+      finalW = nW > 0 ? nW.toString() : "";
+    }
+    
+    if (sourceUnitS.includes('in') || sourceUnitS.includes('inch')) {
+      finalL = nL > 0 ? (nL * 2.54).toFixed(2) : "";
+      finalWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : "";
+      finalH = nH > 0 ? (nH * 2.54).toFixed(2) : "";
+    }
+  } else {
+    // 换算至英制 (针对 US 站点)
+    if (sourceUnitW.includes('kg') || sourceUnitW.includes('kilogram')) {
+      finalW = nW > 0 ? (nW / 0.453592).toFixed(2) : "";
+    } else if (sourceUnitW.includes('g')) {
+      finalW = nW > 0 ? (nW / 453.592).toFixed(2) : "";
+    }
+    
+    if (sourceUnitS.includes('cm') || sourceUnitS.includes('centimeter')) {
+      finalL = nL > 0 ? (nL / 2.54).toFixed(2) : "";
+      finalWd = nWd > 0 ? (nWd / 2.54).toFixed(2) : "";
+      finalH = nH > 0 ? (nH / 2.54).toFixed(2) : "";
+    }
+  }
+
+  return {
+    optimized_weight_value: finalW, 
+    optimized_weight_unit: getLocalizedUnit(isMetric ? 'kg' : 'lb', targetMkt),
+    optimized_length: finalL, 
+    optimized_width: finalWd, 
+    optimized_height: finalH, 
+    optimized_size_unit: getLocalizedUnit(isMetric ? 'cm' : 'in', targetMkt)
+  };
 };
 
 export const LogisticsEditor: React.FC<LogisticsEditorProps> = ({
@@ -141,8 +213,11 @@ export const LogisticsEditor: React.FC<LogisticsEditorProps> = ({
       <div className="flex items-center justify-between">
          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
          {!isUS && (
-           <button onClick={onRecalculate} className="flex items-center gap-1.5 text-[9px] font-black text-indigo-600 uppercase bg-white px-4 py-2 rounded-xl border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
-             <Scale size={12} /> Force Recalculate from Master
+           <button 
+            onClick={onRecalculate} 
+            className="flex items-center gap-1.5 text-[9px] font-black text-indigo-600 uppercase bg-white px-4 py-2 rounded-xl border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm group"
+           >
+             <RefreshCw size={12} className="group-active:animate-spin" /> Force Recalculate & Sync
            </button>
          )}
       </div>
