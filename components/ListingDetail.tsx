@@ -38,44 +38,55 @@ const convertValue = (val: string | number | undefined, factor: number) => {
   return (num * factor).toFixed(2);
 };
 
-// 核心：单位本地化处理函数（支持全拼、首字母大写、非拉丁语翻译）
+/**
+ * 核心：增强单位本地化映射
+ */
 const getLocalizedUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
   
-  // 日本站：显示日语全拼
+  // 1. 日本站 (JP)
   if (market === 'JP') {
     const jpMap: Record<string, string> = { 
-      'lb': 'ポンド', 'pound': 'ポンド', 'pounds': 'ポンド',
       'kg': 'キログラム', 'kilogram': 'キログラム', 'kilograms': 'キログラム',
-      'in': 'インチ', 'inch': 'インチ', 'inches': 'インチ',
-      'cm': 'センチメートル', 'centimeter': 'センチメートル', 'centimeters': 'センチメートル'
+      'cm': 'センチメートル', 'centimeter': 'センチメートル', 'centimeters': 'センチメートル',
+      'lb': 'ポンド', 'pound': 'ポンド', 'pounds': 'ポンド',
+      'in': 'インチ', 'inch': 'インチ', 'inches': 'インチ'
     };
     return jpMap[u] || unit;
   }
 
-  // 阿拉伯站点：显示阿语全拼
+  // 2. 墨西哥/巴西站 (MX/BR) - 西语/葡语全拼
+  if (['MX', 'BR', 'ES'].includes(market)) {
+    const latinExtMap: Record<string, string> = {
+      'kg': 'Kilogramos', 'kilogram': 'Kilogramos', 'kilograms': 'Kilogramos',
+      'cm': 'Centímetros', 'centimeter': 'Centímetros', 'centimeters': 'Centímetros',
+      'lb': 'Libras', 'pound': 'Libras', 'pounds': 'Libras',
+      'in': 'Pulgadas', 'inch': 'Pulgadas', 'inches': 'Pulgadas'
+    };
+    return latinExtMap[u] || unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
+  }
+
+  // 3. 阿拉伯站点 (EG, SA, AE)
   if (['EG', 'SA', 'AE'].includes(market)) {
     const arMap: Record<string, string> = { 
-      'lb': 'رطل', 'pound': 'رطل', 'pounds': 'رطل',
       'kg': 'كيلوجرام', 'kilogram': 'كيلوجرام', 'kilograms': 'كيلوجرام',
-      'in': 'بوصة', 'inch': 'بوصة', 'inches': 'بوصة',
-      'cm': 'سنتيمتر', 'centimeter': 'سنتيمتر', 'centimeters': 'سنتيمتر'
+      'cm': 'سنتيمتر', 'centimeter': 'سنتيمتر', 'centimeters': 'سنتيمتر',
+      'lb': 'رطل', 'pound': 'رطل', 'pounds': 'رطل',
+      'in': 'بوصة', 'inch': 'بوصة', 'inches': 'بوصة'
     };
     return arMap[u] || unit;
   }
 
-  // 拉丁语系站点：Sentence Case 全拼
+  // 4. 标准拉丁语系 (US, UK, DE, FR etc.)
   const latinMap: Record<string, string> = {
-    'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
-    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
-    'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters'
+    'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
+    'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
+    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches'
   };
 
   if (latinMap[u]) return latinMap[u];
-  
-  // 兜底：强制首字母大写
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
@@ -144,13 +155,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       let feats: string[] = [];
       if (Array.isArray(rawFeats)) feats = rawFeats.map(f => String(f || "").trim());
       else if (typeof rawFeats === 'string' && rawFeats.trim() !== '') feats = rawFeats.split('\n').map(f => f.trim()).filter(Boolean);
-      
-      if (feats.length === 0 && isUS) {
-        feats = (localListing.cleaned?.bullet_points || localListing.cleaned?.features || []).filter(Boolean);
-      }
-      
+      if (feats.length === 0 && isUS) feats = (localListing.cleaned?.bullet_points || localListing.cleaned?.features || []).filter(Boolean);
       const res = [...feats];
-      // 保持至少5个框，最多不限（由UI控制）
       while (res.length < 5) res.push('');
       return res;
     }
@@ -243,23 +249,36 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsProcessingImages(false); }
   };
 
+  /**
+   * 物流核心换算引擎
+   */
   const performLogisticsConversion = (source: any, targetMkt: string) => {
     const isMetricTarget = !['US', 'CA', 'UK'].includes(targetMkt);
-    const sUnitW = String(source.item_weight_unit || source.optimized_weight_unit || "").toLowerCase();
-    const sUnitS = String(source.item_size_unit || source.optimized_size_unit || "").toLowerCase();
+    const sUnitW = String(source.item_weight_unit || source.optimized_weight_unit || "lb").toLowerCase();
+    const sUnitS = String(source.item_size_unit || source.optimized_size_unit || "in").toLowerCase();
+    
     let weight = source.item_weight_value || source.optimized_weight_value || "";
     let l = source.item_length || source.optimized_length || "";
     let w = source.item_width || source.optimized_width || "";
     let h = source.item_height || source.optimized_height || "";
-    if (isMetricTarget && (sUnitW.includes('lb') || !sUnitW)) weight = convertValue(weight, 0.453592);
-    if (isMetricTarget && (sUnitS.includes('in') || !sUnitS)) {
-      l = convertValue(l, 2.54); w = convertValue(w, 2.54); h = convertValue(h, 2.54);
+    
+    // 英制 -> 公制换算
+    if (isMetricTarget) {
+      if (sUnitW.includes('lb') || sUnitW.includes('pound')) {
+        weight = convertValue(weight, 0.453592);
+      }
+      if (sUnitS.includes('in') || sUnitS.includes('inch')) {
+        l = convertValue(l, 2.54); w = convertValue(w, 2.54); h = convertValue(h, 2.54);
+      }
     }
+
     return {
       optimized_weight_value: weight,
-      optimized_weight_unit: getLocalizedUnit(isMetricTarget ? 'kilograms' : 'pounds', targetMkt),
-      optimized_length: l, optimized_width: w, optimized_height: h,
-      optimized_size_unit: getLocalizedUnit(isMetricTarget ? 'centimeters' : 'inches', targetMkt)
+      optimized_weight_unit: getLocalizedUnit(isMetricTarget ? 'kg' : 'lb', targetMkt),
+      optimized_length: l, 
+      optimized_width: w, 
+      optimized_height: h,
+      optimized_size_unit: getLocalizedUnit(isMetricTarget ? 'cm' : 'in', targetMkt)
     };
   };
 
@@ -284,7 +303,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         else trans = await translateListingWithAI(sourceData, targetLang);
       }
       const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
+      
+      // 注入自动换算逻辑
       const logistics = performLogisticsConversion(activeState.optimized || activeState.cleaned, marketCode);
+      
       const finalTrans: OptimizedData = {
         optimized_title: trans.optimized_title || "",
         optimized_features: Array.isArray(trans.optimized_features) ? trans.optimized_features : ["", "", "", "", ""],
@@ -305,7 +327,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (code === 'US') return;
     const trans = localListing.translations?.[code];
     if (!trans || !trans.optimized_description || trans.optimized_features.every(f => !f)) {
-      if (window.confirm(`${code} 站数据不完整，是否立即 AI 翻译？`)) await translateMarket(code);
+      if (window.confirm(`${code} 站数据不完整，是否立即 AI 翻译并执行物流单位换算？`)) await translateMarket(code);
     }
   };
 
@@ -469,7 +491,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-indigo-400"/> Item Weight</label>
                             <div className="flex gap-3">
                                <input value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="flex-1 px-5 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="0.00" />
-                               {/* 固定宽度 128px 以对齐价格框右侧 */}
+                               {/* 固定宽度 w-32 以对齐价格框右侧 */}
                                <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-32 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
                             </div>
                          </div>
@@ -479,8 +501,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="L" />
                                <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="W" />
                                <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="H" />
-                               {/* 固定宽度 112px 以对齐运费框右侧 */}
-                               <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-28 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
+                               {/* 固定宽度 w-32 以对齐运费框右侧 (由于栅格比例, 此处保持与重量一致) */}
+                               <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-32 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
                             </div>
                          </div>
                       </div>

@@ -8,13 +8,14 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and con
 [STRICT CONSTRAINTS]
 1. Keys: optimized_title, optimized_features (array of 5-10), optimized_description, search_keywords.
 2. Measurements: optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-3. [IMPORTANT] Units: Always use full words for units. 
-   - For Latin markets (English, German, French, Spanish, etc.): Use Sentence Case (e.g., "Kilograms", "Centimeters", "Pounds", "Inches").
-   - For Japan market: Use Japanese full words (e.g., "キログラム", "センチメートル").
-   - For Arabic markets: Use Arabic full words (e.g., "كيلوجرام").
+3. [IMPORTANT] Units: Always use full words for units in the TARGET language. 
+   - For English/Latin: Sentence Case (e.g., "Kilograms", "Centimeters").
+   - For Japan: Use Japanese characters (e.g., "キログラム", "センチメートル").
+   - For Arabic: Use Arabic script (e.g., "كيلوجرام").
+   - For Mexico/Brazil: Use Spanish/Portuguese (e.g., "Kilogramos", "Centímetros").
 4. PROHIBITED: 
    - No Brand Names.
-   - NO Car or Motorcycle Brand Names (e.g., BMW, Toyota, Mercedes, Tesla, Honda, Yamaha, Kawasaki, Ducati, etc.) to avoid trademark issues.
+   - NO Car or Motorcycle Brand Names (e.g., BMW, Toyota, Yamaha, Kawasaki, etc.) to avoid trademark issues.
    - No Extreme Words (Best, Perfect, etc.).
 
 Return ONLY a flat JSON object.
@@ -75,7 +76,10 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     1. KEEP ALL JSON KEYS UNCHANGED.
     2. RETURN ONLY JSON. 
     3. NO Car or Motorcycle Brands.
-    4. [UNIT RULE]: Use the full name of the unit in the "${targetLangName}" language. (e.g. if Japanese, use "キログラム", if Latin based use Sentence Case like "Kilograms").
+    4. [UNIT RULE]: Use the FULL NAME of the unit in the "${targetLangName}" language.
+       - Japanese: "キログラム", "センチメートル".
+       - Arabic: "كيلوجرام".
+       - Spanish/Portuguese: "Kilogramos", "Centímetros".
     Data: ${JSON.stringify(sourceData)}
   `;
   try {
