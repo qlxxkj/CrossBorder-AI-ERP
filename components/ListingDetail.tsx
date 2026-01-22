@@ -135,8 +135,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     
     if (optField === 'optimized_features') {
       let feats: string[] = [];
-      if (sourceData && (sourceData as any)[optField] && Array.isArray((sourceData as any)[optField])) {
-        feats = (sourceData as any)[optField];
+      // 检查带前缀和不带前缀的键
+      const rawFeats = sourceData ? ((sourceData as any)[optField] || (sourceData as any)['features'] || (sourceData as any)['bullet_points']) : null;
+      
+      if (Array.isArray(rawFeats)) {
+        feats = rawFeats.filter(p => p && String(p).trim() !== '');
       } 
       else if (isUS) {
         const rawPoints = localListing.cleaned?.bullet_points || localListing.cleaned?.features;
@@ -149,7 +152,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return result.slice(0, 5);
     }
 
-    const optVal = sourceData ? (sourceData as any)[optField] : null;
+    // 检查带前缀和不带前缀的键名 (兼容 AI 可能返回的简写)
+    const shortKey = optField.replace('optimized_', '');
+    const optVal = sourceData ? ((sourceData as any)[optField] ?? (sourceData as any)[shortKey]) : null;
+
     if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') {
       return optVal;
     }
@@ -418,15 +424,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       if (engine === 'openai') opt = await optimizeListingWithOpenAI(sourceData);
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(sourceData);
       else opt = await optimizeListingWithAI(sourceData);
+      
       const updatedListing: Listing = { 
         ...localListing, 
         optimized: opt, 
         status: 'optimized',
         updated_at: new Date().toISOString()
       };
-      setLocalListing(updatedListing); 
-      onUpdate(updatedListing); 
+      
+      // 强制更新本地状态并触发 parent 更新
+      setLocalListing({ ...updatedListing }); 
+      onUpdate({ ...updatedListing }); 
       await syncToSupabase(updatedListing);
+      
+      // 切回 Master 站确保展示
+      setActiveMarket('US'); 
     } catch (e: any) { alert(`Failed: ${e.message}`); } 
     finally { setIsOptimizing(false); }
   };

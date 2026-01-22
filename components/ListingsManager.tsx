@@ -45,7 +45,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
-  const [jumpPage, setJumpPage] = useState('');
 
   useEffect(() => {
     fetchCategories();
@@ -127,15 +126,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     setSelectedIds(next);
   };
 
-  const handleJumpPage = (e: React.FormEvent) => {
-    e.preventDefault();
-    const p = parseInt(jumpPage);
-    if (p >= 1 && p <= totalPages) {
-      setCurrentPage(p);
-      setJumpPage('');
-    }
-  };
-
   const getAmazonUrl = (asin: string, mktCode: string) => {
     const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
     const domain = mkt?.domain || 'amazon.com';
@@ -145,7 +135,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   const renderDistributionStatus = (listing: Listing) => {
     const translations = listing.translations ? Object.keys(listing.translations) : [];
     const exports = listing.exported_marketplaces || [];
-
     return (
       <div className="flex flex-col gap-2">
         {translations.length > 0 && (
@@ -206,35 +195,28 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.code}</option>)}
             </select>
           </div>
-          <div className="relative min-w-[160px]">
-            <Tags className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={18} />
-            <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-full pl-12 pr-8 py-4 bg-white border border-slate-200 rounded-3xl font-black text-[10px] uppercase tracking-widest outline-none shadow-sm cursor-pointer appearance-none">
-              <option value="ALL">All Categories</option>
-              <option value="NONE">Uncategorized</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
         </div>
 
-        <div className="flex gap-3 w-full xl:w-auto">
-           {selectedIds.size > 0 && (
-             <div className="flex gap-2 items-center bg-indigo-50 px-5 py-2 rounded-[2rem] border border-indigo-100 animate-in slide-in-from-right-4">
-                <span className="text-[10px] font-black text-indigo-600 uppercase">Batch Category:</span>
-                <select onChange={(e) => handleBulkUpdateCategory(e.target.value)} className="bg-white border border-indigo-200 rounded-xl text-[10px] font-black px-3 py-1.5 outline-none">
-                  <option value="">Set to...</option>
-                  <option value="NONE">None</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-                <div className="w-px h-4 bg-indigo-200 mx-2"></div>
-                <button onClick={handleBulkDelete} disabled={isBatchDeleting} className="text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all">
-                  {isBatchDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-                </button>
-             </div>
-           )}
-           <button onClick={() => setIsExportModalOpen(true)} disabled={selectedIds.size === 0} className="px-8 py-4 bg-indigo-600 text-white rounded-3xl hover:bg-indigo-700 font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-indigo-100 disabled:opacity-30">
+        <div className="flex flex-wrap gap-3 w-full xl:w-auto">
+           {/* 常驻显示批量操作按钮 */}
+           <div className={`flex gap-2 items-center bg-indigo-50 px-5 py-2 rounded-[2rem] border border-indigo-100 transition-opacity ${selectedIds.size === 0 ? 'opacity-50 pointer-events-none grayscale' : 'opacity-100'}`}>
+              <span className="text-[10px] font-black text-indigo-600 uppercase">Batch:</span>
+              <select onChange={(e) => handleBulkUpdateCategory(e.target.value)} className="bg-white border border-indigo-200 rounded-xl text-[10px] font-black px-3 py-1.5 outline-none">
+                <option value="">Move to...</option>
+                <option value="NONE">None</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <div className="w-px h-4 bg-indigo-200 mx-2"></div>
+              <button onClick={handleBulkDelete} disabled={isBatchDeleting} className="text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all" title="Delete Selected">
+                {isBatchDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+              </button>
+           </div>
+           
+           <button onClick={() => setIsExportModalOpen(true)} disabled={selectedIds.size === 0} className={`px-8 py-4 bg-indigo-600 text-white rounded-3xl hover:bg-indigo-700 font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-indigo-100 ${selectedIds.size === 0 ? 'opacity-40' : ''}`}>
              <Download size={16} /> {t('export')}
            </button>
-           <button onClick={() => setIsManualModalOpen(true)} className="px-8 py-4 bg-slate-900 text-white rounded-3xl hover:bg-slate-800 font-black text-[10px] shadow-2xl transition-all uppercase tracking-widest">
+           
+           <button onClick={() => setIsManualModalOpen(true)} className="px-8 py-4 bg-slate-900 text-white rounded-3xl hover:bg-black font-black text-[10px] shadow-2xl transition-all uppercase tracking-widest">
             <Plus size={16} /> {t('manualAdd')}
            </button>
         </div>
@@ -253,8 +235,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                     onChange={toggleSelectAll} 
                   />
                 </th>
+                <th className="p-8 w-16 text-center">#</th>
                 <th className="p-8">Image</th>
-                <th className="p-8">Status / Distribution</th>
+                <th className="p-8">Status</th>
                 <th className="p-8">Category</th>
                 <th className="p-8">ASIN</th>
                 <th className="p-8 w-1/4">Title</th>
@@ -262,14 +245,18 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {paginatedListings.map((listing) => {
+              {paginatedListings.map((listing, index) => {
                    const title = (listing.status === 'optimized' && listing.optimized?.optimized_title) ? listing.optimized.optimized_title : (listing.cleaned?.title || "Untitled");
                    const catName = categories.find(c => c.id === listing.category_id)?.name || '-';
                    const mkt = AMAZON_MARKETPLACES.find(m => m.code === listing.marketplace);
+                   const sequenceNum = (currentPage - 1) * itemsPerPage + index + 1;
                    return (
                     <tr key={listing.id} className={`hover:bg-slate-50 transition-all group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/20' : ''}`} onClick={() => onSelectListing(listing)}>
                       <td className="p-8 text-center" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" className="w-5 h-5 rounded-lg border-slate-300 text-indigo-600 cursor-pointer" checked={selectedIds.has(listing.id)} onChange={(e) => toggleSelectOne(listing.id, e as any)} />
+                      </td>
+                      <td className="p-8 text-center">
+                        <span className="text-[10px] font-black text-slate-300">{sequenceNum}</span>
                       </td>
                       <td className="p-8">
                         <div className="w-14 h-14 rounded-xl bg-white border border-slate-100 overflow-hidden flex items-center justify-center p-1">
@@ -319,7 +306,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               }
               {paginatedListings.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-20 text-center text-slate-300 font-black uppercase tracking-widest text-sm italic">
+                  <td colSpan={8} className="p-20 text-center text-slate-300 font-black uppercase tracking-widest text-sm italic">
                     No matching listings found.
                   </td>
                 </tr>
