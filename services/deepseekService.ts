@@ -5,6 +5,7 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 const UNIFIED_OPTIMIZE_PROMPT = `
 You are an expert Amazon Listing Optimizer. Return ONLY flat JSON.
 Keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
+[UNIT RULE]: Always use full names for units in Sentence case (e.g., "Kilograms").
 PROHIBITED: NO Car Brand Names.
 `;
 
@@ -21,11 +22,15 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   result.optimized_features = finalFeats;
   
   result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || "");
-  result.optimized_weight_unit = raw.optimized_weight_unit || raw.weight_unit || "";
+  const wUnit = String(raw.optimized_weight_unit || raw.weight_unit || "").toLowerCase();
+  result.optimized_weight_unit = wUnit ? wUnit.charAt(0).toUpperCase() + wUnit.slice(1) : "";
+
   result.optimized_length = String(raw.optimized_length || raw.length || "");
   result.optimized_width = String(raw.optimized_width || raw.width || "");
   result.optimized_height = String(raw.optimized_height || raw.height || "");
-  result.optimized_size_unit = raw.optimized_size_unit || raw.size_unit || "";
+  
+  const sUnit = String(raw.optimized_size_unit || raw.size_unit || "").toLowerCase();
+  result.optimized_size_unit = sUnit ? sUnit.charAt(0).toUpperCase() + sUnit.slice(1) : "";
   
   return result as OptimizedData;
 };
@@ -54,7 +59,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
-        { role: "system", content: "Amazon copywriter. Output JSON. DO NOT TRANSLATE KEYS. No car brands." },
+        { role: "system", content: "Amazon copywriter. Output JSON. Use full unit names in Sentence case. No car brands." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
@@ -74,7 +79,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const prompt = `
     Translate listing to "${targetLangName}". 
-    STRICT: KEEP KEYS optimized_title, optimized_features, optimized_description, search_keywords.
+    STRICT: Use full unit names in the "${targetLangName}" language.
     Data: ${JSON.stringify(sourceData)}
   `;
   const endpoint = `${baseUrl}/chat/completions`;

@@ -7,7 +7,8 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize conversion.
 
 [STRICT CONSTRAINTS]
 1. Keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-2. PROHIBITED: No Brand Names. Strictly NO Car Brand Names (BMW, Toyota, etc.).
+2. [IMPORTANT] Units: Always use full words for units with only the first letter capitalized (e.g., "Kilograms", "Centimeters", "Pounds").
+3. PROHIBITED: No Brand Names. Strictly NO Car Brand Names (BMW, Toyota, etc.).
 
 Return ONLY flat JSON.
 `;
@@ -28,11 +29,15 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   result.optimized_features = finalFeats;
   
   result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || "");
-  result.optimized_weight_unit = raw.optimized_weight_unit || raw.weight_unit || "";
+  const wUnit = String(raw.optimized_weight_unit || raw.weight_unit || "").toLowerCase();
+  result.optimized_weight_unit = wUnit ? wUnit.charAt(0).toUpperCase() + wUnit.slice(1) : "";
+
   result.optimized_length = String(raw.optimized_length || raw.length || "");
   result.optimized_width = String(raw.optimized_width || raw.width || "");
   result.optimized_height = String(raw.optimized_height || raw.height || "");
-  result.optimized_size_unit = raw.optimized_size_unit || raw.size_unit || "";
+  
+  const sUnit = String(raw.optimized_size_unit || raw.size_unit || "").toLowerCase();
+  result.optimized_size_unit = sUnit ? sUnit.charAt(0).toUpperCase() + sUnit.slice(1) : "";
   
   return result as OptimizedData;
 };
@@ -61,7 +66,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "You are a professional Amazon copywriter. Output JSON. Strictly no car brands." },
+        { role: "system", content: "You are a professional Amazon copywriter. Output JSON. strictly use full unit names in Sentence case." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
@@ -84,7 +89,7 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     [STRICT]: 
     1. KEEP JSON KEYS UNCHANGED.
     2. RETURN ONLY JSON. 
-    3. NO Car Brands.
+    3. Use full unit names in "${targetLangName}".
     Data: ${JSON.stringify(sourceData)}
   `;
   const endpoint = `${baseUrl}/chat/completions`;

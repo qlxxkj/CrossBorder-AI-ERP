@@ -39,38 +39,56 @@ const MARKET_LANG_MAP: Record<string, string> = {
   'TR': 'Turkish', 'SA': 'Arabic', 'AE': 'Arabic'
 };
 
-// 换算工具：英制 -> 公制
-const convertToMetric = (val: string | number | undefined, factor: number) => {
+// 换算工具：数值处理
+const convertValue = (val: string | number | undefined, factor: number) => {
   const num = parseFloat(String(val || "0").replace(/[^0-9.]/g, ''));
   if (isNaN(num) || num === 0) return "";
   return (num * factor).toFixed(2);
 };
 
-// 单位本地化翻译工具
+// 核心修复：单位本地化处理函数
 const getLocalizedUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
   
-  // 如果已是本地语言（非ASCII），则保持
-  if (/[^\x00-\x7F]/.test(unit)) return unit;
+  // 判定是否为非拉丁语系站点 (目前主要为 日本、埃及、沙特、阿联酋)
+  const isNonLatinMkt = ['JP', 'EG', 'SA', 'AE'].includes(market);
 
-  const isMetric = !['US', 'CA', 'UK'].includes(market);
-
-  if (['EG', 'SA', 'AE'].includes(market)) {
-    const arMap: Record<string, string> = { 'kg': 'كيلوجرام', 'lb': 'رطل', 'in': 'بوصة', 'cm': 'سنتيمتر' };
-    return arMap[u] || (isMetric ? (u.includes('lb') ? 'كيلوجرام' : 'سنتيمتر') : unit);
-  }
+  // 日本站：显示日语全拼
   if (market === 'JP') {
-    const jpMap: Record<string, string> = { 'lb': 'ポンド', 'kg': 'キログラム', 'in': 'インチ', 'cm': 'センチメートル' };
-    return jpMap[u] || (isMetric ? (u.includes('lb') ? 'キログラム' : 'センチメートル') : unit);
-  }
-  if (['MX', 'BR', 'ES'].includes(market)) {
-    const esMap: Record<string, string> = { 'lb': 'Libras', 'kg': 'Kilogramos', 'in': 'Pulgadas', 'cm': 'Centímetros' };
-    return esMap[u] || (isMetric ? (u.includes('lb') ? 'Kilogramos' : 'Centímetros') : unit);
+    const jpMap: Record<string, string> = { 
+      'lb': 'ポンド', 'pound': 'ポンド', 'pounds': 'ポンド',
+      'kg': 'キログラム', 'kilogram': 'キログラム', 'kilograms': 'キログラム',
+      'in': 'インチ', 'inch': 'インチ', 'inches': 'インチ',
+      'cm': 'センチメートル', 'centimeter': 'センチメートル', 'centimeters': 'センチメートル'
+    };
+    return jpMap[u] || unit;
   }
 
-  const standardMap: Record<string, string> = { 'lb': 'Pounds', 'kg': 'Kilograms', 'in': 'Inches', 'cm': 'Centimeters' };
-  return standardMap[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
+  // 阿拉伯站点：显示阿语全拼
+  if (['EG', 'SA', 'AE'].includes(market)) {
+    const arMap: Record<string, string> = { 
+      'lb': 'رطل', 'pound': 'رطل', 'pounds': 'رطل',
+      'kg': 'كيلوجرام', 'kilogram': 'كيلوجرام', 'kilograms': 'كيلوجرام',
+      'in': 'بوصة', 'inch': 'بوصة', 'inches': 'بوصة',
+      'cm': 'سنتيمتر', 'centimeter': 'سنتيمتر', 'centimeters': 'سنتيمتر'
+    };
+    return arMap[u] || unit;
+  }
+
+  // 拉丁语系站点（含西、法、德等）：首字母大写的全拼
+  const latinMap: Record<string, string> = {
+    'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
+    'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
+    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
+    'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters'
+  };
+
+  // 如果已经在拉丁语映射表中，返回首字母大写格式
+  if (latinMap[u]) return latinMap[u];
+
+  // 兜底逻辑：如果 AI 返回了其他单词，强制进行首字母大写转换 (Sentence Case)
+  return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
@@ -185,23 +203,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     let w = source.item_width || source.optimized_width || "";
     let h = source.item_height || source.optimized_height || "";
 
-    // 换算：如果源是英制（或空）且目标是公制
     if (isMetricTarget && (sUnitW.includes('lb') || !sUnitW)) {
-      weight = convertToMetric(weight, 0.453592);
+      weight = convertValue(weight, 0.453592);
     }
     if (isMetricTarget && (sUnitS.includes('in') || !sUnitS)) {
-      l = convertToMetric(l, 2.54);
-      w = convertToMetric(w, 2.54);
-      h = convertToMetric(h, 2.54);
+      l = convertValue(l, 2.54);
+      w = convertValue(w, 2.54);
+      h = convertValue(h, 2.54);
     }
 
     return {
       optimized_weight_value: weight,
-      optimized_weight_unit: getLocalizedUnit(isMetricTarget ? 'kg' : 'lb', targetMkt),
+      optimized_weight_unit: getLocalizedUnit(isMetricTarget ? 'kilograms' : 'pounds', targetMkt),
       optimized_length: l,
       optimized_width: w,
       optimized_height: h,
-      optimized_size_unit: getLocalizedUnit(isMetricTarget ? 'cm' : 'in', targetMkt)
+      optimized_size_unit: getLocalizedUnit(isMetricTarget ? 'centimeters' : 'inches', targetMkt)
     };
   };
 
@@ -424,8 +441,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </div>
                    </div>
 
-                   {/* 重构：物流规格编辑区 - 深度对齐布局 */}
-                   <div className="bg-slate-50/50 p-8 rounded-[2.5rem] border border-slate-100 space-y-8">
+                   {/* 重构：物流规格编辑区 - 优化宽度对齐逻辑 */}
+                   <div className="bg-slate-50/50 px-10 py-8 rounded-[2.5rem] border border-slate-100 space-y-8">
                       <div className="flex items-center justify-between">
                          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
                          {activeMarket !== 'US' && (
@@ -441,12 +458,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          )}
                       </div>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                          <div className="space-y-3">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-indigo-400"/> Item Weight</label>
                             <div className="flex gap-3">
                                <input value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="flex-1 px-5 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="0.00" />
-                               <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-32 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
+                               <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-28 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
                             </div>
                          </div>
                          <div className="space-y-3">

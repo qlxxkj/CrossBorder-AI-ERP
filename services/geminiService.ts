@@ -8,7 +8,8 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and con
 [STRICT CONSTRAINTS]
 1. Keys: optimized_title, optimized_features (array of 5), optimized_description, search_keywords.
 2. Measurements: optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-3. PROHIBITED: 
+3. [IMPORTANT] Units: Always use full words for units with only the first letter capitalized (e.g., "Kilograms", "Centimeters", "Pounds"). NO ALL-CAPS.
+4. PROHIBITED: 
    - No Brand Names.
    - NO Car Brand Names (e.g., BMW, Toyota, Mercedes, Tesla, Honda, etc.) to avoid trademark issues.
    - No Extreme Words (Best, Perfect, etc.).
@@ -32,13 +33,17 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   feats.slice(0, 5).forEach((f, i) => finalFeats[i] = String(f));
   result.optimized_features = finalFeats;
   
-  // 物流字段解析补全
+  // 物流字段解析补全并进行大小写转换纠正
   result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || "");
-  result.optimized_weight_unit = raw.optimized_weight_unit || raw.weight_unit || "";
+  const wUnit = String(raw.optimized_weight_unit || raw.weight_unit || "").toLowerCase();
+  result.optimized_weight_unit = wUnit ? wUnit.charAt(0).toUpperCase() + wUnit.slice(1) : "";
+  
   result.optimized_length = String(raw.optimized_length || raw.length || "");
   result.optimized_width = String(raw.optimized_width || raw.width || "");
   result.optimized_height = String(raw.optimized_height || raw.height || "");
-  result.optimized_size_unit = raw.optimized_size_unit || raw.size_unit || "";
+  
+  const sUnit = String(raw.optimized_size_unit || raw.size_unit || "").toLowerCase();
+  result.optimized_size_unit = sUnit ? sUnit.charAt(0).toUpperCase() + sUnit.slice(1) : "";
   
   return result as OptimizedData;
 };
@@ -74,9 +79,9 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const prompt = `
     Task: Translate this Amazon listing to "${targetLangName}". 
     [STRICT RULES]: 
-    1. KEEP ALL JSON KEYS UNCHANGED (optimized_title, optimized_features, optimized_description, search_keywords, etc.).
+    1. KEEP ALL JSON KEYS UNCHANGED.
     2. RETURN ONLY JSON. 
-    3. NO Car Brands.
+    3. [UNIT RULE]: Use the full name of the unit in the "${targetLangName}" language. 
     Data: ${JSON.stringify(sourceData)}
   `;
   try {
