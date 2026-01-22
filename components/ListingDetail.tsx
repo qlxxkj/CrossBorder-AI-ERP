@@ -133,42 +133,29 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const isUS = activeMarket === 'US';
     const sourceData = isUS ? localListing.optimized : localListing.translations?.[activeMarket];
     
-    // 特殊处理五点描述：确保同时兼容 bullet_points 和 features 键名
     if (optField === 'optimized_features') {
       let feats: string[] = [];
-      
-      // 1. 优先尝试从优化数据中获取
       if (sourceData && (sourceData as any)[optField] && Array.isArray((sourceData as any)[optField])) {
         feats = (sourceData as any)[optField];
       } 
-      // 2. 如果是 Master 站点且无优化数据，从 cleaned 字段中获取原始采集数据
       else if (isUS) {
-        // 兼容处理：优先找 bullet_points，其次找 features
         const rawPoints = localListing.cleaned?.bullet_points || localListing.cleaned?.features;
         if (Array.isArray(rawPoints)) {
-          // 过滤掉完全为空的行，保留有内容的行
           feats = rawPoints.filter(p => p && String(p).trim() !== '');
         }
       }
-      
-      // 3. 补齐 5 个输入框，确保 UI 始终有一致的展示
       const result = [...feats];
       while (result.length < 5) result.push('');
       return result.slice(0, 5);
     }
 
     const optVal = sourceData ? (sourceData as any)[optField] : null;
-    
-    // 如果优化/翻译后的值存在且不为空字符串，返回该值
     if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') {
       return optVal;
     }
-
-    // 如果是 Master 站点，回显原始采集到的描述、标题、价格等
     if (isUS) {
       return (localListing.cleaned as any)[cleanField] || '';
     }
-    
     return '';
   };
 
@@ -416,7 +403,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const url = await uploadImageToHost(file, localListing.asin);
       const nextListing = { ...localListing };
       nextListing.cleaned.other_images = [...(nextListing.cleaned.other_images || []), url];
-      setLocalListing(nextListing); onUpdate(nextListing); await syncToSupabase(nextListing);
+      setLocalListing(nextListing); 
+      onUpdate(nextListing); 
+      await syncToSupabase(nextListing);
     } catch (err) { alert("Upload failed"); } 
     finally { setIsSaving(false); if (e.target) e.target.value = ''; }
   };
@@ -502,16 +491,25 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                      <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
                         <img src={img} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
+                           {/* 设为主图 */}
                            <button 
-                             onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} 
+                             onClick={async (e) => { 
+                               e.stopPropagation(); 
+                               const nextListing = { ...localListing, cleaned: { ...localListing.cleaned, main_image: img } };
+                               setLocalListing(nextListing);
+                               setPreviewImage(img);
+                               onUpdate(nextListing);
+                               await syncToSupabase(nextListing);
+                             }} 
                              className="absolute top-1 left-1 p-1 bg-white/20 hover:bg-amber-500 rounded-lg text-white transition-colors" 
                              title="Set as Main"
                            >
                              <Star size={10} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} />
                            </button>
 
+                           {/* 删除按钮 */}
                            <button 
-                             onClick={(e) => { 
+                             onClick={async (e) => { 
                                e.stopPropagation(); 
                                const isMain = img === localListing.cleaned.main_image;
                                if (isMain) {
@@ -519,7 +517,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                  return;
                                }
                                const others = (localListing.cleaned.other_images || []).filter(u => u !== img); 
-                               updateField('other_images', others); 
+                               const nextListing = { ...localListing, cleaned: { ...localListing.cleaned, other_images: others } };
+                               setLocalListing(nextListing);
+                               onUpdate(nextListing);
+                               await syncToSupabase(nextListing);
                              }} 
                              className="absolute top-1 right-1 p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white transition-colors" 
                              title="Delete"
@@ -527,6 +528,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                              <Trash2 size={10} />
                            </button>
 
+                           {/* 单图标准化 */}
                            <button 
                              onClick={(e) => { e.stopPropagation(); handleSingleStandardize(img); }} 
                              className="absolute inset-0 m-auto w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-indigo-500 rounded-xl text-white transition-all hover:scale-110" 
@@ -560,7 +562,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         </div>
                         <div className="flex opacity-0 group-hover:opacity-100 transition-all">
                            <a href={s.url} target="_blank" className="p-1.5 text-slate-300 hover:text-blue-500"><ExternalLink size={12}/></a>
-                           <button onClick={() => { const n = { ...localListing, sourcing_data: (localListing.sourcing_data || []).filter((_, i) => i !== idx) }; setLocalListing(n); onUpdate(n); }} className="p-1.5 text-slate-300 hover:text-red-500"><Trash2 size={12}/></button>
+                           <button onClick={() => { const n = { ...localListing, sourcing_data: (localListing.sourcing_data || []).filter((_, i) => i !== idx) }; setLocalListing(n); onUpdate(n); syncToSupabase(n); }} className="p-1.5 text-slate-300 hover:text-red-500"><Trash2 size={12}/></button>
                         </div>
                      </div>
                    ))}
