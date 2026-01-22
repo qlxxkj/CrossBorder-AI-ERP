@@ -20,11 +20,12 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     3. Description: 1000-1500 chars, use HTML (<p>, <br>).
     4. Logistics: 
        - Extract weight and dimensions. 
-       - Standardize to English FULL NAMES: "pounds" and "inches".
+       - Standardize to English Title Case FULL NAMES: "Pounds", "Kilograms", "Inches", "Centimeters". 
+       - NEVER use all caps like "KILOGRAMS".
        - Format numbers to 2 decimal places.
 
     [CRITICAL - BRAND REMOVAL RULE]
-    - STRICT: Remove ALL specific brand names from the output.
+    - STRICT: Remove ALL specific brand names (e.g. Bosch, Toyota, Lexus) from the output.
     - REPLACE brands with generic terms like "select vehicles", "specified models", or "compatible vehicle series".
     
     Return valid JSON.
@@ -60,8 +61,10 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
     
     [STRICT RULES]
     1. Translate Title, 5 Bullets, Description, and Keywords.
-    2. LOCALIZE UNIT NAMES: You MUST translate "Pounds", "Kilograms", "Inches", "Centimeters" into the native official terminology of "${targetLang}". 
-       - For example, if target is "JP", use "キログラム", "センチメートル", "ポンド", "インチ". 
+    2. LOCALIZE UNIT NAMES: You MUST translate units into the native official terminology of "${targetLang}". 
+       - For JP (Japan): Use "キログラム" (Kilograms), "ポンド" (Pounds), "センチメートル" (Centimeters), "インチ" (Inches).
+       - For Latin languages (DE, FR, IT, ES): Use Title Case like "Kilogramm", "Gramm", "Zentimeter".
+       - NEVER leave units in all caps or raw English if target is not US/UK.
     3. BRAND REMOVAL: Strip specific brands and use generic terms in "${targetLang}".
     4. Numeric values must remain untouched.
 
