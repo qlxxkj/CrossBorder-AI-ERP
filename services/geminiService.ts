@@ -1,33 +1,31 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
+const UNIFIED_OPTIMIZE_PROMPT = `
+You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion for the US marketplace.
+
+[STRICT CONSTRAINTS]
+1. optimized_title: Max 200 characters. SEO-rich, no brand names.
+2. optimized_features: Array of exactly 5 strings. Each MUST start with a "[KEYWORD]: " prefix.
+3. optimized_description: 1000-1500 characters. Use HTML tags like <p> and <br>.
+4. search_keywords: High-volume relevant terms.
+5. Measurements (US Standard): 
+   - optimized_weight_value: Pure number string.
+   - optimized_weight_unit: "Pounds" or "Ounces".
+   - optimized_length, optimized_width, optimized_height: Pure number strings.
+   - optimized_size_unit: "Inches".
+6. PROHIBITED: No Brand Names, No Extreme Words (Best, Perfect, etc.).
+
+Return ONLY a flat JSON object matching these keys.
+`;
+
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `
-    You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion for the US marketplace.
-
-    [STRICT CONSTRAINTS]
-    1. Title: Max 200 characters. SEO-rich, no brand names.
-    2. Bullet Points: Exactly 5 points. Each point MUST start with a "[KEYWORD]: " prefix (e.g., "[DURABLE MATERIAL]: Made of...").
-    3. Description: 1000-1500 characters. Use HTML tags like <p> and <br>.
-    4. Measurements (US Standard): 
-       - Standardize weight and dimensions found in source.
-       - 'optimized_weight_value': Pure number string.
-       - 'optimized_weight_unit': Use "Pounds" or "Ounces".
-       - 'optimized_length', 'optimized_width', 'optimized_height': Pure number strings.
-       - 'optimized_size_unit': Use "Inches".
-    5. PROHIBITED: No Brand Names, No Extreme Words (Best, Perfect, etc.).
-
-    [SOURCE DATA]
-    ${JSON.stringify(cleanedData)}
-
-    Return ONLY JSON matching the schema.
-  `;
-
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: prompt,
+      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}`,
       config: { 
         responseMimeType: "application/json",
         responseSchema: {
@@ -49,10 +47,14 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
       }
     });
     
-    const data = JSON.parse(response.text || "{}") as OptimizedData;
-    // 补齐五点描述
-    if (!data.optimized_features || data.optimized_features.length === 0) {
-      data.optimized_features = (cleanedData.features || []).slice(0, 5).map(f => `[FEATURES]: ${f}`);
+    let text = response.text || "{}";
+    // 清洗可能存在的 markdown
+    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const data = JSON.parse(text) as OptimizedData;
+    
+    // 补齐五点
+    if (!data.optimized_features || !Array.isArray(data.optimized_features)) {
+      data.optimized_features = [];
     }
     while (data.optimized_features.length < 5) data.optimized_features.push("");
     return data;
@@ -61,14 +63,16 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Translate this Amazon listing to "${targetLangName}". Keep HTML tags and "[KEYWORD]: " bullet point style. Source: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate this Amazon listing to "${targetLangName}". Return JSON. Keep HTML tags and "[KEYWORD]: " style. Source: ${JSON.stringify(sourceData)}`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: { responseMimeType: "application/json" }
     });
-    return JSON.parse(response.text || "{}");
+    let text = response.text || "{}";
+    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(text);
   } catch (error) { throw error; }
 };
 
