@@ -4,21 +4,23 @@ import { CleanedData, OptimizedData } from "../types";
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `
-    You are an expert Amazon Listing Optimizer. 
-    Source Data: ${JSON.stringify(cleanedData)}
+    You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion for the US marketplace.
 
-    [CORE REQUIREMENTS]
-    1. Title: SEO-rich, max 200 chars.
-    2. Bullets: Exactly 5 points. EACH UNDER 250 CHARACTERS.
-    3. Description: HTML format.
-    4. Logistics Extraction (CRITICAL): 
-       - Find weight and dimensions in the source.
-       - 'optimized_weight_value': Pure number string (e.g. "3.5").
-       - 'optimized_weight_unit': Standard full word (e.g. "Pounds", "Kilograms").
+    [CORE CONSTRAINTS]
+    1. Title: SEO-rich, Max 200 characters. No brand names.
+    2. Bullet Points: Exactly 5 points. EACH MUST START with a "[KEYWORD]: " prefix (e.g., "[DURABLE MATERIAL]: Made of high-quality...").
+    3. Description: 1000-1500 characters. Use HTML tags like <p> and <br>. Focus on benefits.
+    4. Logistics Extraction:
+       - 'optimized_weight_value': Pure number string from source (e.g., "3.5").
+       - 'optimized_weight_unit': MUST be full English name ("Pounds" or "Ounces").
        - 'optimized_length', 'optimized_width', 'optimized_height': Pure number strings.
-       - 'optimized_size_unit': Standard full word (e.g. "Inches", "Centimeters").
-    
-    Return ONLY JSON.
+       - 'optimized_size_unit': MUST be full English name ("Inches").
+    5. STRICTURES: NO Brand Names, NO extreme words like "Best" or "Perfect". No automotive brand mentions.
+
+    [SOURCE DATA]
+    ${JSON.stringify(cleanedData)}
+
+    Rewrite and enhance the content. Return ONLY JSON.
   `;
 
   try {
@@ -31,7 +33,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
           type: Type.OBJECT,
           properties: {
             optimized_title: { type: Type.STRING },
-            optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
+            optimized_features: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Array of 5 bullet points starting with [KEYWORD]: " },
             optimized_description: { type: Type.STRING },
             search_keywords: { type: Type.STRING },
             optimized_weight_value: { type: Type.STRING },
@@ -40,22 +42,31 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
             optimized_width: { type: Type.STRING },
             optimized_height: { type: Type.STRING },
             optimized_size_unit: { type: Type.STRING }
-          }
+          },
+          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
         }
       }
     });
     
     const data = JSON.parse(response.text || "{}") as OptimizedData;
-    if (data.optimized_features && data.optimized_features.length < 5) {
-      while (data.optimized_features.length < 5) data.optimized_features.push("");
+    // 补齐 5 个五点描述，确保不为空
+    if (!data.optimized_features || data.optimized_features.length === 0) {
+      data.optimized_features = (cleanedData.features || []).slice(0, 5).map(f => `[FEATURES]: ${f}`);
     }
+    while (data.optimized_features.length < 5) data.optimized_features.push("");
+    
     return data;
   } catch (error) { throw error; }
 };
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Translate this Amazon listing to "${targetLangName}". Maintain HTML tags. Source: ${JSON.stringify(sourceData)}`;
+  const prompt = `
+    Translate this Amazon listing to "${targetLangName}". 
+    Maintain HTML tags in description. 
+    Keep the "[KEYWORD]: " prefix style in bullet points (translate the content and the keyword).
+    Source: ${JSON.stringify(sourceData)}
+  `;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",

@@ -131,11 +131,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const getFieldValue = (optField: string, cleanField: string) => {
     if (activeMarket === 'US') {
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
-      if (optField.includes('features')) {
-        if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && String(v).trim() !== '')) return optVal;
+      
+      // 核心修复：如果 optimized 里的值是无效的（空数组或空字符串），回退到 cleaned
+      if (optField === 'optimized_features') {
+        if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && String(v).trim() !== '')) {
+           return optVal;
+        }
         return localListing.cleaned?.features || ['', '', '', '', ''];
       }
-      if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') return optVal;
+
+      if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') {
+        return optVal;
+      }
       return (localListing.cleaned as any)[cleanField] || '';
     } else {
       const trans = localListing.translations?.[activeMarket];
@@ -164,11 +171,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const translateMarket = async (marketCode: string, currentListingState?: Listing) => {
     if (marketCode === 'US' || translatingMarkets.has(marketCode)) return;
-    
-    // 强制使用最新的状态，防止并行或连续翻译时的竞争
     const activeState = currentListingState || localListing;
     setTranslatingMarkets(prev => new Set(prev).add(marketCode));
-    
     try {
       const sourceDataForTranslation = activeState.optimized || {
         optimized_title: activeState.cleaned.title,
@@ -179,7 +183,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       
       const targetLang = MARKET_LANG_MAP[marketCode];
       let trans: Partial<OptimizedData> = {};
-
       const isEnglishMkt = ['UK', 'CA', 'AU', 'SG', 'IE'].includes(marketCode);
       if (isEnglishMkt || !targetLang) {
         trans = { ...sourceDataForTranslation };
@@ -188,30 +191,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceDataForTranslation, targetLang);
         else trans = await translateListingWithAI(sourceDataForTranslation, targetLang);
       }
-
       if (!trans || Object.keys(trans).length === 0) throw new Error("AI translation failed");
-
       const isMetric = METRIC_MARKETS.includes(marketCode);
       const rateEntry = exchangeRates.find(r => r.marketplace === marketCode);
       const rate = rateEntry ? rateEntry.rate : 1;
-
-      // 数值换算逻辑 (增加回退到原始采集数据的稳定性)
       const rawWeight = parseNumeric(activeState.optimized?.optimized_weight_value || activeState.cleaned.item_weight_value || activeState.cleaned.item_weight);
       const rawL = parseNumeric(activeState.optimized?.optimized_length || activeState.cleaned.item_length);
       const rawW = parseNumeric(activeState.optimized?.optimized_width || activeState.cleaned.item_width);
       const rawH = parseNumeric(activeState.optimized?.optimized_height || activeState.cleaned.item_height);
-      
       const rawWeightUnit = (activeState.optimized?.optimized_weight_unit || activeState.cleaned.item_weight_unit || 'lb').toLowerCase();
       const rawSizeUnit = (activeState.optimized?.optimized_size_unit || activeState.cleaned.item_size_unit || 'in').toLowerCase();
-
       const needsWeightConv = isMetric && (rawWeightUnit.includes('lb') || rawWeightUnit.includes('pound'));
       const needsDimConv = isMetric && (rawSizeUnit.includes('in') || rawSizeUnit.includes('inch'));
-
       const finalWeight = needsWeightConv ? (rawWeight * 0.4535).toFixed(2) : rawWeight.toString();
       const finalL = needsDimConv ? (rawL * 2.54).toFixed(2) : rawL.toString();
       const finalW = needsDimConv ? (rawW * 2.54).toFixed(2) : rawW.toString();
       const finalH = needsDimConv ? (rawH * 2.54).toFixed(2) : rawH.toString();
-
       const finalTrans: OptimizedData = {
         ...sourceDataForTranslation,
         ...trans,
@@ -224,17 +219,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_height: finalH,
         optimized_size_unit: getAmazonStandardUnit(isMetric ? 'cm' : 'in', marketCode)
       };
-
-      // 深度合并翻译状态，防止 MX 覆盖 CA
-      const nextListing = { 
-        ...activeState, 
-        translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } 
-      };
-
+      const nextListing = { ...activeState, translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } };
       setLocalListing(nextListing); 
       onUpdate(nextListing);
-      
-      // 关键修复：翻译完后强制执行存库
       await syncToSupabase(nextListing); 
       return nextListing;
     } catch (e) {
@@ -249,7 +236,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsBatchTranslating(true);
     const targetMarkets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
     setBatchProgress({ current: 0, total: targetMarkets.length, market: '' });
-    
     let currentListing = { ...localListing };
     for (let i = 0; i < targetMarkets.length; i++) {
       const mkt = targetMarkets[i];
@@ -257,7 +243,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const result = await translateMarket(mkt.code, currentListing);
       if (result) currentListing = result;
     }
-    
     setBatchProgress({ current: 0, total: 0, market: '' });
     setIsBatchTranslating(false);
   };
@@ -322,11 +307,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(sourceData);
       else opt = await optimizeListingWithAI(sourceData);
       
-      // Fix: Explicitly type updatedListing as Listing to satisfy status union type (collected | optimizing | optimized)
-      const updatedListing: Listing = { ...localListing, optimized: opt, status: 'optimized' };
-      setLocalListing(updatedListing); onUpdate(updatedListing); await syncToSupabase(updatedListing);
-    } catch (e: any) { alert(`Failed: ${e.message}`); } 
-    finally { setIsOptimizing(false); }
+      const updatedListing: Listing = { 
+        ...localListing, 
+        optimized: opt, 
+        status: 'optimized',
+        updated_at: new Date().toISOString()
+      };
+      
+      setLocalListing(updatedListing); 
+      onUpdate(updatedListing); 
+      await syncToSupabase(updatedListing);
+    } catch (e: any) { 
+      alert(`Failed: ${e.message}`); 
+    } finally { 
+      setIsOptimizing(false); 
+    }
   };
 
   const allImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].filter(Boolean) as string[];
