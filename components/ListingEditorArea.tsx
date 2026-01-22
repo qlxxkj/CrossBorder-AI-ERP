@@ -13,7 +13,7 @@ interface ListingEditorAreaProps {
 }
 
 /**
- * 核心单位显示标准映射 - 严格遵循亚马逊上传模板 Valid Values
+ * 核心单位显示标准映射 - 严格遵循亚马逊模板 Valid Values
  */
 const getLocalizedUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
@@ -21,17 +21,35 @@ const getLocalizedUnit = (unit: string | undefined, market: string) => {
   
   // 1. 日本站 (JP)
   if (market === 'JP') {
-    const jp: Record<string, string> = { 'kg': 'キログラム', 'cm': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ', 'oz': 'オンス', 'g': 'グラム' };
+    const jp: Record<string, string> = { 
+      'kg': 'キログラム', 'kilogram': 'キログラム', 
+      'cm': 'センチメートル', 'centimeter': 'センチメートル', 
+      'lb': 'ポンド', 'pound': 'ポンド', 
+      'in': 'インチ', 'inch': 'インチ', 
+      'oz': 'オンス', 'ounce': 'オンス',
+      'g': 'グラム', 'gram': 'グラム'
+    };
     return jp[u] || unit;
   }
   // 2. 拉美 (MX, BR) / 西语 (ES) 
   if (['MX', 'BR', 'ES'].includes(market)) {
-    const latinExt: Record<string, string> = { 'kg': 'Kilogramos', 'cm': 'Centímetros', 'lb': 'Libras', 'in': 'Pulgadas', 'oz': 'Onzas', 'g': 'Gramos' };
+    const latinExt: Record<string, string> = { 
+      'kg': 'Kilogramos', 'kilogram': 'Kilogramos',
+      'cm': 'Centímetros', 'centimeter': 'Centímetros',
+      'lb': 'Libras', 'pound': 'Libras',
+      'in': 'Pulgadas', 'inch': 'Pulgadas',
+      'oz': 'Onzas', 'ounce': 'Onzas',
+      'g': 'Gramos', 'gram': 'Gramos'
+    };
     return latinExt[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
   }
   // 3. 阿拉伯 (EG, SA, AE)
   if (['EG', 'SA', 'AE'].includes(market)) {
-    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية', 'g': 'جرام' };
+    const ar: Record<string, string> = { 
+      'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 
+      'lb': 'رطل', 'in': 'بوصة', 
+      'oz': 'أوقية', 'g': 'جرام' 
+    };
     return ar[u] || unit;
   }
   // 4. 标准拉丁语系强制 Sentence Case (US, UK, CA, DE, FR, IT etc.)
@@ -55,7 +73,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
   const getVal = (optField: string, cleanField: string) => {
     const data = isUS ? listing.optimized : listing.translations?.[activeMarket];
     
-    // 单位字段本地化映射显示 - 确保 Sentence Case 或 对应站点的字符
+    // 单位字段本地化映射显示 - 移除强制大写，适配 Sentence Case
     if (optField === 'optimized_weight_unit' || optField === 'optimized_size_unit') {
       const rawUnit = (data ? (data as any)[optField] : null) || (isUS ? (listing.cleaned as any)[cleanField] : "");
       return getLocalizedUnit(rawUnit, activeMarket);
@@ -87,7 +105,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         </div>
       </div>
 
-      {/* 物流规格区 - 移除强制大写，拓宽输入框 */}
+      {/* 物流规格区 - 优化输入框比例 */}
       <div className="bg-slate-50/50 px-10 py-8 rounded-[2.5rem] border border-slate-100 shadow-inner space-y-8">
         <div className="flex items-center justify-between">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
@@ -103,18 +121,20 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">Item Weight</label>
               <div className="flex gap-3 w-full">
                  <input value={getVal('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={onSync} className="flex-1 min-w-0 px-5 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="0.00" />
-                 <input value={getVal('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={onSync} className="w-44 shrink-0 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-[11px] text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="Unit" />
+                 {/* 拓宽重量单位输入框：最小 120px 宽度以容纳长字符串 */}
+                 <input value={getVal('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={onSync} className="min-w-[120px] w-auto flex-1 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-[11px] text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="Unit" />
               </div>
            </div>
            
            <div className="space-y-3 min-w-0">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">Dimensions (L × W × H)</label>
               <div className="flex gap-2 w-full">
-                 {/* 拓宽尺寸输入框：使用 flex-grow 调整比例 */}
-                 <input value={getVal('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={onSync} className="flex-[2] min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="L" />
-                 <input value={getVal('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={onSync} className="flex-[2] min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="W" />
-                 <input value={getVal('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={onSync} className="flex-[2] min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="H" />
-                 <input value={getVal('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={onSync} className="w-44 shrink-0 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-[11px] text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="Unit" />
+                 {/* 拓宽尺寸输入框：L, W, H 分别占据同等伸缩比例 */}
+                 <input value={getVal('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={onSync} className="flex-[1.5] min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="L" />
+                 <input value={getVal('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={onSync} className="flex-[1.5] min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="W" />
+                 <input value={getVal('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={onSync} className="flex-[1.5] min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="H" />
+                 {/* 拓宽尺寸单位输入框：最小 120px 宽度以容纳长字符串 */}
+                 <input value={getVal('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={onSync} className="min-w-[120px] w-auto flex-1 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-[11px] text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="Unit" />
               </div>
            </div>
         </div>

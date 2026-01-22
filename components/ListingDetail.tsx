@@ -29,24 +29,39 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 /**
- * 亚马逊官方模板单位本地化格式映射 - 严格遵循 Sentence Case
+ * 亚马逊官方上传模板单位本地化格式映射
  */
 const mapStandardUnit = (unit: string, market: string) => {
   const u = unit.toLowerCase().trim();
   
   // 1. 日本站
   if (market === 'JP') {
-    const jp: Record<string, string> = { 'kg': 'キログラム', 'cm': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ', 'oz': 'オンス', 'g': 'グラム' };
+    const jp: Record<string, string> = { 
+      'kg': 'キログラム', 'kilogram': 'キログラム', 
+      'cm': 'センチメートル', 'centimeter': 'センチメートル', 
+      'lb': 'ポンド', 'pound': 'ポンド', 
+      'in': 'インチ', 'inch': 'インチ', 
+      'oz': 'オンス', 'ounce': 'オンス',
+      'g': 'グラム', 'gram': 'グラム'
+    };
     return jp[u] || unit;
   }
-  // 2. 拉美/西语/葡语站点 (MX, BR, ES)
+  // 2. 拉美 (MX, BR) / 西语 (ES)
   if (['MX', 'BR', 'ES'].includes(market)) {
-    const latinExt: Record<string, string> = { 'kg': 'Kilogramos', 'cm': 'Centímetros', 'lb': 'Libras', 'in': 'Pulgadas', 'oz': 'Onzas', 'g': 'Gramos' };
+    const latinExt: Record<string, string> = { 
+      'kg': 'Kilogramos', 'cm': 'Centímetros', 
+      'lb': 'Libras', 'in': 'Pulgadas', 
+      'oz': 'Onzas', 'g': 'Gramos' 
+    };
     return latinExt[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
   }
-  // 3. 阿拉伯站点 (EG, SA, AE)
+  // 3. 阿拉伯
   if (['EG', 'SA', 'AE'].includes(market)) {
-    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية', 'g': 'جرام' };
+    const ar: Record<string, string> = { 
+      'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 
+      'lb': 'رطل', 'in': 'بوصة', 
+      'oz': 'أوقية', 'g': 'جرام' 
+    };
     return ar[u] || unit;
   }
   
@@ -157,15 +172,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
    * 智能物流换算引擎 - 强制溯源 Master 站点数据
    */
   const performLogisticsConversion = (targetMkt: string) => {
-    // 强制获取 Master (US) 数据作为物理基准
+    // 强制回溯基准：优先 Master (US) 优化版，其次采集原始版
     const optMaster = localListing.optimized;
     const cleanMaster = localListing.cleaned;
     const isMetric = !['US', 'CA', 'UK'].includes(targetMkt);
     
-    // 溯源单位：优先取优化后的，没有则取原始采集的
+    // 识别输入端的物理基准单位
     const sourceUnitW = String(optMaster?.optimized_weight_unit || cleanMaster.item_weight_unit || "lb").toLowerCase();
     const sourceUnitS = String(optMaster?.optimized_size_unit || cleanMaster.item_size_unit || "in").toLowerCase();
     
+    // 识别输入端的物理基准数值
     const sourceValW = optMaster?.optimized_weight_value || cleanMaster.item_weight_value || "";
     const sourceL = optMaster?.optimized_length || cleanMaster.item_length || "";
     const sourceW = optMaster?.optimized_width || cleanMaster.item_width || "";
@@ -183,26 +199,28 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
     let finalW = String(sourceValW), finalL = String(sourceL), finalWd = String(sourceW), finalH = String(sourceH);
 
-    // 换算逻辑核心
+    // 核心换算逻辑
     if (isMetric) {
-      // 换算至公制 (KG / CM)
+      // 目标市场要求公制 (KG / CM)
+      // 处理重量换算
       if (sourceUnitW.includes('lb') || sourceUnitW.includes('pound')) {
         finalW = nW > 0 ? (nW * 0.453592).toFixed(2) : "";
       } else if (sourceUnitW.includes('oz') || sourceUnitW.includes('ounce')) {
-        finalW = nW > 0 ? (nW * 0.0283495).toFixed(3) : "";
+        finalW = nW > 0 ? (nW * 0.0283495).toFixed(3) : ""; // 高精度 Ounce 换算系数
       } else if (sourceUnitW.includes('g') && !sourceUnitW.includes('k')) {
         finalW = nW > 0 ? (nW / 1000).toFixed(3) : "";
       } else {
         finalW = nW > 0 ? nW.toString() : "";
       }
       
+      // 处理尺寸换算
       if (sourceUnitS.includes('in') || sourceUnitS.includes('inch')) {
         finalL = nL > 0 ? (nL * 2.54).toFixed(2) : "";
         finalWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : "";
         finalH = nH > 0 ? (nH * 2.54).toFixed(2) : "";
       }
     } else {
-      // 换算至英制 (Pounds / Inches)
+      // 目标市场要求英制 (Pounds / Inches)
       if (sourceUnitW.includes('kg') || sourceUnitW.includes('kilogram')) {
         finalW = nW > 0 ? (nW / 0.453592).toFixed(2) : "";
       } else if (sourceUnitW.includes('g')) {
@@ -238,6 +256,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(source, targetLang);
       else trans = await translateListingWithAI(source, targetLang);
       
+      // AI 翻译完成后，强制重新计算物流换算
       const logistics = performLogisticsConversion(code);
       const rate = exchangeRates.find(r => r.marketplace === code)?.rate || 1;
       
@@ -273,7 +292,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleRecalculateCurrent = () => {
     const results = performLogisticsConversion(activeMarket);
-    // 关键：使用函数式更新批量应用结果，确保状态同步
+    // 关键：批量状态更新
     setLocalListing(prev => {
       const next = { ...prev };
       const trans = { ...(next.translations || {}) };
