@@ -7,11 +7,12 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize conversion.
 
 [STRICT CONSTRAINTS]
 1. Keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-2. [IMPORTANT] Units: Always use full words for units.
-   - For Latin markets: Sentence Case (e.g., "Kilograms", "Pounds").
+2. [IMPORTANT] Units: Always use full words for units in the TARGET language.
+   - For English/Latin: Sentence Case (e.g., "Kilograms").
    - For Japan: "キログラム", "センチメートル".
    - For Arabic: "كيلوجرام".
-3. PROHIBITED: No Brand Names. Strictly NO Car or Motorcycle Brand Names (BMW, Toyota, Honda, Yamaha, etc.).
+   - For Mexico/Brazil: "Kilogramos", "Centímetros".
+3. PROHIBITED: Strictly NO Car or Motorcycle Brand Names (BMW, Toyota, Honda, Yamaha, Kawasaki, etc.).
 
 Return ONLY flat JSON.
 `;
@@ -61,7 +62,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "You are a professional Amazon copywriter. Output JSON. strictly use full unit names. NO car/motorcycle brands." },
+        { role: "system", content: "Amazon copywriter. Output JSON. Use full unit names. Strictly NO car/motorcycle brands." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
@@ -82,7 +83,7 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     [STRICT]: 
     1. KEEP JSON KEYS UNCHANGED.
     2. RETURN ONLY JSON. 
-    3. Use full unit names in "${targetLangName}".
+    3. Use FULL unit names in "${targetLangName}".
     4. NO car/motorcycle brands.
     Data: ${JSON.stringify(sourceData)}
   `;

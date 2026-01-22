@@ -5,8 +5,8 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 const UNIFIED_OPTIMIZE_PROMPT = `
 You are an expert Amazon Listing Optimizer. Return ONLY flat JSON.
 Keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-[UNIT RULE]: Always use full names for units. For Latin markets use Sentence Case. For JP/AR use target language script.
-PROHIBITED: NO Car or Motorcycle Brand Names (Honda, BMW, Yamaha, etc.).
+[UNIT RULE]: Always use full names for units in the TARGET language.
+PROHIBITED: NO Car or Motorcycle Brand Names (Honda, BMW, Yamaha, Kawasaki, etc.).
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
@@ -72,7 +72,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const prompt = `
     Translate listing to "${targetLangName}". 
-    STRICT: Use full unit names in the "${targetLangName}" language.
+    STRICT: Use full unit names in "${targetLangName}".
     NO car/motorcycle brands.
     Data: ${JSON.stringify(sourceData)}
   `;

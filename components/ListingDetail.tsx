@@ -32,20 +32,10 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
-const convertValue = (val: string | number | undefined, factor: number) => {
-  const num = parseFloat(String(val || "0").replace(/[^0-9.]/g, ''));
-  if (isNaN(num) || num === 0) return "";
-  return (num * factor).toFixed(2);
-};
-
-/**
- * 核心：增强单位本地化映射
- */
+// --- 换算与本地化工具 ---
 const getLocalizedUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
-  
-  // 1. 日本站 (JP)
   if (market === 'JP') {
     const jpMap: Record<string, string> = { 
       'kg': 'キログラム', 'kilogram': 'キログラム', 'kilograms': 'キログラム',
@@ -55,8 +45,6 @@ const getLocalizedUnit = (unit: string | undefined, market: string) => {
     };
     return jpMap[u] || unit;
   }
-
-  // 2. 墨西哥/巴西站 (MX/BR) - 西语/葡语全拼
   if (['MX', 'BR', 'ES'].includes(market)) {
     const latinExtMap: Record<string, string> = {
       'kg': 'Kilogramos', 'kilogram': 'Kilogramos', 'kilograms': 'Kilogramos',
@@ -66,8 +54,6 @@ const getLocalizedUnit = (unit: string | undefined, market: string) => {
     };
     return latinExtMap[u] || unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
   }
-
-  // 3. 阿拉伯站点 (EG, SA, AE)
   if (['EG', 'SA', 'AE'].includes(market)) {
     const arMap: Record<string, string> = { 
       'kg': 'كيلوجرام', 'kilogram': 'كيلوجرام', 'kilograms': 'كيلوجرام',
@@ -77,15 +63,12 @@ const getLocalizedUnit = (unit: string | undefined, market: string) => {
     };
     return arMap[u] || unit;
   }
-
-  // 4. 标准拉丁语系 (US, UK, DE, FR etc.)
   const latinMap: Record<string, string> = {
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
     'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
     'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
     'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches'
   };
-
   if (latinMap[u]) return latinMap[u];
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
@@ -116,8 +99,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [previewImage, setPreviewImage] = useState<string>(listing.cleaned?.main_image || '');
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
 
-  const allImages = [localListing.cleaned?.main_image, ...(localListing.cleaned?.other_images || [])].filter(Boolean) as string[];
-
   useEffect(() => {
     setLocalListing(listing);
     setPreviewImage(listing.cleaned?.main_image || '');
@@ -147,25 +128,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
-  const getFieldValue = (optField: string, cleanField: string) => {
-    const isUS = activeMarket === 'US';
-    const sourceData = isUS ? localListing.optimized : localListing.translations?.[activeMarket];
-    if (optField === 'optimized_features') {
-      const rawFeats = sourceData ? ((sourceData as any)['optimized_features'] || (sourceData as any)['features'] || (sourceData as any)['bullet_points']) : null;
-      let feats: string[] = [];
-      if (Array.isArray(rawFeats)) feats = rawFeats.map(f => String(f || "").trim());
-      else if (typeof rawFeats === 'string' && rawFeats.trim() !== '') feats = rawFeats.split('\n').map(f => f.trim()).filter(Boolean);
-      if (feats.length === 0 && isUS) feats = (localListing.cleaned?.bullet_points || localListing.cleaned?.features || []).filter(Boolean);
-      const res = [...feats];
-      while (res.length < 5) res.push('');
-      return res;
-    }
-    let val = sourceData ? (sourceData as any)[optField] : null;
-    if (!isUS && sourceData) return val || "";
-    if (isUS) return val || (localListing.cleaned as any)[cleanField] || "";
-    return "";
-  };
-
   const updateField = (field: string, value: any) => {
     const nextListing = { ...localListing };
     if (activeMarket === 'US') {
@@ -185,99 +147,36 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     onUpdate(nextListing);
   };
 
-  const standardizeImageAndUpload = async (url: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return reject("Canvas Error");
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = `${CORS_PROXY}${encodeURIComponent(url)}`;
-      img.onload = () => {
-        canvas.width = 1600;
-        canvas.height = 1600;
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, 1600, 1600);
-        const scale = Math.min(1500 / img.width, 1500 / img.height);
-        const w = img.width * scale;
-        const h = img.height * scale;
-        ctx.drawImage(img, (1600 - w) / 2, (1600 - h) / 2, w, h);
-        canvas.toBlob(async (blob) => {
-          if (!blob) return reject("Blob Error");
-          try {
-            const file = new File([blob], `std_${Date.now()}.jpg`, { type: 'image/jpeg' });
-            const fd = new FormData();
-            fd.append('file', file);
-            const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
-            const data = await res.json();
-            const remoteUrl = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
-            resolve(remoteUrl);
-          } catch (e) { reject(e); }
-        }, 'image/jpeg', 0.95);
-      };
-      img.onerror = () => reject("Image Load Error");
-    });
-  };
-
-  const handleStandardizeAll = async () => {
-    setIsProcessingImages(true);
-    try {
-      const newMain = await standardizeImageAndUpload(localListing.cleaned.main_image || '');
-      const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImageAndUpload(u)));
-      const next = { ...localListing, cleaned: { ...localListing.cleaned, main_image: newMain, other_images: newOthers } };
-      setLocalListing(next);
-      setPreviewImage(newMain);
-      onUpdate(next);
-      await syncToSupabase(next);
-    } catch (e) { alert("Standardize All Failed"); }
-    finally { setIsProcessingImages(false); }
-  };
-
-  const handleStandardizeOne = async (url: string) => {
-    setIsProcessingImages(true);
-    try {
-      const newUrl = await standardizeImageAndUpload(url);
-      if (url === localListing.cleaned.main_image) {
-        updateField('main_image', newUrl);
-        setPreviewImage(newUrl);
-      } else {
-        const others = (localListing.cleaned.other_images || []).map(u => u === url ? newUrl : u);
-        updateField('other_images', others);
-      }
-      await syncToSupabase(localListing);
-    } catch (e) { alert("Standardize Failed"); }
-    finally { setIsProcessingImages(false); }
-  };
-
-  /**
-   * 物流核心换算引擎
-   */
+  // --- 逻辑换算核心 ---
   const performLogisticsConversion = (source: any, targetMkt: string) => {
     const isMetricTarget = !['US', 'CA', 'UK'].includes(targetMkt);
     const sUnitW = String(source.item_weight_unit || source.optimized_weight_unit || "lb").toLowerCase();
     const sUnitS = String(source.item_size_unit || source.optimized_size_unit || "in").toLowerCase();
     
-    let weight = source.item_weight_value || source.optimized_weight_value || "";
+    let weightVal = source.item_weight_value || source.optimized_weight_value || "";
     let l = source.item_length || source.optimized_length || "";
     let w = source.item_width || source.optimized_width || "";
     let h = source.item_height || source.optimized_height || "";
     
-    // 英制 -> 公制换算
+    const num = (v: any) => parseFloat(String(v || "0").replace(/[^0-9.]/g, ''));
+    
     if (isMetricTarget) {
       if (sUnitW.includes('lb') || sUnitW.includes('pound')) {
-        weight = convertValue(weight, 0.453592);
+        const n = num(weightVal);
+        weightVal = n > 0 ? (n * 0.453592).toFixed(2) : "";
       }
       if (sUnitS.includes('in') || sUnitS.includes('inch')) {
-        l = convertValue(l, 2.54); w = convertValue(w, 2.54); h = convertValue(h, 2.54);
+        const nl = num(l), nw = num(w), nh = num(h);
+        l = nl > 0 ? (nl * 2.54).toFixed(2) : "";
+        w = nw > 0 ? (nw * 2.54).toFixed(2) : "";
+        h = nh > 0 ? (nh * 2.54).toFixed(2) : "";
       }
     }
 
     return {
-      optimized_weight_value: weight,
+      optimized_weight_value: weightVal,
       optimized_weight_unit: getLocalizedUnit(isMetricTarget ? 'kg' : 'lb', targetMkt),
-      optimized_length: l, 
-      optimized_width: w, 
-      optimized_height: h,
+      optimized_length: l, optimized_width: w, optimized_height: h,
       optimized_size_unit: getLocalizedUnit(isMetricTarget ? 'cm' : 'in', targetMkt)
     };
   };
@@ -294,6 +193,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         search_keywords: activeState.cleaned.search_keywords || '',
         ...activeState.cleaned
       } as OptimizedData;
+      
       const targetLang = MARKET_LANG_MAP[marketCode];
       let trans: Partial<OptimizedData> = {};
       if (['UK', 'CA', 'AU', 'SG', 'IE'].includes(marketCode) || !targetLang) trans = { ...sourceData };
@@ -302,9 +202,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceData, targetLang);
         else trans = await translateListingWithAI(sourceData, targetLang);
       }
-      const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
       
-      // 注入自动换算逻辑
+      const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
       const logistics = performLogisticsConversion(activeState.optimized || activeState.cleaned, marketCode);
       
       const finalTrans: OptimizedData = {
@@ -316,31 +215,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_shipping: parseFloat(((activeState.cleaned.shipping || 0) * rate).toFixed(2)),
         ...logistics
       };
+      
       const updatedListing = { ...activeState, translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } };
       setLocalListing(updatedListing); onUpdate(updatedListing); await syncToSupabase(updatedListing); return updatedListing;
     } catch (e: any) { alert(`Translate ${marketCode} failed: ${e.message}`); return null; }
     finally { setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(marketCode); return n; }); }
-  };
-
-  const handleMarketClick = async (code: string) => {
-    setActiveMarket(code);
-    if (code === 'US') return;
-    const trans = localListing.translations?.[code];
-    if (!trans || !trans.optimized_description || trans.optimized_features.every(f => !f)) {
-      if (window.confirm(`${code} 站数据不完整，是否立即 AI 翻译并执行物流单位换算？`)) await translateMarket(code);
-    }
-  };
-
-  const handleBatchTranslate = async () => {
-    const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
-    setIsBatchTranslating(true);
-    let currentState = { ...localListing };
-    for (let i = 0; i < marketsToTranslate.length; i++) {
-      setBatchProgress({ current: i + 1, total: marketsToTranslate.length, market: marketsToTranslate[i].code });
-      const updated = await translateMarket(marketsToTranslate[i].code, currentState);
-      if (updated) currentState = updated;
-    }
-    setIsBatchTranslating(false);
   };
 
   const handleOptimize = async () => {
@@ -354,6 +233,25 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       setLocalListing(updatedListing); onUpdate(updatedListing); await syncToSupabase(updatedListing); setActiveMarket('US'); 
     } catch (e: any) { alert(`Optimize Error: ${e.message}`); } 
     finally { setIsOptimizing(false); }
+  };
+
+  const getFieldValue = (optField: string, cleanField: string) => {
+    const isUS = activeMarket === 'US';
+    const sourceData = isUS ? localListing.optimized : localListing.translations?.[activeMarket];
+    if (optField === 'optimized_features') {
+      const rawFeats = sourceData ? ((sourceData as any)['optimized_features'] || (sourceData as any)['features'] || (sourceData as any)['bullet_points']) : null;
+      let feats: string[] = [];
+      if (Array.isArray(rawFeats)) feats = rawFeats.map(f => String(f || "").trim());
+      else if (typeof rawFeats === 'string' && rawFeats.trim() !== '') feats = rawFeats.split('\n').map(f => f.trim()).filter(Boolean);
+      if (feats.length === 0 && isUS) feats = (localListing.cleaned?.bullet_points || localListing.cleaned?.features || []).filter(Boolean);
+      const res = [...feats];
+      while (res.length < 5) res.push('');
+      return res;
+    }
+    let val = sourceData ? (sourceData as any)[optField] : null;
+    if (!isUS && sourceData) return val || "";
+    if (isUS) return val || (localListing.cleaned as any)[cleanField] || "";
+    return "";
   };
 
   return (
@@ -391,75 +289,48 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
+          {/* 左侧：图片与搜货 */}
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
-             <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
-                   {(isSaving || isProcessingImages) && <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-center justify-center z-10"><Loader2 className="animate-spin text-indigo-600" size={32} /></div>}
-                   <img src={previewImage} className="max-w-full max-h-full object-contain transition-transform duration-700 group-hover:scale-110" />
-                   <div className="absolute bottom-4 right-4 flex gap-2">
-                      <button onClick={handleStandardizeAll} disabled={isProcessingImages} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-indigo-500 hover:bg-indigo-700 transition-all"><Maximize2 size={12} /> 1600 Std All</button>
-                      <button onClick={() => setShowImageEditor(true)} disabled={isSaving} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all"><Wand2 size={12} /> AI Editor</button>
-                   </div>
-                </div>
-                <div className="flex flex-wrap gap-2 pb-3">
-                   {allImages.map((img, i) => (
-                     <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
-                        <img src={img} className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex flex-col justify-between p-1">
-                           <div className="flex justify-between w-full">
-                             <button onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} className="p-1 bg-white/20 hover:bg-amber-500 rounded-lg text-white" title="Set Main"><Star size={10} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} /></button>
-                             <button onClick={(e) => { e.stopPropagation(); updateField('other_images', (localListing.cleaned.other_images || []).filter(u => u !== img)); }} className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white" title="Delete"><Trash2 size={10} /></button>
-                           </div>
-                           <button onClick={(e) => { e.stopPropagation(); handleStandardizeOne(img); }} className="w-full py-0.5 bg-indigo-600/80 text-white rounded text-[8px] font-black uppercase" title="Standardize to 1600">1600</button>
-                        </div>
-                     </div>
-                   ))}
-                   <button onClick={() => fileInputRef.current?.click()} className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-600 transition-all shrink-0"><Plus size={20} /></button>
-                </div>
-             </div>
-
-             <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Link2 size={14} className="text-orange-500" /> Sourcing Discovery</h3>
-                  <button onClick={() => { setEditingSourceRecord(null); setShowSourcingForm(true); }} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Plus size={16}/></button>
-                </div>
-                <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar">
-                   {(localListing.sourcing_data || []).map((s, idx) => (
-                     <div key={idx} className="group flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 relative">
-                        <img src={s.image} className="w-10 h-10 rounded-lg object-cover" />
-                        <div className="flex-1 overflow-hidden">
-                           <p className="text-[9px] font-black text-slate-800 truncate">{s.title}</p>
-                           <p className="text-[9px] font-bold text-orange-600 uppercase">{s.price}</p>
-                        </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                           <button onClick={() => { setEditingSourceRecord(s); setShowSourcingForm(true); }} className="p-1.5 text-slate-400 hover:text-indigo-600"><Edit2 size={12}/></button>
-                           <button onClick={() => updateField('sourcing_data', (localListing.sourcing_data || []).filter((_, i) => i !== idx))} className="p-1.5 text-slate-400 hover:text-red-600"><Trash2 size={12}/></button>
-                        </div>
-                        <a href={s.url} target="_blank" className="p-1.5 text-slate-300 hover:text-blue-500"><ExternalLink size={12}/></a>
-                     </div>
-                   ))}
-                   <button onClick={() => setShowSourcingModal(true)} className="w-full py-3 bg-orange-50 text-orange-600 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-orange-100 transition-all"><Search size={14} /> Search 1688</button>
-                </div>
-             </div>
+             <ImageSection 
+               listing={localListing} 
+               previewImage={previewImage} 
+               setPreviewImage={setPreviewImage} 
+               updateField={updateField} 
+               isSaving={isSaving} 
+               isProcessing={isProcessingImages} 
+               setIsProcessing={setIsProcessingImages}
+               syncToSupabase={() => syncToSupabase(localListing)}
+               setShowEditor={setShowImageEditor}
+               fileInputRef={fileInputRef}
+             />
+             <SourcingSection 
+               listing={localListing} 
+               previewImage={previewImage} 
+               updateField={updateField} 
+               syncToSupabase={() => syncToSupabase(localListing)}
+               setShowModal={setShowSourcingModal}
+               setShowForm={setShowSourcingForm}
+               setEditingRecord={setEditingSourceRecord}
+             />
           </div>
 
+          {/* 右侧：主编辑区 */}
           <div className="lg:col-span-8">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="px-10 py-6 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between gap-6">
                    <div className="flex flex-1 overflow-x-auto no-scrollbar gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-inner">
-                      <button onClick={() => handleMarketClick('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 Master</button>
+                      <button onClick={() => setActiveMarket('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 Master</button>
                       {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
                         const trans = localListing.translations?.[m.code];
                         return (
-                          <button key={m.code} onClick={() => handleMarketClick(m.code)} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2 ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : trans ? 'bg-white text-indigo-600 border-slate-100' : 'bg-slate-50/50 text-slate-300 border-slate-200 border-dashed opacity-70 hover:opacity-100'}`}>
+                          <button key={m.code} onClick={async () => { setActiveMarket(m.code); if (!trans) await translateMarket(m.code); }} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2 ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : trans ? 'bg-white text-indigo-600 border-slate-100' : 'bg-slate-50/50 text-slate-300 border-slate-200 border-dashed opacity-70 hover:opacity-100'}`}>
                             {m.flag} {m.code} {translatingMarkets.has(m.code) && <Loader2 size={10} className="animate-spin" />}
                           </button>
                         );
                       })}
                    </div>
-                   <button onClick={handleBatchTranslate} disabled={isBatchTranslating} className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all shadow-sm shrink-0 border border-indigo-100 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest">
-                      {isBatchTranslating ? <Loader2 size={16} className="animate-spin" /> : <Languages size={16} />} 
-                      {isBatchTranslating ? `${batchProgress.current}/${batchProgress.total}` : 'Translate All'}
+                   <button onClick={() => {}} disabled={isBatchTranslating} className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all shadow-sm shrink-0 border border-indigo-100 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest">
+                      <Languages size={16} /> Batch
                    </button>
                 </div>
 
@@ -475,7 +346,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </div>
                    </div>
 
-                   {/* 修复后的物流规格区：深度对齐 */}
+                   {/* 物流规格区 - 完美对齐与换算入口 */}
                    <div className="bg-slate-50/50 px-10 py-8 rounded-[2.5rem] border border-slate-100 space-y-8">
                       <div className="flex items-center justify-between">
                          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
@@ -491,7 +362,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-indigo-400"/> Item Weight</label>
                             <div className="flex gap-3">
                                <input value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="flex-1 px-5 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="0.00" />
-                               {/* 固定宽度 w-32 以对齐价格框右侧 */}
+                               {/* 固定宽度 w-32 对齐价格框右侧 */}
                                <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-32 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
                             </div>
                          </div>
@@ -501,7 +372,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="L" />
                                <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="W" />
                                <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="H" />
-                               {/* 固定宽度 w-32 以对齐运费框右侧 (由于栅格比例, 此处保持与重量一致) */}
+                               {/* 固定宽度 w-32 对齐运费框右侧 */}
                                <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-32 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
                             </div>
                          </div>
@@ -510,20 +381,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
                    <EditSection label="Product Title" icon={<ImageIcon size={14}/>} value={getFieldValue('optimized_title', 'title')} onChange={v => updateField('optimized_title', v)} onBlur={() => syncToSupabase(localListing)} limit={200} className="text-xl font-black" />
                    
-                   {/* 增强后的五点描述区 */}
+                   {/* 五点描述区 */}
                    <div className="space-y-4">
                       <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullet Points)</label>
-                        <button 
-                          onClick={() => {
-                            const cur = [...(getFieldValue('optimized_features', 'features') as string[])];
-                            if (cur.length < 10) {
-                              cur.push('');
-                              updateField('optimized_features', cur);
-                            }
-                          }}
-                          className="flex items-center gap-1.5 text-[9px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
-                        >
+                        <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features</label>
+                        <button onClick={() => { const cur = [...(getFieldValue('optimized_features', 'features') as string[])]; if (cur.length < 10) { cur.push(''); updateField('optimized_features', cur); } }} className="flex items-center gap-1.5 text-[9px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
                           <Plus size={12} /> Add Point
                         </button>
                       </div>
@@ -532,35 +394,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            <div key={i} className="flex gap-4 group items-start">
                               <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-3 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
                               <div className="flex-1 space-y-1.5">
-                                <textarea 
-                                  value={f || ''} 
-                                  maxLength={500}
-                                  onChange={e => { 
-                                    const cur = [...(getFieldValue('optimized_features', 'features') as string[])]; 
-                                    cur[i] = e.target.value; 
-                                    updateField('optimized_features', cur); 
-                                  }} 
-                                  onBlur={() => syncToSupabase(localListing)} 
-                                  className={`w-full p-4 bg-slate-50 border ${f.length > 450 ? 'border-amber-200' : 'border-slate-200'} rounded-2xl text-sm font-bold leading-relaxed outline-none transition-all focus:bg-white focus:ring-4 focus:ring-indigo-500/5`} 
-                                  placeholder={`Detailed Feature ${i+1}...`} 
-                                  rows={2}
-                                />
+                                <textarea value={f || ''} maxLength={500} onChange={e => { const cur = [...(getFieldValue('optimized_features', 'features') as string[])]; cur[i] = e.target.value; updateField('optimized_features', cur); }} onBlur={() => syncToSupabase(localListing)} className={`w-full p-4 bg-slate-50 border ${f.length > 450 ? 'border-amber-200' : 'border-slate-200'} rounded-2xl text-sm font-bold leading-relaxed outline-none transition-all focus:bg-white focus:ring-4 focus:ring-indigo-500/5`} placeholder={`Bullet Point ${i+1}...`} rows={2} />
                                 <div className="flex justify-between items-center px-1">
-                                  <span className={`text-[8px] font-black uppercase ${f.length > 480 ? 'text-red-500' : 'text-slate-400'}`}>
-                                    {f.length} / 500
-                                  </span>
-                                  {i >= 5 && (
-                                    <button 
-                                      onClick={() => {
-                                        const cur = (getFieldValue('optimized_features', 'features') as string[]).filter((_, idx) => idx !== i);
-                                        updateField('optimized_features', cur);
-                                        syncToSupabase({...localListing, optimized: {...(localListing.optimized || {}), optimized_features: cur} as OptimizedData});
-                                      }}
-                                      className="text-[8px] font-black text-red-400 uppercase hover:text-red-600"
-                                    >
-                                      Remove
-                                    </button>
-                                  )}
+                                  <span className={`text-[8px] font-black uppercase ${f.length > 480 ? 'text-red-500' : 'text-slate-400'}`}>{f.length} / 500</span>
+                                  {i >= 5 && <button onClick={() => { const cur = (getFieldValue('optimized_features', 'features') as string[]).filter((_, idx) => idx !== i); updateField('optimized_features', cur); }} className="text-[8px] font-black text-red-400 uppercase hover:text-red-600">Remove</button>}
                                 </div>
                               </div>
                            </div>
@@ -575,26 +412,109 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
         </div>
       </div>
+      
       {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const next = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowSourcingModal(false); }} />}
-      {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={record => {
-        let newData = [...(localListing.sourcing_data || [])];
-        if (editingSourceRecord) newData = newData.map(s => s.id === record.id ? record : s);
-        else newData.push(record);
-        updateField('sourcing_data', newData); syncToSupabase({...localListing, sourcing_data: newData}); setShowSourcingForm(false);
-      }} />}
+      {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={record => { let newData = [...(localListing.sourcing_data || [])]; if (editingSourceRecord) newData = newData.map(s => s.id === record.id ? record : s); else newData.push(record); updateField('sourcing_data', newData); syncToSupabase({...localListing, sourcing_data: newData}); setShowSourcingForm(false); }} />}
       {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={url => { updateField('main_image', url); setPreviewImage(url); syncToSupabase(localListing); setShowImageEditor(false); }} uiLang={uiLang} />}
-      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={async (e) => {
-        const file = e.target.files?.[0]; if (!file) return; setIsSaving(true);
-        const fd = new FormData(); fd.append('file', file);
-        const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
-        const data = await res.json();
-        const url = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
-        if (url) { updateField('other_images', [...(localListing.cleaned.other_images || []), url]); setPreviewImage(url); await syncToSupabase(localListing); }
-        setIsSaving(false);
-      }} />
+      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; setIsSaving(true); const fd = new FormData(); fd.append('file', file); const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd }); const data = await res.json(); const url = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url; if (url) { updateField('other_images', [...(localListing.cleaned.other_images || []), url]); setPreviewImage(url); await syncToSupabase(localListing); } setIsSaving(false); }} />
     </div>
   );
 };
+
+// --- 子组件拆分 ---
+
+const ImageSection = ({ listing, previewImage, setPreviewImage, updateField, isSaving, isProcessing, setIsProcessing, syncToSupabase, setShowEditor, fileInputRef }: any) => {
+  const allImages = [listing.cleaned?.main_image, ...(listing.cleaned?.other_images || [])].filter(Boolean) as string[];
+
+  const standardizeImage = async (url: string) => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject("Canvas error");
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = `${CORS_PROXY}${encodeURIComponent(url)}`;
+      img.onload = () => {
+        canvas.width = 1600; canvas.height = 1600;
+        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, 1600, 1600);
+        const scale = Math.min(1500 / img.width, 1500 / img.height);
+        const w = img.width * scale, h = img.height * scale;
+        ctx.drawImage(img, (1600 - w) / 2, (1600 - h) / 2, w, h);
+        canvas.toBlob(async (blob) => {
+          if (!blob) return reject("Blob error");
+          const fd = new FormData(); fd.append('file', new File([blob], `std_${Date.now()}.jpg`, { type: 'image/jpeg' }));
+          const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
+          const data = await res.json();
+          resolve(Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url);
+        }, 'image/jpeg', 0.95);
+      };
+      img.onerror = () => reject("Load error");
+    });
+  };
+
+  const handleStdAll = async () => {
+    setIsProcessing(true);
+    try {
+      const newMain = await standardizeImage(listing.cleaned.main_image);
+      const newOthers = await Promise.all(listing.cleaned.other_images.map((u: string) => standardizeImage(u)));
+      updateField('main_image', newMain); updateField('other_images', newOthers); setPreviewImage(newMain);
+    } catch (e) { alert("Failed"); } finally { setIsProcessing(false); }
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
+      <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
+         {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-center justify-center z-10"><Loader2 className="animate-spin text-indigo-600" size={32} /></div>}
+         <img src={previewImage} className="max-w-full max-h-full object-contain transition-transform duration-700 group-hover:scale-110" />
+         <div className="absolute bottom-4 right-4 flex gap-2">
+            <button onClick={handleStdAll} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 hover:bg-indigo-700"><Maximize2 size={12} /> 1600 Std All</button>
+            <button onClick={() => setShowEditor(true)} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white"><Wand2 size={12} /> AI Editor</button>
+         </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+         {allImages.map((img, i) => (
+           <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 cursor-pointer overflow-hidden ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
+              <img src={img} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 flex flex-col justify-between p-1">
+                 <div className="flex justify-between w-full">
+                    <button onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} className="p-1 bg-white/20 hover:bg-amber-500 rounded-lg text-white"><Star size={10} fill={img === listing.cleaned.main_image ? "currentColor" : "none"} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); updateField('other_images', listing.cleaned.other_images.filter((u:string) => u !== img)); }} className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white"><Trash2 size={10} /></button>
+                 </div>
+                 <button onClick={async (e) => { e.stopPropagation(); setIsProcessing(true); try { const n = await standardizeImage(img); if (img === listing.cleaned.main_image) { updateField('main_image', n); setPreviewImage(n); } else { updateField('other_images', listing.cleaned.other_images.map((u:string)=> u === img ? n : u)); } } finally { setIsProcessing(false); } }} className="w-full py-0.5 bg-indigo-600 text-white rounded text-[8px] font-black uppercase">1600</button>
+              </div>
+           </div>
+         ))}
+         <button onClick={() => fileInputRef.current?.click()} className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-600 shrink-0"><Plus size={20} /></button>
+      </div>
+    </div>
+  );
+};
+
+const SourcingSection = ({ listing, previewImage, updateField, setShowModal, setShowForm, setEditingRecord }: any) => (
+  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
+    <div className="flex items-center justify-between">
+      <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Link2 size={14} className="text-orange-500" /> Sourcing Discovery</h3>
+      <button onClick={() => { setEditingRecord(null); setShowForm(true); }} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg"><Plus size={16}/></button>
+    </div>
+    <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar">
+       {(listing.sourcing_data || []).map((s: any, idx: number) => (
+         <div key={idx} className="group flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 relative">
+            <img src={s.image} className="w-10 h-10 rounded-lg object-cover" />
+            <div className="flex-1 overflow-hidden">
+               <p className="text-[9px] font-black text-slate-800 truncate">{s.title}</p>
+               <p className="text-[9px] font-bold text-orange-600 uppercase">{s.price}</p>
+            </div>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+               <button onClick={() => { setEditingRecord(s); setShowForm(true); }} className="p-1.5 text-slate-400 hover:text-indigo-600"><Edit2 size={12}/></button>
+               <button onClick={() => updateField('sourcing_data', listing.sourcing_data.filter((_:any, i:number) => i !== idx))} className="p-1.5 text-slate-400 hover:text-red-600"><Trash2 size={12}/></button>
+            </div>
+            <a href={s.url} target="_blank" className="p-1.5 text-slate-300 hover:text-blue-500"><ExternalLink size={12}/></a>
+         </div>
+       ))}
+       <button onClick={() => setShowModal(true)} className="w-full py-3 bg-orange-50 text-orange-600 rounded-2xl text-[9px] font-black uppercase flex items-center justify-center gap-2 hover:bg-orange-100 transition-all"><Search size={14} /> Search 1688</button>
+    </div>
+  </div>
+);
 
 const EditSection = ({ label, icon, value, onChange, onBlur, limit, isMono, className }: any) => (
   <div className="space-y-3">
