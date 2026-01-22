@@ -67,7 +67,7 @@ const getLocalizedUnitName = (unit: string | undefined, marketplace: string) => 
   
   if (baseMap[u]) return baseMap[u];
   
-  // 兜底：首字母大写
+  // 兜底：首字母大写 (Title Case)
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 

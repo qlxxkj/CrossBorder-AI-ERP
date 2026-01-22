@@ -63,7 +63,7 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     [STRICT RULES]
     1. Translate Title, 5 Bullets, Description, and Keywords.
     2. LOCALIZE UNIT NAMES: You MUST translate units into the native official terminology of "${targetLang}". 
-       - For JP (Japan): Use "キログラム" (Kilograms), "ポンド" (Pounds), "センチメートル" (Centimeters), "インチ" (Inches).
+       - For JP (Japan): Use "ポンド" (Pounds), "キログラム" (Kilograms), "インチ" (Inches), "センチメートル" (Centimeters).
        - For Latin languages (DE, FR, IT, ES): Use Title Case like "Kilogramm", "Gramm", "Zentimeter".
        - NEVER leave units in all caps or raw English if target is not US/UK.
     3. BRAND REMOVAL: Strip specific brands and use generic terms in "${targetLang}".

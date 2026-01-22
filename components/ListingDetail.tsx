@@ -115,11 +115,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const getFieldValue = (optField: string, cleanField: string) => {
-    // 获取主站数据的辅助函数
+    // 核心改进：内部辅助函数处理主站/回退逻辑
     const getUSValue = () => {
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
       
-      // 如果是五点描述 (数组类型)
+      // 处理五点描述
       if (optField.includes('features')) {
         if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && v.trim() !== '')) {
           return optVal;
@@ -129,7 +129,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         return ['', '', '', '', ''];
       }
 
-      // 如果是字符串字段
+      // 处理普通字符串
       if (optVal !== undefined && optVal !== null && typeof optVal === 'string' && optVal.trim() !== '') {
         return optVal;
       }
@@ -144,16 +144,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return getUSValue();
     }
 
-    // 处理分站点翻译
     const trans = localListing.translations?.[activeMarket];
     if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
       const val = (trans as any)[optField];
+      // 如果是数组，需确保有非空内容；如果是字符串，需非空
       if (Array.isArray(val) ? (val.length > 0 && val.some(v => v && v.trim() !== '')) : (val !== '' && val !== undefined)) {
         return val;
       }
     }
     
-    // 如果是价格，处理汇率自动转换
     if (optField === 'optimized_price' || optField === 'optimized_shipping') {
       const sourceVal = localListing.cleaned[cleanField] || 0;
       const rate = exchangeRates.find(r => r.marketplace === activeMarket)?.rate || 1;
@@ -161,11 +160,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return activeMarket === 'JP' ? Math.round(converted) : parseFloat(converted.toFixed(2));
     }
     
-    // 分站点若无翻译，回退到主站数据
+    // 如果分站点无数据，回退至主站/原始数据
     return getUSValue();
   };
 
-  const getUpdatedListing = (field: string, value: any): Listing => {
+  const updateField = (field: string, value: any) => {
     const nextListing = { ...localListing };
     if (activeMarket === 'US') {
       const cleanKey = field.startsWith('optimized_') ? field.replace('optimized_', '') : field;
@@ -180,12 +179,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       currentTranslations[activeMarket] = { ...currentTrans, [field]: value };
       nextListing.translations = currentTranslations;
     }
-    return nextListing;
-  };
-
-  const updateField = (field: string, value: any) => {
-    const next = getUpdatedListing(field, value);
-    setLocalListing(next);
+    setLocalListing(nextListing);
   };
 
   const handleBatchStandardize = async () => {
@@ -255,9 +249,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsOptimizing(false); }
   };
 
+  // 核心改进：单站点翻译函数
   const translateMarket = async (marketCode: string) => {
     if (marketCode === 'US') return;
-    // 增加站点级锁定
     setTranslatingMarkets(prev => new Set(prev).add(marketCode));
     try {
         const sourceData = localListing.optimized || {
@@ -281,7 +275,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const rawW = parseFloat(localListing.optimized?.optimized_width || localListing.cleaned.item_width || '0');
         const rawH = parseFloat(localListing.optimized?.optimized_height || localListing.cleaned.item_height || '0');
 
-        // 强化本地化单位逻辑，优先 AI，回退使用 Title Case 或日文
         const getFallbackUnit = (mkt: string, type: 'weight' | 'size') => {
           const metric = METRIC_MARKETS.includes(mkt);
           if (mkt === 'JP') return type === 'weight' ? 'キログラム' : 'センチメートル';
@@ -289,38 +282,30 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           return type === 'weight' ? 'Pounds' : 'Inches';
         };
 
-        const finalWeightUnit = trans.optimized_weight_unit || getFallbackUnit(marketCode, 'weight');
-        const finalSizeUnit = trans.optimized_size_unit || getFallbackUnit(marketCode, 'size');
-
         const updatedTrans = {
           ...trans,
           optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
           optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2)),
           optimized_weight_value: isMetric ? (rawWeight * 0.45359).toFixed(2) : rawWeight.toFixed(2),
-          optimized_weight_unit: finalWeightUnit,
+          optimized_weight_unit: trans.optimized_weight_unit || getFallbackUnit(marketCode, 'weight'),
           optimized_length: isMetric ? (rawL * 2.54).toFixed(2) : rawL.toFixed(2),
           optimized_width: isMetric ? (rawW * 2.54).toFixed(2) : rawW.toFixed(2),
           optimized_height: isMetric ? (rawH * 2.54).toFixed(2) : rawH.toFixed(2),
-          optimized_size_unit: finalSizeUnit,
+          optimized_size_unit: trans.optimized_size_unit || getFallbackUnit(marketCode, 'size'),
         } as OptimizedData;
 
-        // 获取最新的 localListing 防止竞态覆盖
         setLocalListing(prev => {
           const next = { ...prev };
           const currentTranslations = { ...(next.translations || {}) };
           currentTranslations[marketCode] = updatedTrans;
           next.translations = currentTranslations;
-          // 注意：此处不直接在 setState 里调用 syncToSupabase 以免逻辑混乱
           return next;
         });
-        
-        // 外部同步
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-           await supabase.from('listings').update({
-             translations: { ...(localListing.translations || {}), [marketCode]: updatedTrans }
-           }).eq('id', localListing.id);
-        }
+
+        // 异步更新数据库
+        await supabase.from('listings').update({
+           translations: { ...(localListing.translations || {}), [marketCode]: updatedTrans }
+        }).eq('id', localListing.id);
 
     } catch (e) {
         console.error(`Translation failed for ${marketCode}`, e);
@@ -344,7 +329,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleTabClick = (code: string) => {
     setActiveMarket(code);
-    // 如果点击的是非主站且没有翻译数据，且当前没有在翻译，则自动触发单站翻译
+    // 如果点击的是分站，且没翻译过且没在翻译中，自动触发翻译
     if (code !== 'US' && !localListing.translations?.[code] && !translatingMarkets.has(code)) {
         translateMarket(code);
     }
@@ -573,7 +558,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                                     <button onClick={() => {
                                       const currentFeatures = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
                                       updateField('optimized_features', currentFeatures);
-                                      const next = getUpdatedListing('optimized_features', currentFeatures);
+                                      const next = { ...localListing, translations: { ...(localListing.translations || {}), [activeMarket]: { ...(localListing.translations?.[activeMarket] || {}), optimized_features: currentFeatures } as OptimizedData } };
                                       syncToSupabase(next);
                                     }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12}/></button>
                                  </div>
