@@ -5,8 +5,8 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 const UNIFIED_OPTIMIZE_PROMPT = `
 You are an expert Amazon Listing Optimizer. Return ONLY flat JSON.
 Keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-[UNIT RULE]: Always use full names for units in the TARGET language.
-PROHIBITED: NO Car or Motorcycle Brand Names (Honda, BMW, Yamaha, Kawasaki, etc.).
+[UNIT RULE]: Always use FULL names for units in the TARGET language.
+PROHIBITED: Strictly NO Car or Motorcycle Brand Names (Honda, BMW, Yamaha, Kawasaki, etc.).
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
@@ -54,7 +54,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
-        { role: "system", content: "Amazon copywriter. Output JSON. Use full unit names. No car/motorcycle brands." },
+        { role: "system", content: "Amazon copywriter. Output JSON. Use FULL unit names. Strictly No car/motorcycle brands." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
@@ -72,8 +72,8 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const prompt = `
     Translate listing to "${targetLangName}". 
-    STRICT: Use full unit names in "${targetLangName}".
-    NO car/motorcycle brands.
+    STRICT: Use FULL unit names in "${targetLangName}" language.
+    STRICT: NO car/motorcycle brands.
     Data: ${JSON.stringify(sourceData)}
   `;
   const endpoint = `${baseUrl}/chat/completions`;

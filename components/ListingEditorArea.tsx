@@ -12,32 +12,56 @@ interface ListingEditorAreaProps {
   uiLang: UILanguage;
 }
 
+/**
+ * 核心单位本地化标准函数
+ */
 const getLocalizedUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
+  
+  // 1. 日本站 (JP)
   if (market === 'JP') {
     const jpMap: Record<string, string> = { 
-      'kg': 'キログラム', 'kilogram': 'キログラム', 'cm': 'センチメートル', 'centimeter': 'センチメートル',
-      'lb': 'ポンド', 'pound': 'ポンド', 'in': 'インチ', 'inch': 'インチ'
+      'kg': 'キログラム', 'kilogram': 'キログラム', 'kilograms': 'キログラム',
+      'cm': 'センチメートル', 'centimeter': 'センチメートル', 'centimeters': 'センチメートル',
+      'lb': 'ポンド', 'pound': 'ポンド', 'pounds': 'ポンド',
+      'in': 'インチ', 'inch': 'インチ', 'inches': 'インチ'
     };
     return jpMap[u] || unit;
   }
+
+  // 2. 拉美/西语站点 (MX/BR/ES)
   if (['MX', 'BR', 'ES'].includes(market)) {
     const latinExtMap: Record<string, string> = {
-      'kg': 'Kilogramos', 'cm': 'Centímetros', 'lb': 'Libras', 'in': 'Pulgadas'
+      'kg': 'Kilogramos', 'kilogram': 'Kilogramos', 'kilograms': 'Kilogramos',
+      'cm': 'Centímetros', 'centimeter': 'Centímetros', 'centimeters': 'Centímetros',
+      'lb': 'Libras', 'pound': 'Libras', 'pounds': 'Libras',
+      'in': 'Pulgadas', 'inch': 'Pulgadas', 'inches': 'Pulgadas'
     };
-    return latinExtMap[u] || unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
+    return latinExtMap[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
   }
+
+  // 3. 阿拉伯站点 (EG/SA/AE)
   if (['EG', 'SA', 'AE'].includes(market)) {
     const arMap: Record<string, string> = { 
-      'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة'
+      'kg': 'كيلوجرام', 'kilogram': 'كيلوجرام', 'kilograms': 'كيلوجرام',
+      'cm': 'سنتيمتر', 'centimeter': 'سنتيمتر', 'centimeters': 'سنتيمتر',
+      'lb': 'رطل', 'pound': 'رطل', 'pounds': 'رطل',
+      'in': 'بوصة', 'inch': 'بوصة', 'inches': 'بوصة'
     };
     return arMap[u] || unit;
   }
+
+  // 4. 标准拉丁语系 (US, UK, CA, DE, FR etc.)
   const latinMap: Record<string, string> = {
-    'kg': 'Kilograms', 'cm': 'Centimeters', 'lb': 'Pounds', 'in': 'Inches'
+    'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
+    'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
+    'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
+    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches'
   };
-  return latinMap[u] || unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
+
+  if (latinMap[u]) return latinMap[u];
+  return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
 export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
@@ -47,6 +71,13 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
   
   const getVal = (optField: string, cleanField: string) => {
     const data = isUS ? listing.optimized : listing.translations?.[activeMarket];
+    
+    // 特殊处理单位本地化显示
+    if (optField === 'optimized_weight_unit' || optField === 'optimized_size_unit') {
+      const rawUnit = (data ? (data as any)[optField] : null) || (isUS ? (listing.cleaned as any)[cleanField] : "");
+      return getLocalizedUnit(rawUnit, activeMarket);
+    }
+
     if (optField === 'optimized_features') {
       const raw = data ? ((data as any).optimized_features || (data as any).features || (data as any).bullet_points) : null;
       let res: string[] = [];
@@ -61,7 +92,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
 
   return (
     <div className="p-10 space-y-10">
-      {/* 价格区：双列对齐 */}
+      {/* 价格与运费区 */}
       <div className="grid grid-cols-2 gap-8">
         <div className="space-y-3">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={14} className="text-emerald-500" /> Price ({activeMarket})</label>
@@ -73,7 +104,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         </div>
       </div>
 
-      {/* 物流区：核心对齐逻辑 */}
+      {/* 物流规格区 - 完美对齐修复 */}
       <div className="bg-slate-50/50 px-10 py-8 rounded-[2.5rem] border border-slate-100 space-y-8">
         <div className="flex items-center justify-between">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
@@ -85,22 +116,22 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-           <div className="space-y-3">
+           {/* 重量：数值 flex-1, 单位 w-32 */}
+           <div className="space-y-3 min-w-0">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">Item Weight</label>
-              <div className="flex gap-3">
-                 <input value={getVal('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={onSync} className="flex-1 px-5 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none" placeholder="0.00" />
-                 {/* 确保 w-32 对齐上方价格框右边缘 */}
-                 <input value={getVal('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={onSync} className="w-32 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center outline-none" placeholder="Unit" />
+              <div className="flex gap-3 w-full">
+                 <input value={getVal('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={onSync} className="flex-1 min-w-0 px-5 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="0.00" />
+                 <input value={getVal('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={onSync} className="w-32 shrink-0 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" placeholder="Unit" />
               </div>
            </div>
-           <div className="space-y-3">
+           {/* 尺寸：数值 flex-1, 单位 w-32 */}
+           <div className="space-y-3 min-w-0">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">Dimensions (L × W × H)</label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 w-full">
                  <input value={getVal('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={onSync} className="flex-1 min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none" placeholder="L" />
                  <input value={getVal('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={onSync} className="flex-1 min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none" placeholder="W" />
                  <input value={getVal('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={onSync} className="flex-1 min-w-0 px-3 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center outline-none" placeholder="H" />
-                 {/* 确保 w-32 对齐上方运费框右边缘 */}
-                 <input value={getVal('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={onSync} className="w-32 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center outline-none" placeholder="Unit" />
+                 <input value={getVal('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={onSync} className="w-32 shrink-0 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center outline-none" placeholder="Unit" />
               </div>
            </div>
         </div>
@@ -109,7 +140,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
       {/* 标题 */}
       <EditBlock label="Product Title" value={getVal('optimized_title', 'title')} onChange={v => updateField('optimized_title', v)} onBlur={onSync} limit={200} className="text-xl font-black" />
 
-      {/* 五点描述增强 */}
+      {/* 五点描述 */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullets)</label>

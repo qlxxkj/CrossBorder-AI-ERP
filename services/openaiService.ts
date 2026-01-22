@@ -7,11 +7,11 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize conversion.
 
 [STRICT CONSTRAINTS]
 1. Keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-2. [IMPORTANT] Units: Always use full words for units in the TARGET language.
-   - For English/Latin: Sentence Case (e.g., "Kilograms").
-   - For Japan: "キログラム", "センチメートル".
-   - For Arabic: "كيلوجرام".
-   - For Mexico/Brazil: "Kilogramos", "Centímetros".
+2. [IMPORTANT] Units: Always use FULL WORDS for units in the TARGET language.
+   - For English/Latin: Sentence Case (e.g., "Kilograms", "Centimeters").
+   - For Mexico/Brazil/Spain: Use "Kilogramos", "Centímetros", "Libras", "Pulgadas".
+   - For Japan: Full Width Katakana (e.g., "キログラム", "センチメートル").
+   - For Arabic: Arabic script (e.g., "كيلوجرام", "سنتيمتر").
 3. PROHIBITED: Strictly NO Car or Motorcycle Brand Names (BMW, Toyota, Honda, Yamaha, Kawasaki, etc.).
 
 Return ONLY flat JSON.
@@ -62,7 +62,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "Amazon copywriter. Output JSON. Use full unit names. Strictly NO car/motorcycle brands." },
+        { role: "system", content: "Amazon copywriter. Output JSON. Strictly use FULL unit names. Strictly NO car/motorcycle brands." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
@@ -83,7 +83,7 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     [STRICT]: 
     1. KEEP JSON KEYS UNCHANGED.
     2. RETURN ONLY JSON. 
-    3. Use FULL unit names in "${targetLangName}".
+    3. Use FULL unit names in "${targetLangName}" script. (e.g. キログラム, Kilogramos, Kilograms).
     4. NO car/motorcycle brands.
     Data: ${JSON.stringify(sourceData)}
   `;

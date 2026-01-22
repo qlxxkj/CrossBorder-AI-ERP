@@ -126,22 +126,46 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } catch (e) { alert("Failed"); } finally { setIsProcessingImages(false); }
   };
 
+  /**
+   * 物流换算引擎 (lb->kg, in->cm)
+   */
   const performLogisticsConversion = (source: any, targetMkt: string) => {
     const isMetric = !['US', 'CA', 'UK'].includes(targetMkt);
     const sUnitW = String(source.item_weight_unit || source.optimized_weight_unit || "lb").toLowerCase();
     const sUnitS = String(source.item_size_unit || source.optimized_size_unit || "in").toLowerCase();
+    
     let valW = source.item_weight_value || source.optimized_weight_value || "";
     let l = source.item_length || source.optimized_length || "";
     let w = source.item_width || source.optimized_width || "";
     let h = source.item_height || source.optimized_height || "";
-    const num = (v: any) => parseFloat(String(v || "0").replace(/[^0-9.]/g, ''));
+    
+    const num = (v: any) => {
+      const n = parseFloat(String(v || "0").replace(/[^0-9.]/g, ''));
+      return isNaN(n) ? 0 : n;
+    };
+
     if (isMetric) {
-      if (sUnitW.includes('lb')) valW = (num(valW) * 0.453592).toFixed(2);
-      if (sUnitS.includes('in')) { l = (num(l) * 2.54).toFixed(2); w = (num(w) * 2.54).toFixed(2); h = (num(h) * 2.54).toFixed(2); }
+      // 重量 lb -> kg (0.453592)
+      if (sUnitW.includes('lb') || sUnitW.includes('pound')) {
+        const n = num(valW);
+        valW = n > 0 ? (n * 0.453592).toFixed(2) : "";
+      }
+      // 尺寸 in -> cm (2.54)
+      if (sUnitS.includes('in') || sUnitS.includes('inch')) {
+        const nl = num(l), nw = num(w), nh = num(h);
+        l = nl > 0 ? (nl * 2.54).toFixed(2) : "";
+        w = nw > 0 ? (nw * 2.54).toFixed(2) : "";
+        h = nh > 0 ? (nh * 2.54).toFixed(2) : "";
+      }
     }
+
     return {
-      optimized_weight_value: valW, optimized_weight_unit: isMetric ? 'kg' : 'lb',
-      optimized_length: l, optimized_width: w, optimized_height: h, optimized_size_unit: isMetric ? 'cm' : 'in'
+      optimized_weight_value: valW, 
+      optimized_weight_unit: isMetric ? 'kg' : 'lb',
+      optimized_length: l, 
+      optimized_width: w, 
+      optimized_height: h, 
+      optimized_size_unit: isMetric ? 'cm' : 'in'
     };
   };
 
@@ -151,17 +175,23 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     try {
       const source = localListing.optimized || { optimized_title: localListing.cleaned.title, optimized_features: localListing.cleaned.features || [] } as OptimizedData;
       const targetLang = AMAZON_MARKETPLACES.find(m => m.code === code)?.name || 'English';
+      
       let trans: any;
       if (engine === 'openai') trans = await translateListingWithOpenAI(source, targetLang);
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(source, targetLang);
       else trans = await translateListingWithAI(source, targetLang);
+      
+      // 核心注入：物流自动换算
       const logistics = performLogisticsConversion(localListing.optimized || localListing.cleaned, code);
       const rate = exchangeRates.find(r => r.marketplace === code)?.rate || 1;
+      
       const final: OptimizedData = {
-        ...trans, ...logistics,
+        ...trans, 
+        ...logistics,
         optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
         optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2))
       };
+      
       const next = { ...localListing, translations: { ...(localListing.translations || {}), [code]: final } };
       setLocalListing(next); onUpdate(next); await syncToSupabase(next);
     } catch (e) {} finally { setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(code); return n; }); }
