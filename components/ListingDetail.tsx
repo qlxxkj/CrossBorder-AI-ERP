@@ -130,23 +130,37 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const getFieldValue = (optField: string, cleanField: string) => {
-    if (activeMarket === 'US') {
-      const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
-      if (optField === 'optimized_features') {
-        if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && String(v).trim() !== '')) return optVal;
-        return localListing.cleaned?.features || ['', '', '', '', ''];
+    const isUS = activeMarket === 'US';
+    const sourceData = isUS ? localListing.optimized : localListing.translations?.[activeMarket];
+    
+    // 特殊处理五点描述：确保始终返回 5 个元素的数组
+    if (optField === 'optimized_features') {
+      let feats: string[] = [];
+      if (sourceData && (sourceData as any)[optField] && Array.isArray((sourceData as any)[optField])) {
+        feats = (sourceData as any)[optField];
+      } else if (isUS) {
+        // 如果是 Master 站点且未优化，回显采集到的 features
+        feats = localListing.cleaned?.features || [];
       }
-      if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') return optVal;
-      return (localListing.cleaned as any)[cleanField] || '';
-    } else {
-      const trans = localListing.translations?.[activeMarket];
-      if (trans) {
-        const val = (trans as any)[optField];
-        if (optField.includes('features')) return Array.isArray(val) ? val : ['', '', '', '', ''];
-        return val !== undefined && val !== null ? String(val) : '';
-      }
-      return optField.includes('features') ? ['', '', '', '', ''] : '';
+      
+      const result = [...feats];
+      while (result.length < 5) result.push('');
+      return result.slice(0, 5);
     }
+
+    const optVal = sourceData ? (sourceData as any)[optField] : null;
+    
+    // 如果优化/翻译值存在且不为空，直接返回
+    if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') {
+      return optVal;
+    }
+
+    // 如果是 Master 站点，尝试回显采集到的原始数据 (标题、描述、价格等)
+    if (isUS) {
+      return (localListing.cleaned as any)[cleanField] || '';
+    }
+    
+    return '';
   };
 
   const updateField = (field: string, value: any) => {
@@ -474,7 +488,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </button>
                    </div>
                 </div>
-                {/* 修改此处：从横向滚动 overflow-x-auto 切换为 flex-wrap 自动换行 */}
                 <div className="flex flex-wrap gap-2 pb-3">
                    {allImages.map((img, i) => (
                      <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
