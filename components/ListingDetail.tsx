@@ -152,7 +152,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const updateField = (field: string, value: any) => {
     const nextListing = { ...localListing };
     if (activeMarket === 'US') {
-      // 核心修复：如果是图片字段，更新 cleaned 对象
       if (field === 'main_image' || field === 'other_images') {
         nextListing.cleaned = { ...nextListing.cleaned, [field]: value };
       } else {
@@ -357,6 +356,35 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
+  const handleSingleStandardize = async (imgUrl: string) => {
+    setIsSaving(true);
+    try {
+      const blob = await processImageTo1600(imgUrl);
+      const hostedUrl = await uploadImageToHost(blob, localListing.asin);
+      
+      const nextListing = { ...localListing };
+      if (imgUrl === localListing.cleaned.main_image) {
+        nextListing.cleaned.main_image = hostedUrl;
+      } else {
+        const others = [...(localListing.cleaned.other_images || [])];
+        const idx = others.indexOf(imgUrl);
+        if (idx !== -1) {
+          others[idx] = hostedUrl;
+          nextListing.cleaned.other_images = others;
+        }
+      }
+      
+      if (previewImage === imgUrl) setPreviewImage(hostedUrl);
+      setLocalListing(nextListing);
+      onUpdate(nextListing);
+      await syncToSupabase(nextListing);
+    } catch (e: any) {
+      alert("Single standardize failed: " + (e.message || String(e)));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleAddImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -431,12 +459,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
                 <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
+                   {isSaving && (
+                     <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-center justify-center z-10">
+                        <Loader2 className="animate-spin text-indigo-600" size={32} />
+                     </div>
+                   )}
                    <img src={previewImage} className="max-w-full max-h-full object-contain transition-transform duration-700 group-hover:scale-110" />
                    <div className="absolute bottom-4 right-4 flex gap-2">
-                      <button onClick={handleBatchStandardize} disabled={isStandardizing} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all">
+                      <button onClick={handleBatchStandardize} disabled={isStandardizing || isSaving} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all disabled:opacity-50">
                         {isStandardizing ? <Loader2 className="animate-spin" size={12} /> : <Box size={12} />} 1600 Std
                       </button>
-                      <button onClick={() => setShowImageEditor(true)} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all">
+                      <button onClick={() => setShowImageEditor(true)} disabled={isSaving} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all">
                          <Wand2 size={12} /> AI Editor
                       </button>
                    </div>
@@ -445,9 +478,34 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                    {allImages.map((img, i) => (
                      <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
                         <img src={img} className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                           <button onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} className="p-1 text-white hover:text-amber-400" title="Set as Main"><Star size={12} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} /></button>
-                           <button onClick={(e) => { e.stopPropagation(); const others = (localListing.cleaned.other_images || []).filter(u => u !== img); updateField('other_images', others); }} className="p-1 text-white hover:text-red-400" title="Delete"><Trash2 size={12} /></button>
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                           {/* 删除按钮 移至右上角 防止误点 */}
+                           <button 
+                             onClick={(e) => { 
+                               e.stopPropagation(); 
+                               const isMain = img === localListing.cleaned.main_image;
+                               if (isMain) {
+                                 alert(uiLang === 'zh' ? "主图不能直接删除，请先设置其他图为主图" : "Cannot delete main image. Switch main image first.");
+                                 return;
+                               }
+                               const others = (localListing.cleaned.other_images || []).filter(u => u !== img); 
+                               updateField('other_images', others); 
+                             }} 
+                             className="absolute top-1 right-1 p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white transition-colors" 
+                             title="Delete"
+                           >
+                             <Trash2 size={10} />
+                           </button>
+
+                           {/* 设为主图 */}
+                           <button onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} className="p-1.5 text-white hover:text-amber-400 transition-colors" title="Set as Main">
+                             <Star size={14} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} />
+                           </button>
+
+                           {/* 单图标准化 */}
+                           <button onClick={(e) => { e.stopPropagation(); handleSingleStandardize(img); }} className="p-1.5 text-white hover:text-indigo-400 transition-colors" title="Standardize 1600">
+                             <Box size={14} />
+                           </button>
                         </div>
                      </div>
                    ))}
@@ -590,9 +648,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           imageUrl={previewImage} 
           onClose={() => setShowImageEditor(false)} 
           onSave={async (url) => { 
-            // 核心修复逻辑开始
             const nextListing = { ...localListing };
-            // 判断当前编辑的是主图还是副图
             if (previewImage === localListing.cleaned.main_image) {
               nextListing.cleaned.main_image = url;
             } else {
@@ -603,14 +659,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 nextListing.cleaned.other_images = others;
               }
             }
-            
-            // 同步状态
             setPreviewImage(url); 
             setLocalListing(nextListing);
             onUpdate(nextListing);
             await syncToSupabase(nextListing);
             setShowImageEditor(false); 
-            // 核心修复逻辑结束
           }} 
           uiLang={uiLang} 
         />
