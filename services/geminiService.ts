@@ -48,11 +48,9 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     });
     
     let text = response.text || "{}";
-    // 清洗可能存在的 markdown
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
     const data = JSON.parse(text) as OptimizedData;
     
-    // 补齐五点
     if (!data.optimized_features || !Array.isArray(data.optimized_features)) {
       data.optimized_features = [];
     }
@@ -63,7 +61,15 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Translate this Amazon listing to "${targetLangName}". Return JSON. Keep HTML tags and "[KEYWORD]: " style. Source: ${JSON.stringify(sourceData)}`;
+  const prompt = `
+    Translate this Amazon listing to "${targetLangName}". 
+    [STRICT]: 
+    1. Keep HTML tags.
+    2. Maintain "[KEYWORD]: " style for bullets.
+    3. IMPORTANT: Translate measurement units (e.g. Kilograms, Centimeters) into the target language of the marketplace (e.g., 'كيلوجرام' for Arabic, 'Kilogramm' for German).
+    Return ONLY flat JSON. 
+    Source: ${JSON.stringify(sourceData)}
+  `;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",

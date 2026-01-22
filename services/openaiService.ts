@@ -17,7 +17,6 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and con
    - optimized_size_unit: "Inches".
 6. PROHIBITED: No Brand Names, No Extreme Words (Best, Perfect, etc.).
 
-// Fix: Escaped backticks to avoid terminating the template literal prematurely
 Return ONLY a flat JSON object matching these keys. Do not include markdown formatting or "\`\`\`json" tags.
 `;
 
@@ -46,22 +45,16 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   if (!data.choices?.[0]?.message?.content) throw new Error("OpenAI returned empty response");
   
   let content = data.choices[0].message.content;
-  
-  // 深度清理 Markdown 代码块
   content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
   
   try {
     const result = JSON.parse(content);
-    
-    // 补齐五点描述
     if (!result.optimized_features || !Array.isArray(result.optimized_features)) {
       result.optimized_features = [];
     }
     while (result.optimized_features.length < 5) result.optimized_features.push("");
-    
     return result;
   } catch (parseError) {
-    console.error("JSON Parse Error:", content);
     throw new Error("AI returned invalid JSON structure.");
   }
 };
@@ -69,7 +62,14 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
 export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const apiKey = process.env.OPENAI_API_KEY;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const prompt = `Translate this Amazon listing to "${targetLangName}". Return ONLY JSON. Keep HTML and "[KEYWORD]: " style: ${JSON.stringify(sourceData)}`;
+  const prompt = `
+    Translate this Amazon listing to "${targetLangName}". 
+    [STRICT]: 
+    1. Keep HTML tags.
+    2. Maintain "[KEYWORD]: " style.
+    3. IMPORTANT: Translate measurement units (e.g. Kilograms, Centimeters) into the target language of the marketplace (e.g., 'كيلوجرام' for Arabic, 'Kilogramm' for German).
+    Return ONLY flat JSON: ${JSON.stringify(sourceData)}
+  `;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 

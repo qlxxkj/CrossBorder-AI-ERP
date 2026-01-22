@@ -47,9 +47,26 @@ const parseNumeric = (val: any): number => {
   return isNaN(n) ? 0 : n;
 };
 
+// 增强版单位本地化函数，支持阿拉伯语及欧洲语系
 const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
+  
+  // 阿拉伯语站点 (EG, SA, AE)
+  if (['EG', 'SA', 'AE'].includes(market)) {
+    const arMap: Record<string, string> = {
+      'kg': 'كيلوجرام', 'kilogram': 'كيلوجرام', 'kilograms': 'كيلوجرام',
+      'g': 'جرام', 'gram': 'جرام', 'grams': 'جرام',
+      'lb': 'رطل', 'lbs': 'رطل', 'pound': 'رطل', 'pounds': 'رطل',
+      'oz': 'أونصة', 'ounce': 'أونصة', 'ounces': 'أونصة',
+      'in': 'بوصة', 'inch': 'بوصة', 'inches': 'بوصة',
+      'cm': 'سنتيمتر', 'centimeter': 'سنتيمتر', 'centimeters': 'سنتيمتر',
+      'mm': 'ملليمتر', 'millimeter': 'ملليمتر', 'millimeters': 'ملليمتر'
+    };
+    return arMap[u] || unit;
+  }
+
+  // 日本站 (JP)
   if (market === 'JP') {
     const jpMap: Record<string, string> = {
       'lb': 'ポンド', 'lbs': 'ポンド', 'pounds': 'ポンド', 'pound': 'ポンド',
@@ -62,6 +79,25 @@ const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
     };
     return jpMap[u] || unit;
   }
+
+  // 德语站点 (DE)
+  if (market === 'DE') {
+    const deMap: Record<string, string> = {
+      'kg': 'Kilogramm', 'kilograms': 'Kilogramm', 'g': 'Gramm', 'grams': 'Gramm',
+      'lb': 'Pfund', 'lbs': 'Pfund', 'in': 'Zoll', 'inch': 'Zoll', 'cm': 'Zentimeter'
+    };
+    if (deMap[u]) return deMap[u];
+  }
+
+  // 法语站点 (FR, BE)
+  if (['FR', 'BE'].includes(market)) {
+    const frMap: Record<string, string> = {
+      'kg': 'Kilogrammes', 'kilograms': 'Kilogrammes', 'g': 'Grammes', 'in': 'Pouces', 'inch': 'Pouces', 'cm': 'Centimètres'
+    };
+    if (frMap[u]) return frMap[u];
+  }
+
+  // 默认英语全称
   const standardMap: Record<string, string> = {
     'lb': 'Pounds', 'lbs': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
@@ -135,7 +171,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     
     if (optField === 'optimized_features') {
       let feats: string[] = [];
-      // 检查带前缀和不带前缀的键
       const rawFeats = sourceData ? ((sourceData as any)[optField] || (sourceData as any)['features'] || (sourceData as any)['bullet_points']) : null;
       
       if (Array.isArray(rawFeats)) {
@@ -152,7 +187,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return result.slice(0, 5);
     }
 
-    // 检查带前缀和不带前缀的键名 (兼容 AI 可能返回的简写)
     const shortKey = optField.replace('optimized_', '');
     const optVal = sourceData ? ((sourceData as any)[optField] ?? (sourceData as any)[shortKey]) : null;
 
@@ -432,12 +466,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         updated_at: new Date().toISOString()
       };
       
-      // 强制更新本地状态并触发 parent 更新
       setLocalListing({ ...updatedListing }); 
       onUpdate({ ...updatedListing }); 
       await syncToSupabase(updatedListing);
-      
-      // 切回 Master 站确保展示
       setActiveMarket('US'); 
     } catch (e: any) { alert(`Failed: ${e.message}`); } 
     finally { setIsOptimizing(false); }
@@ -628,11 +659,25 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                    <div className="grid grid-cols-2 gap-8">
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={14} className="text-emerald-500" /> Price ({activeMarket})</label>
-                         <input type="number" step="0.01" value={getFieldValue('optimized_price', 'price')} onChange={(e) => updateField('optimized_price', parseFloat(e.target.value))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none" />
+                         <input 
+                            type="number" 
+                            step="0.01" 
+                            value={getFieldValue('optimized_price', 'price')} 
+                            onChange={(e) => updateField('optimized_price', parseFloat(e.target.value))} 
+                            onBlur={() => syncToSupabase(localListing)}
+                            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:bg-white transition-colors" 
+                         />
                       </div>
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Truck size={14} className="text-blue-500" /> Shipping</label>
-                         <input type="number" step="0.01" value={getFieldValue('optimized_shipping', 'shipping')} onChange={(e) => updateField('optimized_shipping', parseFloat(e.target.value))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none" />
+                         <input 
+                            type="number" 
+                            step="0.01" 
+                            value={getFieldValue('optimized_shipping', 'shipping')} 
+                            onChange={(e) => updateField('optimized_shipping', parseFloat(e.target.value))} 
+                            onBlur={() => syncToSupabase(localListing)}
+                            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:bg-white transition-colors" 
+                         />
                       </div>
                    </div>
 
@@ -640,22 +685,42 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} /> Item Weight (Standard)</label>
                          <div className="flex gap-2">
-                            <input value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm" placeholder="Value" />
-                            <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-32 px-2 py-3 bg-white border border-slate-200 rounded-xl font-black text-[10px] text-center" placeholder="Pounds / Ounces" />
+                            <input 
+                              value={getFieldValue('optimized_weight_value', 'item_weight_value')} 
+                              onChange={e => updateField('optimized_weight_value', e.target.value)} 
+                              onBlur={() => syncToSupabase(localListing)}
+                              className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:bg-white" 
+                              placeholder="Value" 
+                            />
+                            <input 
+                              value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} 
+                              onChange={e => updateField('optimized_weight_unit', e.target.value)} 
+                              onBlur={() => syncToSupabase(localListing)}
+                              className="w-32 px-2 py-3 bg-white border border-slate-200 rounded-xl font-black text-[10px] text-center outline-none focus:border-indigo-500" 
+                              placeholder="Unit" 
+                            />
                          </div>
                       </div>
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Ruler size={14} /> Dimensions (L/W/H)</label>
                          <div className="flex gap-1.5">
-                            <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" placeholder="L" />
-                            <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" placeholder="W" />
-                            <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" placeholder="H" />
-                            <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-28 px-1 py-3 bg-white border border-slate-200 rounded-xl font-black text-[9px] text-center" placeholder="Inches" />
+                            <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold outline-none focus:bg-white" placeholder="L" />
+                            <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold outline-none focus:bg-white" placeholder="W" />
+                            <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold outline-none focus:bg-white" placeholder="H" />
+                            <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-28 px-1 py-3 bg-white border border-slate-200 rounded-xl font-black text-[9px] text-center outline-none focus:border-indigo-500" placeholder="Unit" />
                          </div>
                       </div>
                    </div>
 
-                   <EditSection label="Product Title" icon={<ImageIcon size={14}/>} value={getFieldValue('optimized_title', 'title')} onChange={v => updateField('optimized_title', v)} limit={200} className="text-xl font-black" />
+                   <EditSection 
+                      label="Product Title" 
+                      icon={<ImageIcon size={14}/>} 
+                      value={getFieldValue('optimized_title', 'title')} 
+                      onChange={v => updateField('optimized_title', v)} 
+                      onBlur={() => syncToSupabase(localListing)}
+                      limit={200} 
+                      className="text-xl font-black" 
+                   />
 
                    <div className="space-y-4">
                       <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullets)</label>
@@ -664,7 +729,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                            <div key={i} className="flex gap-4 group">
                               <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-2 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
                               <div className="flex-1">
-                                 <textarea value={f || ''} onChange={e => { const cur = [...(getFieldValue('optimized_features', 'features') as string[])]; cur[i] = e.target.value; updateField('optimized_features', cur); }} className={`w-full p-4 bg-slate-50 border rounded-2xl text-sm font-bold leading-relaxed outline-none transition-all ${f.length > 250 ? 'border-red-400 ring-2 ring-red-50' : 'border-slate-200'}`} placeholder={`Bullet Point ${i+1}...`} />
+                                 <textarea 
+                                    value={f || ''} 
+                                    onChange={e => { const cur = [...(getFieldValue('optimized_features', 'features') as string[])]; cur[i] = e.target.value; updateField('optimized_features', cur); }} 
+                                    onBlur={() => syncToSupabase(localListing)}
+                                    className={`w-full p-4 bg-slate-50 border rounded-2xl text-sm font-bold leading-relaxed outline-none transition-all focus:bg-white ${f.length > 250 ? 'border-red-400 ring-2 ring-red-50' : 'border-slate-200 focus:border-indigo-500'}`} 
+                                    placeholder={`Bullet Point ${i+1}...`} 
+                                 />
                                  <div className="px-1 text-[9px] font-black uppercase text-right"><span className={f.length > 250 ? 'text-red-500' : 'text-slate-400'}>{f.length} / 250</span></div>
                               </div>
                            </div>
@@ -672,8 +743,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </div>
                    </div>
 
-                   <EditSection label="Description (HTML)" icon={<FileText size={14}/>} value={getFieldValue('optimized_description', 'description')} onChange={v => updateField('optimized_description', v)} limit={2000} isMono className="min-h-[250px] text-xs" />
-                   <EditSection label="Search Keywords" icon={<Hash size={14}/>} value={getFieldValue('search_keywords', 'search_keywords')} onChange={v => updateField('search_keywords', v)} limit={250} className="bg-amber-50/20 border-amber-100 text-sm font-bold" />
+                   <EditSection label="Description (HTML)" icon={<FileText size={14}/>} value={getFieldValue('optimized_description', 'description')} onChange={v => updateField('optimized_description', v)} onBlur={() => syncToSupabase(localListing)} limit={2000} isMono className="min-h-[250px] text-xs" />
+                   <EditSection label="Search Keywords" icon={<Hash size={14}/>} value={getFieldValue('search_keywords', 'search_keywords')} onChange={v => updateField('search_keywords', v)} onBlur={() => syncToSupabase(localListing)} limit={250} className="bg-amber-50/20 border-amber-100 text-sm font-bold" />
                 </div>
              </div>
           </div>
@@ -711,12 +782,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   );
 };
 
-const EditSection = ({ label, icon, value, onChange, limit, isMono, className }: any) => (
+const EditSection = ({ label, icon, value, onChange, onBlur, limit, isMono, className }: any) => (
   <div className="space-y-3">
     <div className="flex items-center justify-between ml-1">
       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">{icon} {label}</label>
       {limit && <span className={`text-[9px] font-black uppercase ${(value || '').length > limit ? 'text-red-500' : 'text-slate-400'}`}>{(value || '').length} / {limit}</span>}
     </div>
-    <textarea value={value || ''} onChange={e => onChange(e.target.value)} className={`w-full p-6 bg-slate-50 border rounded-[2rem] font-bold outline-none transition-all focus:bg-white ${isMono ? 'font-mono' : ''} border-slate-200 focus:border-indigo-500 ${className}`} />
+    <textarea 
+      value={value || ''} 
+      onChange={e => onChange(e.target.value)} 
+      onBlur={onBlur}
+      className={`w-full p-6 bg-slate-50 border rounded-[2rem] font-bold outline-none transition-all focus:bg-white ${isMono ? 'font-mono' : ''} border-slate-200 focus:border-indigo-500 ${className}`} 
+    />
   </div>
 );
