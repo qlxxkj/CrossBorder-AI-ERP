@@ -12,7 +12,7 @@ import { SourcingFormModal } from './SourcingFormModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
 import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
-import { optimizeListingWithOpenAI as optimizeListingWithDeepSeek, translateListingWithOpenAI as translateListingWithDeepSeek } from '../services/deepseekService';
+import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
 
 interface ListingDetailProps {
@@ -94,7 +94,6 @@ const mapStandardUnit = (unit: string, market: string) => {
   return latin[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
 };
 
-// Fix: Implemented missing standardizeImage function for canvas-based image processing and re-upload
 const standardizeImage = async (imageUrl: string): Promise<string> => {
   if (!imageUrl) return "";
   
@@ -116,11 +115,9 @@ const standardizeImage = async (imageUrl: string): Promise<string> => {
         return;
       }
       
-      // White background
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, targetSize, targetSize);
       
-      // Calculate scaling to fit safe area
       const scale = Math.min(safeArea / img.width, safeArea / img.height);
       const drawW = img.width * scale;
       const drawH = img.height * scale;
@@ -222,17 +219,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  /**
-   * 智能物流换算引擎 - 强制非美站点公制化 & 溯源 Master
-   */
   const performLogisticsConversion = (targetMkt: string) => {
     const optMaster = localListing.optimized;
     const cleanMaster = localListing.cleaned;
-    
-    // 强制公制化判定：只要不是 US 站点（含加拿大 CA、英国 UK），一律转为公制
     const isMetric = targetMkt !== 'US';
     
-    // 溯源 Master：优先取优化后的基准，其次采集版
     const sourceUnitW = String(optMaster?.optimized_weight_unit || cleanMaster.item_weight_unit || "lb").toLowerCase();
     const sourceUnitS = String(optMaster?.optimized_size_unit || cleanMaster.item_size_unit || "in").toLowerCase();
     
@@ -254,7 +245,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     let finalW = String(sourceValW), finalL = String(sourceL), finalWd = String(sourceW), finalH = String(sourceH);
 
     if (isMetric) {
-      // 换算至公制 (KG / CM)
       if (sourceUnitW.includes('lb') || sourceUnitW.includes('pound')) {
         finalW = nW > 0 ? (nW * 0.453592).toFixed(2) : "";
       } else if (sourceUnitW.includes('oz') || sourceUnitW.includes('ounce')) {
@@ -271,7 +261,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         finalH = nH > 0 ? (nH * 2.54).toFixed(2) : "";
       }
     } else {
-      // 换算至英制 (针对 US 站点)
       if (sourceUnitW.includes('kg') || sourceUnitW.includes('kilogram')) {
         finalW = nW > 0 ? (nW / 0.453592).toFixed(2) : "";
       } else if (sourceUnitW.includes('g')) {
@@ -307,7 +296,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(source, targetLang);
       else trans = await translateListingWithAI(source, targetLang);
       
-      // 自动触发换算逻辑
       const logistics = performLogisticsConversion(code);
       const rate = exchangeRates.find(r => r.marketplace === code)?.rate || 1;
       
@@ -343,7 +331,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleRecalculateCurrent = () => {
     const results = performLogisticsConversion(activeMarket);
-    // 使用函数式更新确保状态即时生效
     setLocalListing(prev => {
       const next = { ...prev };
       const trans = { ...(next.translations || {}) };
@@ -373,7 +360,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
              <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={updateField} isSaving={isSaving} isProcessing={isProcessingImages} onStandardizeAll={async () => { setIsProcessingImages(true); const newMain = await standardizeImage(localListing.cleaned.main_image || ''); const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImage(u))); updateField('main_image', newMain); updateField('other_images', newOthers); setPreviewImage(newMain); setIsProcessingImages(false); }} onStandardizeOne={(u) => standardizeImage(u).then(n => { if(u === localListing.cleaned.main_image) { updateField('main_image', n); setPreviewImage(n); } else { updateField('other_images', localListing.cleaned.other_images?.map(x => x === u ? n : x)); } })} setShowEditor={setShowImageEditor} fileInputRef={fileInputRef} />
-             <ListingSourcingSection listing={localListing} updateField={updateField} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingRecord} />
+             <ListingSourcingSection listing={localListing} updateField={updateField} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
           </div>
           <div className="lg:col-span-8">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
