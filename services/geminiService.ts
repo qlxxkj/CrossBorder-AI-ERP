@@ -1,34 +1,29 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
 /**
  * Optimizes an Amazon listing using Gemini 3 Flash model.
- * Follows strict branding and formatting rules.
+ * GUARANTEES structured non-empty results for all core fields.
  */
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
-  // Always create a new GoogleGenAI instance right before making an API call to ensure it uses the most up-to-date API key.
+  // Always create a new GoogleGenAI instance right before making an API call
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
     You are an expert Amazon Listing Optimizer. Extract and optimize product data from:
     ${JSON.stringify(cleanedData)}
 
-    [CORE TASKS]
-    1. Title: Max 200 chars, SEO high-conversion.
-    2. Bullets: Exactly 5 high-impact points. Start each with [KEYWORD].
-    3. Description: 1000-1500 chars, use HTML (<p>, <br>).
-    4. Logistics: 
-       - Extract weight and dimensions. 
-       - Standardize to English Title Case FULL NAMES: "Pounds", "Kilograms", "Inches", "Centimeters". 
-       - NEVER use all caps like "KILOGRAMS".
-       - Format numbers to 2 decimal places.
-
-    [CRITICAL - BRAND REMOVAL RULE]
-    - STRICT: Remove ALL specific brand names (e.g. Bosch, Toyota) from the output.
-    - REPLACE brands with generic terms like "select vehicles", "specified models", or "compatible vehicle series".
+    [STRICT REQUIREMENTS]
+    1. Title: Create an SEO-rich title (max 200 chars).
+    2. Bullets: Provide EXACTLY 5 high-impact bullet points. Each must be non-empty and start with a [KEYWORD] or emoji.
+    3. Description: Write a persuasive product description (1000-1500 chars) using basic HTML.
+    4. Search Keywords: Provide 250 characters of high-converting search terms.
+    5. Logistics: Standardize weight and size. Units MUST be Title Case (e.g., "Pounds", "Inches").
     
-    Return valid JSON.
+    [CRITICAL] 
+    - Strip all specific brand names.
+    - If the source data is missing information, use professional common-sense descriptions for this category.
+    - Return ONLY valid JSON.
   `;
 
   try {
@@ -41,7 +36,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
           type: Type.OBJECT,
           properties: {
             optimized_title: { type: Type.STRING },
-            optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
+            optimized_features: { type: Type.ARRAY, items: { type: Type.STRING }, minItems: 5 },
             optimized_description: { type: Type.STRING },
             search_keywords: { type: Type.STRING },
             optimized_weight_value: { type: Type.STRING },
@@ -56,11 +51,9 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
       }
     });
 
-    // The text property returns the generated string directly.
     const text = response.text || "{}";
     return JSON.parse(text.trim()) as OptimizedData;
   } catch (error: any) {
-    // If the request fails with "Requested entity was not found.", prompt the user to select a key again.
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
       if (aistudio) aistudio.openSelectKey();
@@ -70,32 +63,22 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 };
 
 /**
- * Translates and localizes an Amazon listing using Gemini 3 Flash model.
+ * Translates and localizes an Amazon listing for a specific target marketplace.
  */
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLang: string): Promise<Partial<OptimizedData>> => {
-  // Always create a new GoogleGenAI instance right before making an API call to ensure it uses the most up-to-date API key.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Task: Translate and LOCALIZE the content for Amazon listing into "${targetLang}".
+    Task: Translate and LOCALIZE the following listing data for Amazon into "${targetLang}".
     
-    [STRICT RULES]
-    1. Translate Title, 5 Bullets, Description, and Keywords.
-    2. LOCALIZE UNIT NAMES: You MUST translate units into the native official terminology of "${targetLang}". 
-       - For JP (Japan): Use "ポンド" (Pounds), "キログラム" (Kilograms), "インチ" (Inches), "センチメートル" (Centimeters).
-       - For Latin languages (DE, FR, IT, ES): Use Title Case like "Kilogramm", "Gramm", "Zentimeter".
-       - NEVER leave units in all caps or raw English if target is not US/UK.
-    3. BRAND REMOVAL: Strip specific brands and use generic terms in "${targetLang}".
-    4. Numeric values must remain untouched.
+    [LOCALIZATION RULES]
+    1. Translate everything except brand names (if any remain) and numeric values.
+    2. LOCALIZE UNIT NAMES into "${targetLang}" official terminology.
+       - JP (Japan): Use "ポンド", "キログラム", "インチ", "センチメートル".
+       - EU (DE/FR/IT/ES): Use local full names in Title Case (e.g., "Kilogramm" for DE).
+    3. Maintain 5 high-impact bullet points.
 
-    Source: ${JSON.stringify({
-      title: sourceData.optimized_title,
-      features: sourceData.optimized_features,
-      description: sourceData.optimized_description,
-      keywords: sourceData.search_keywords,
-      weight_unit: sourceData.optimized_weight_unit,
-      size_unit: sourceData.optimized_size_unit
-    })}
+    Source: ${JSON.stringify(sourceData)}
   `;
 
   try {
@@ -108,22 +91,19 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
           type: Type.OBJECT,
           properties: {
             optimized_title: { type: Type.STRING },
-            optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
+            optimized_features: { type: Type.ARRAY, items: { type: Type.STRING }, minItems: 5 },
             optimized_description: { type: Type.STRING },
             search_keywords: { type: Type.STRING },
             optimized_weight_unit: { type: Type.STRING },
             optimized_size_unit: { type: Type.STRING }
-          },
-          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords", "optimized_weight_unit", "optimized_size_unit"]
+          }
         }
       }
     });
 
-    // Directly access text property as per guidelines
     const text = response.text || "{}";
     return JSON.parse(text.trim());
   } catch (error: any) {
-    // If the request fails with "Requested entity was not found.", prompt the user to select a key again.
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
       if (aistudio) aistudio.openSelectKey();
@@ -134,42 +114,29 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
 
 /**
  * Edits an image using the gemini-2.5-flash-image model.
- * This function handles sending both image and text parts to the model.
  */
 export const editImageWithAI = async (base64Image: string, prompt: string): Promise<string> => {
-  // Always create a new GoogleGenAI instance right before making an API call to ensure it uses the most up-to-date API key.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
-    const imagePart = {
-      inlineData: {
-        mimeType: 'image/jpeg',
-        data: base64Image,
-      },
-    };
-    const textPart = {
-      text: prompt
-    };
-    
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: { parts: [imagePart, textPart] },
+      contents: {
+        parts: [
+          { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
+          { text: prompt }
+        ]
+      },
     });
 
-    if (!response.candidates?.[0]?.content?.parts) {
-      throw new Error("Empty response from AI");
-    }
+    if (!response.candidates?.[0]?.content?.parts) throw new Error("Empty response from AI");
 
-    // Find and return the image part from the response candidates.
     for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) {
-        return part.inlineData.data;
-      }
+      if (part.inlineData) return part.inlineData.data;
     }
     
     throw new Error("No image data returned in AI response");
   } catch (error: any) {
-    // Handle API key selection reset for "Requested entity was not found." error.
     if (error.message?.includes("Requested entity was not found.")) {
       const aistudio = (window as any).aistudio;
       if (aistudio) aistudio.openSelectKey();

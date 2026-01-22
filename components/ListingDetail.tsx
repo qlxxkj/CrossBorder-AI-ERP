@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
@@ -26,6 +25,7 @@ interface ListingDetailProps {
 }
 
 type AIEngine = 'gemini' | 'openai' | 'deepseek';
+type DetailSubView = 'editor' | 'sourcing';
 
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
@@ -38,6 +38,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMarket, setActiveMarket] = useState('US');
+  const [activeSubView, setActiveSubView] = useState<DetailSubView>('editor');
   const lastListingId = useRef(listing.id);
   
   const [engine, setEngine] = useState<AIEngine>(() => {
@@ -66,6 +67,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   useEffect(() => {
     if (lastListingId.current !== listing.id) {
       setActiveMarket('US');
+      setActiveSubView('editor');
       lastListingId.current = listing.id;
     }
     setLocalListing(listing);
@@ -114,21 +116,32 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
   };
 
+  /**
+   * CORE FIX: Explicitly prioritize optimized data if present.
+   * Handles both Master (US) and Target Markets.
+   */
   const getFieldValue = (optField: string, cleanField: string) => {
     const getUSValue = () => {
+      // Prioritize optimized data if it exists
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
       
+      // Special logic for features (array)
       if (optField.includes('features')) {
         if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && v.trim() !== '')) {
           return optVal;
         }
-        return localListing.cleaned.features || ['', '', '', '', ''];
+        // Fallback to cleaned features if optimized features are empty
+        const cleanedFeatures = localListing.cleaned.features;
+        if (Array.isArray(cleanedFeatures) && cleanedFeatures.length > 0) return cleanedFeatures;
+        return ['', '', '', '', ''];
       }
 
+      // Check if optimized string value is non-empty
       if (optVal !== undefined && optVal !== null && typeof optVal === 'string' && optVal.trim() !== '') {
         return optVal;
       }
       
+      // Fallback to original cleaned data
       const cleanVal = (localListing.cleaned as any)[cleanField];
       if (cleanVal !== undefined && cleanVal !== null && String(cleanVal).trim() !== '') return cleanVal;
       
@@ -137,14 +150,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
     if (activeMarket === 'US') return getUSValue();
 
+    // Handling Target Markets (Translations)
     const trans = localListing.translations?.[activeMarket];
     if (trans && (trans as any)[optField] !== undefined && (trans as any)[optField] !== null) {
       const val = (trans as any)[optField];
-      if (Array.isArray(val) ? (val.length > 0 && val.some(v => v && v.trim() !== '')) : (val !== '' && val !== undefined)) {
+      // Check for array vs string
+      if (Array.isArray(val)) {
+        if (val.length > 0 && val.some(v => v && v.trim() !== '')) return val;
+      } else if (typeof val === 'string' && val.trim() !== '') {
         return val;
       }
     }
     
+    // Auto-calculated fields (Price/Shipping)
     if (optField === 'optimized_price' || optField === 'optimized_shipping') {
       const sourceVal = localListing.cleaned[cleanField] || 0;
       const rate = exchangeRates.find(r => r.marketplace === activeMarket)?.rate || 1;
@@ -152,6 +170,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       return activeMarket === 'JP' ? Math.round(converted) : parseFloat(converted.toFixed(2));
     }
     
+    // Final fallback to US Master values
     return getUSValue();
   };
 
@@ -159,8 +178,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const nextListing = { ...localListing };
     if (activeMarket === 'US') {
       const cleanKey = field.startsWith('optimized_') ? field.replace('optimized_', '') : field;
-      if (nextListing.status === 'optimized' && nextListing.optimized) {
-        nextListing.optimized = { ...nextListing.optimized, [field]: value };
+      // If we already have optimization, update optimized block, otherwise update cleaned block
+      if (nextListing.status === 'optimized' || nextListing.optimized) {
+        nextListing.optimized = { ...(nextListing.optimized || {}), [field]: value } as OptimizedData;
       } else {
         nextListing.cleaned = { ...nextListing.cleaned, [cleanKey]: value };
       }
@@ -171,7 +191,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       nextListing.translations = currentTranslations;
     }
     setLocalListing(nextListing);
-    onUpdate(nextListing); // 通知父级
+    onUpdate(nextListing);
   };
 
   const handleBatchStandardize = async () => {
@@ -208,6 +228,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       nextListing.cleaned.other_images = processed.slice(1);
       setLocalListing(nextListing);
       setPreviewImage(processed[0]);
+      onUpdate(nextListing);
       await syncToSupabase(nextListing);
     } catch (e) { alert("Standardize failed: " + e); } 
     finally { setIsStandardizing(false); }
@@ -222,6 +243,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const nextListing = { ...localListing };
       nextListing.cleaned.other_images = [...(nextListing.cleaned.other_images || []), url];
       setLocalListing(nextListing);
+      onUpdate(nextListing);
       await syncToSupabase(nextListing);
     } catch (err) { alert("Upload failed"); } 
     finally { setIsSaving(false); }
@@ -234,10 +256,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       if (engine === 'openai') opt = await optimizeListingWithOpenAI(localListing.cleaned!);
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(localListing.cleaned!);
       else opt = await optimizeListingWithAI(localListing.cleaned!);
+      
       const updated: Listing = { ...localListing, status: 'optimized', optimized: opt };
       setLocalListing(updated);
-      onUpdate(updated);
-      await syncToSupabase(updated);
+      onUpdate(updated); // Sync immediately to UI
+      await syncToSupabase(updated); // Persistence
     } catch (e: any) { alert(`AI Optimization failed: ` + e.message); } 
     finally { setIsOptimizing(false); }
   };
@@ -287,11 +310,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         setLocalListing(prev => {
           const next = { ...prev };
           next.translations = { ...(next.translations || {}), [marketCode]: updatedTrans };
-          onUpdate(next); // 重要：及时更新父组件
+          onUpdate(next);
           return next;
         });
 
-        // 持久化到 Supabase
         await supabase.from('listings').update({
            translations: { ...(localListing.translations || {}), [marketCode]: updatedTrans }
         }).eq('id', localListing.id);
@@ -379,7 +401,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
       <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          <div className="lg:col-span-4 space-y-6 sticky top-0">
+          <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
                 <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
                    <img src={previewImage} className="max-w-full max-h-full object-contain mix-blend-multiply transition-transform duration-700 group-hover:scale-110" />
@@ -408,204 +430,241 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAddImage} />
                 </div>
              </div>
+
+             {/* Sourcing Summary Card */}
+             <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sourcing Overview</h3>
+                  <button onClick={() => setActiveSubView('sourcing')} className="text-[9px] font-black text-indigo-600 uppercase hover:underline">View All</button>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center">
+                    <Link2 size={18} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-slate-900">{(localListing.sourcing_data || []).length} Records</p>
+                    <p className="text-[10px] font-bold text-slate-400">Attached wholesale links</p>
+                  </div>
+                </div>
+             </div>
           </div>
 
           <div className="lg:col-span-8 space-y-8">
-             <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
+             <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="px-10 py-6 border-b border-slate-50 bg-slate-50/50 flex flex-col md:flex-row items-center justify-between gap-6">
-                   <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-inner overflow-x-auto custom-scrollbar no-scrollbar">
-                      <button onClick={() => handleTabClick('US')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 US Master</button>
-                      {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
-                        const hasTrans = !!localListing.translations?.[m.code];
-                        const isTranslating = translatingMarkets.has(m.code);
-                        return (
-                          <button 
-                            key={m.code} 
-                            onClick={() => handleTabClick(m.code)} 
-                            className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 border relative flex items-center gap-2 ${
-                              activeMarket === m.code 
-                                ? 'bg-indigo-600 text-white shadow-lg border-indigo-600' 
-                                : hasTrans 
-                                  ? 'text-slate-400 hover:text-slate-600 border-transparent' 
-                                  : 'text-slate-300 hover:text-slate-500 border-dashed border-slate-200'
-                            }`}
-                          >
-                            {m.flag} {m.code}
-                            {isTranslating && <Loader2 size={10} className="animate-spin text-white/70" />}
-                          </button>
-                        );
-                      })}
+                   <div className="flex items-center gap-4">
+                      <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-inner">
+                        <button onClick={() => setActiveSubView('editor')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${activeSubView === 'editor' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>
+                          <Edit2 size={12} /> {t('listings')}
+                        </button>
+                        <button onClick={() => setActiveSubView('sourcing')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${activeSubView === 'sourcing' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>
+                          <Search size={12} /> {t('sourcing')}
+                        </button>
+                      </div>
                    </div>
-                   <button onClick={handleBatchTranslate} disabled={isBatchTranslating} className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shrink-0">
-                      {isBatchTranslating ? <Loader2 size={14} className="animate-spin" /> : <Languages size={14} />} Batch Translate All
-                   </button>
+                   {activeSubView === 'editor' && (
+                     <div className="flex items-center gap-3">
+                        <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-inner overflow-x-auto custom-scrollbar no-scrollbar max-w-[400px]">
+                            <button onClick={() => handleTabClick('US')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 Master</button>
+                            {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
+                              const hasTrans = !!localListing.translations?.[m.code];
+                              const isTranslating = translatingMarkets.has(m.code);
+                              return (
+                                <button 
+                                  key={m.code} 
+                                  onClick={() => handleTabClick(m.code)} 
+                                  className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 border relative flex items-center gap-2 ${
+                                    activeMarket === m.code 
+                                      ? 'bg-indigo-600 text-white shadow-lg border-indigo-600' 
+                                      : hasTrans 
+                                        ? 'text-slate-400 hover:text-slate-600 border-transparent' 
+                                        : 'text-slate-300 hover:text-slate-500 border-dashed border-slate-200'
+                                  }`}
+                                >
+                                  {m.flag} {m.code}
+                                  {isTranslating && <Loader2 size={10} className="animate-spin text-white/70" />}
+                                </button>
+                              );
+                            })}
+                        </div>
+                        <button onClick={handleBatchTranslate} disabled={isBatchTranslating} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-all shadow-sm shrink-0">
+                            {isBatchTranslating ? <Loader2 size={16} className="animate-spin" /> : <Languages size={16} />}
+                        </button>
+                     </div>
+                   )}
                 </div>
 
-                <div className="p-10 space-y-10">
-                   <div className="grid grid-cols-2 gap-8 items-end">
-                      <div className="space-y-3">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={14} className="text-emerald-500" /> Price ({activeMarket})</label>
-                         <input 
-                           type="number" step="0.01" 
-                           value={getFieldValue('optimized_price', 'price')}
-                           onChange={(e) => updateField('optimized_price', parseFloat(e.target.value))}
-                           onBlur={() => syncToSupabase(localListing)}
-                           className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl focus:bg-white focus:border-emerald-500 outline-none transition-all" 
-                         />
-                      </div>
-                      <div className="space-y-3">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Truck size={14} className="text-blue-500" /> Shipping Cost</label>
-                         <input 
-                           type="number" step="0.01" 
-                           value={getFieldValue('optimized_shipping', 'shipping')}
-                           onChange={(e) => updateField('optimized_shipping', parseFloat(e.target.value))}
-                           onBlur={() => syncToSupabase(localListing)}
-                           className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl focus:bg-white focus:border-blue-500 outline-none transition-all" 
-                         />
-                      </div>
-                   </div>
-
-                   <div className="grid grid-cols-2 gap-8 items-end">
-                      <div className="space-y-3">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-amber-500" /> Weight & Unit</label>
-                         <div className="flex gap-2 w-full">
-                           <input 
-                            type="text" 
-                            value={getFieldValue('optimized_weight_value', 'item_weight_value')} 
-                            onChange={e => updateField('optimized_weight_value', e.target.value)} 
-                            onBlur={() => syncToSupabase(localListing)}
-                            className="flex-[2] px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none min-w-0" 
-                           />
-                           <input 
-                            type="text" 
-                            value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} 
-                            onChange={e => updateField('optimized_weight_unit', e.target.value)} 
-                            onBlur={() => syncToSupabase(localListing)}
-                            className="flex-1 px-4 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] outline-none focus:border-amber-500 text-center min-w-0"
-                           />
-                         </div>
-                      </div>
-                      <div className="space-y-3">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Ruler size={14} className="text-indigo-500" /> Dimensions & Unit</label>
-                         <div className="flex gap-2 w-full">
-                           <div className="grid grid-cols-3 gap-1 flex-[2]">
-                              <input placeholder="L" type="text" value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs min-w-0" />
-                              <input placeholder="W" type="text" value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs min-w-0" />
-                              <input placeholder="H" type="text" value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs min-w-0" />
+                <div className="p-10">
+                   {activeSubView === 'editor' ? (
+                     <div className="space-y-10">
+                        <div className="grid grid-cols-2 gap-8 items-end">
+                           <div className="space-y-3">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={14} className="text-emerald-500" /> Price ({activeMarket})</label>
+                              <input 
+                                type="number" step="0.01" 
+                                value={getFieldValue('optimized_price', 'price')}
+                                onChange={(e) => updateField('optimized_price', parseFloat(e.target.value))}
+                                onBlur={() => syncToSupabase(localListing)}
+                                className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl focus:bg-white focus:border-emerald-500 outline-none transition-all" 
+                              />
                            </div>
-                           <input 
-                            type="text" 
-                            value={getFieldValue('optimized_size_unit', 'item_size_unit')} 
-                            onChange={e => updateField('optimized_size_unit', e.target.value)} 
-                            onBlur={() => syncToSupabase(localListing)}
-                            className="flex-1 px-4 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] outline-none focus:border-indigo-500 text-center min-w-0"
-                           />
-                         </div>
-                      </div>
-                   </div>
+                           <div className="space-y-3">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Truck size={14} className="text-blue-500" /> Shipping Cost</label>
+                              <input 
+                                type="number" step="0.01" 
+                                value={getFieldValue('optimized_shipping', 'shipping')}
+                                onChange={(e) => updateField('optimized_shipping', parseFloat(e.target.value))}
+                                onBlur={() => syncToSupabase(localListing)}
+                                className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl focus:bg-white focus:border-blue-500 outline-none transition-all" 
+                              />
+                           </div>
+                        </div>
 
-                   <EditSection 
-                    label="Product Title" icon={<ImageIcon size={14}/>} 
-                    value={getFieldValue('optimized_title', 'title')}
-                    onChange={v => updateField('optimized_title', v)}
-                    onBlur={() => syncToSupabase(localListing)}
-                    limit={200} className="text-xl font-black leading-snug"
-                   />
-
-                   <div className="space-y-4">
-                      <div className="flex items-center justify-between ml-1">
-                         <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullets)</label>
-                         <button onClick={() => {
-                            const currentFeatures = getFieldValue('optimized_features', 'features');
-                            updateField('optimized_features', [...currentFeatures, ""]);
-                         }} className="p-1 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-all"><Plus size={16}/></button>
-                      </div>
-                      <div className="space-y-3">
-                         {getFieldValue('optimized_features', 'features').map((f: string, i: number) => (
-                           <div key={i} className="flex gap-4 group">
-                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-2 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
-                              <div className="flex-1 space-y-1">
-                                 <textarea 
-                                   value={f || ''}
-                                   onChange={(e) => {
-                                     const current = [...getFieldValue('optimized_features', 'features')];
-                                     current[i] = e.target.value;
-                                     updateField('optimized_features', current);
-                                   }}
-                                   onBlur={() => syncToSupabase(localListing)}
-                                   className={`w-full p-4 bg-slate-50 border rounded-2xl text-sm font-bold leading-relaxed focus:bg-white outline-none transition-all border-slate-200 focus:border-indigo-500`}
-                                   placeholder={`Bullet Point ${i+1}...`}
-                                 />
-                                 <div className="flex justify-between items-center px-1">
-                                    <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-slate-400'}`}>{(f || '').length} / 500</span>
-                                    <button onClick={() => {
-                                      const current = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
-                                      updateField('optimized_features', current);
-                                      syncToSupabase({...localListing, optimized: {...localListing.optimized, optimized_features: current} as OptimizedData});
-                                    }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12}/></button>
-                                 </div>
+                        <div className="grid grid-cols-2 gap-8 items-end">
+                           <div className="space-y-3">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-amber-500" /> Weight & Unit</label>
+                              <div className="flex gap-2 w-full">
+                                <input 
+                                 type="text" 
+                                 value={getFieldValue('optimized_weight_value', 'item_weight_value')} 
+                                 onChange={e => updateField('optimized_weight_value', e.target.value)} 
+                                 onBlur={() => syncToSupabase(localListing)}
+                                 className="flex-[2] px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none min-w-0" 
+                                />
+                                <input 
+                                 type="text" 
+                                 value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} 
+                                 onChange={e => updateField('optimized_weight_unit', e.target.value)} 
+                                 onBlur={() => syncToSupabase(localListing)}
+                                 className="flex-1 px-4 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] outline-none focus:border-amber-500 text-center min-w-0"
+                                />
                               </div>
                            </div>
-                         ))}
-                      </div>
-                   </div>
-
-                   <EditSection 
-                    label="Product Description (HTML)" icon={<FileText size={14}/>} 
-                    value={getFieldValue('optimized_description', 'description')}
-                    onChange={v => updateField('optimized_description', v)}
-                    onBlur={() => syncToSupabase(localListing)}
-                    limit={2000} isMono className="min-h-[250px] text-xs leading-loose"
-                   />
-
-                   <EditSection 
-                    label="Search Keywords" icon={<Hash size={14}/>} 
-                    value={getFieldValue('search_keywords', 'search_keywords')}
-                    onChange={v => updateField('search_keywords', v)}
-                    onBlur={() => syncToSupabase(localListing)}
-                    limit={250} className="bg-amber-50/20 border-amber-100 focus:border-amber-400 text-sm font-bold"
-                   />
-                </div>
-             </div>
-
-             {/* Supply Chain Discovery - 确保在该列的最底部显示 */}
-             <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm p-10 space-y-8">
-                <div className="flex items-center justify-between">
-                   <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center text-white shadow-xl"><Link2 size={24} /></div>
-                      <div>
-                        <h3 className="text-xl font-black text-slate-900 tracking-tight">Supply Chain Discovery</h3>
-                        <p className="text-xs text-slate-400 font-bold">Manage wholesale sources and manufacturer benchmarks.</p>
-                      </div>
-                   </div>
-                   <div className="flex gap-3">
-                      <button onClick={() => setShowSourcingModal(true)} className="flex items-center gap-2 px-6 py-2.5 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-orange-700 transition-all"><Search size={14} /> AI Visual Search</button>
-                      <button onClick={() => setShowSourcingForm({show: true, data: null})} className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"><Plus size={14} /> Manual Record</button>
-                   </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                   {(localListing.sourcing_data || []).map((s, idx) => (
-                     <div key={idx} className="group bg-slate-50 border border-slate-100 p-5 rounded-3xl flex items-center gap-5 relative hover:bg-white hover:shadow-2xl hover:border-orange-200 transition-all">
-                        <div className="w-16 h-16 bg-white rounded-xl overflow-hidden border border-slate-200 shrink-0">
-                           <img src={s.image} className="w-full h-full object-cover" />
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                           <p className="text-xs font-black text-slate-900 truncate">{s.title}</p>
-                           <p className="text-orange-600 font-black text-lg mt-0.5">{s.price}</p>
-                           <div className="flex items-center gap-3 mt-2">
-                              <a href={s.url} target="_blank" className="inline-flex items-center gap-1.5 text-[9px] font-black text-slate-400 hover:text-blue-600 uppercase tracking-widest transition-colors">Supplier <ExternalLink size={10} /></a>
-                              <button onClick={() => setShowSourcingForm({show: true, data: s})} className="text-[9px] font-black text-slate-400 hover:text-indigo-600 uppercase tracking-widest transition-colors">Edit</button>
+                           <div className="space-y-3">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Ruler size={14} className="text-indigo-500" /> Dimensions & Unit</label>
+                              <div className="flex gap-2 w-full">
+                                <div className="grid grid-cols-3 gap-1 flex-[2]">
+                                   <input placeholder="L" type="text" value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs min-w-0" />
+                                   <input placeholder="W" type="text" value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs min-w-0" />
+                                   <input placeholder="H" type="text" value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-4 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold text-xs min-w-0" />
+                                </div>
+                                <input 
+                                 type="text" 
+                                 value={getFieldValue('optimized_size_unit', 'item_size_unit')} 
+                                 onChange={e => updateField('optimized_size_unit', e.target.value)} 
+                                 onBlur={() => syncToSupabase(localListing)}
+                                 className="flex-1 px-4 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] outline-none focus:border-indigo-500 text-center min-w-0"
+                                />
+                              </div>
                            </div>
                         </div>
-                        <button onClick={() => { 
-                          const next = { ...localListing, sourcing_data: (localListing.sourcing_data || []).filter((_, i) => i !== idx) }; 
-                          setLocalListing(next); syncToSupabase(next); 
-                        }} className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={14} /></button>
+
+                        <EditSection 
+                         label="Product Title" icon={<ImageIcon size={14}/>} 
+                         value={getFieldValue('optimized_title', 'title')}
+                         onChange={v => updateField('optimized_title', v)}
+                         onBlur={() => syncToSupabase(localListing)}
+                         limit={200} className="text-xl font-black leading-snug"
+                        />
+
+                        <div className="space-y-4">
+                           <div className="flex items-center justify-between ml-1">
+                              <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullets)</label>
+                              <button onClick={() => {
+                                 const currentFeatures = getFieldValue('optimized_features', 'features');
+                                 updateField('optimized_features', [...currentFeatures, ""]);
+                              }} className="p-1 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-all"><Plus size={16}/></button>
+                           </div>
+                           <div className="space-y-3">
+                              {getFieldValue('optimized_features', 'features').map((f: string, i: number) => (
+                                <div key={i} className="flex gap-4 group">
+                                   <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-2 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
+                                   <div className="flex-1 space-y-1">
+                                      <textarea 
+                                        value={f || ''}
+                                        onChange={(e) => {
+                                          const current = [...getFieldValue('optimized_features', 'features')];
+                                          current[i] = e.target.value;
+                                          updateField('optimized_features', current);
+                                        }}
+                                        onBlur={() => syncToSupabase(localListing)}
+                                        className={`w-full p-4 bg-slate-50 border rounded-2xl text-sm font-bold leading-relaxed focus:bg-white outline-none transition-all border-slate-200 focus:border-indigo-500`}
+                                        placeholder={`Bullet Point ${i+1}...`}
+                                      />
+                                      <div className="flex justify-between items-center px-1">
+                                         <span className={`text-[9px] font-black uppercase ${(f || '').length > 500 ? 'text-red-500' : 'text-slate-400'}`}>{(f || '').length} / 500</span>
+                                         <button onClick={() => {
+                                           const current = [...getFieldValue('optimized_features', 'features')].filter((_, idx) => idx !== i);
+                                           updateField('optimized_features', current);
+                                           syncToSupabase({...localListing, optimized: {...localListing.optimized, optimized_features: current} as OptimizedData});
+                                         }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12}/></button>
+                                      </div>
+                                   </div>
+                                </div>
+                              ))}
+                           </div>
+                        </div>
+
+                        <EditSection 
+                         label="Product Description (HTML)" icon={<FileText size={14}/>} 
+                         value={getFieldValue('optimized_description', 'description')}
+                         onChange={v => updateField('optimized_description', v)}
+                         onBlur={() => syncToSupabase(localListing)}
+                         limit={2000} isMono className="min-h-[250px] text-xs leading-loose"
+                        />
+
+                        <EditSection 
+                         label="Search Keywords" icon={<Hash size={14}/>} 
+                         value={getFieldValue('search_keywords', 'search_keywords')}
+                         onChange={v => updateField('search_keywords', v)}
+                         onBlur={() => syncToSupabase(localListing)}
+                         limit={250} className="bg-amber-50/20 border-amber-100 focus:border-amber-400 text-sm font-bold"
+                        />
                      </div>
-                   ))}
-                   {(localListing.sourcing_data || []).length === 0 && (
-                     <div className="col-span-2 py-16 bg-slate-50 border-2 border-dashed border-slate-100 rounded-[2.5rem] flex flex-col items-center justify-center opacity-30"><Link2 size={32} className="mb-3" /><p className="text-[10px] font-black uppercase tracking-widest">No sourcing data attached</p></div>
+                   ) : (
+                     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                        <div className="flex flex-col md:flex-row items-center justify-between gap-6 bg-orange-50/50 p-10 rounded-[2.5rem] border border-orange-100">
+                           <div className="flex items-center gap-6">
+                              <div className="w-16 h-16 bg-orange-600 rounded-[1.5rem] flex items-center justify-center text-white shadow-xl"><Link2 size={32} /></div>
+                              <div>
+                                <h3 className="text-2xl font-black text-slate-900 tracking-tight">Supply Chain Discovery</h3>
+                                <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Connect with Source Manufacturers</p>
+                              </div>
+                           </div>
+                           <div className="flex gap-3">
+                              <button onClick={() => setShowSourcingModal(true)} className="flex items-center gap-2 px-8 py-3.5 bg-orange-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-orange-700 transition-all active:scale-95"><Search size={16} /> AI Visual Search</button>
+                              <button onClick={() => setShowSourcingForm({show: true, data: null})} className="flex items-center gap-2 px-8 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-50 transition-all active:scale-95"><Plus size={16} /> Manual Link</button>
+                           </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                           {(localListing.sourcing_data || []).map((s, idx) => (
+                             <div key={idx} className="group bg-white border border-slate-100 p-6 rounded-[2rem] flex flex-col gap-5 relative hover:shadow-2xl hover:border-orange-200 transition-all shadow-sm">
+                                <div className="aspect-square bg-slate-50 rounded-2xl overflow-hidden border border-slate-100 flex items-center justify-center relative">
+                                   <img src={s.image || previewImage} className="max-w-full max-h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                                   <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-orange-600 font-black text-xs shadow-sm border border-orange-100">{s.price}</div>
+                                </div>
+                                <div className="space-y-3">
+                                   <p className="text-xs font-black text-slate-900 line-clamp-2 uppercase tracking-tighter leading-tight min-h-[2.5rem]">{s.title}</p>
+                                   <div className="flex items-center gap-3 pt-2 border-t border-slate-50">
+                                      <a href={s.url} target="_blank" className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-orange-600 transition-colors">Supplier <ExternalLink size={12} /></a>
+                                      <button onClick={() => setShowSourcingForm({show: true, data: s})} className="p-2.5 bg-slate-50 text-slate-400 hover:text-indigo-600 rounded-xl transition-all"><Edit2 size={16}/></button>
+                                      <button onClick={() => { 
+                                        const next = { ...localListing, sourcing_data: (localListing.sourcing_data || []).filter((_, i) => i !== idx) }; 
+                                        setLocalListing(next); onUpdate(next); syncToSupabase(next); 
+                                      }} className="p-2.5 bg-slate-50 text-slate-400 hover:text-red-500 rounded-xl transition-all"><Trash2 size={16}/></button>
+                                   </div>
+                                </div>
+                             </div>
+                           ))}
+                           {(localListing.sourcing_data || []).length === 0 && (
+                             <div className="col-span-full py-32 bg-slate-50 border-4 border-dashed border-slate-100 rounded-[3rem] flex flex-col items-center justify-center opacity-30 text-slate-400 gap-4">
+                                <Link2 size={64} />
+                                <p className="font-black text-xl uppercase tracking-widest">No sourcing data attached yet.</p>
+                             </div>
+                           )}
+                        </div>
+                     </div>
                    )}
                 </div>
              </div>
@@ -623,7 +682,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             if (existingIdx >= 0) nextData[existingIdx] = res;
             else nextData.push(res);
             const next = { ...localListing, sourcing_data: nextData };
-            setLocalListing(next); syncToSupabase(next); setShowSourcingForm({show: false, data: null});
+            setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowSourcingForm({show: false, data: null});
           }} 
         />
       )}
@@ -631,7 +690,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       {showSourcingModal && (
         <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={(res) => {
             const next = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] };
-            setLocalListing(next); syncToSupabase(next); setShowSourcingModal(false);
+            setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowSourcingModal(false);
           }}
         />
       )}
