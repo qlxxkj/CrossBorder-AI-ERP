@@ -34,13 +34,14 @@ const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 const MARKET_LANG_MAP: Record<string, string> = {
   'DE': 'German', 'FR': 'French', 'IT': 'Italian', 'ES': 'Spanish', 
   'JP': 'Japanese', 'PL': 'Polish', 'NL': 'Dutch', 'SE': 'Swedish', 
-  'BR': 'Portuguese', 'MX': 'Spanish', 'EG': 'Arabic', 'BE': 'French'
+  'BR': 'Portuguese', 'MX': 'Spanish', 'EG': 'Arabic', 'BE': 'French',
+  'TR': 'Turkish', 'SA': 'Arabic', 'AE': 'Arabic'
 };
 
-const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'UK', 'CA', 'MX', 'PL', 'NL', 'SE', 'BE', 'SG', 'AU', 'EG'];
+const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'UK', 'CA', 'MX', 'PL', 'NL', 'SE', 'BE', 'SG', 'AU', 'EG', 'TR', 'SA', 'AE'];
 
 /**
- * 亚马逊标准单位格式化
+ * 亚马逊标准单位格式化 (严格全拼 + 首字母大写/本地化)
  */
 const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
@@ -71,7 +72,11 @@ const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
     'mm': 'Millimeters', 'millimeter': 'Millimeters', 'millimeters': 'Millimeters'
   };
 
-  return standardMap[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
+  const res = standardMap[u];
+  if (res) return res;
+
+  // 兜底首字母大写
+  return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
@@ -113,7 +118,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!isSupabaseConfigured()) return;
     setIsSaving(true);
     try {
-      await supabase.from('listings').update({
+      const { error } = await supabase.from('listings').update({
         cleaned: targetListing.cleaned,
         optimized: targetListing.optimized || null,
         translations: targetListing.translations || null,
@@ -121,8 +126,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         sourcing_data: targetListing.sourcing_data || [],
         updated_at: new Date().toISOString()
       }).eq('id', targetListing.id);
-    } catch (e) { console.error(e); } 
-    finally { setIsSaving(false); }
+      
+      if (error) throw error;
+    } catch (e) { 
+      console.error("Supabase Sync Error:", e);
+    } finally { 
+      setIsSaving(false); 
+    }
   };
 
   const getFieldValue = (optField: string, cleanField: string) => {
@@ -151,7 +161,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       nextListing.optimized = { ...(nextListing.optimized || {}), [field]: value } as OptimizedData;
     } else {
       const currentTranslations = { ...(nextListing.translations || {}) };
-      const currentTrans = currentTranslations[activeMarket] || { optimized_title: '', optimized_features: ['', '', '', '', ''], optimized_description: '', search_keywords: '' } as OptimizedData;
+      const currentTrans = currentTranslations[activeMarket] || { 
+        optimized_title: '', 
+        optimized_features: ['', '', '', '', ''], 
+        optimized_description: '', 
+        search_keywords: '' 
+      } as OptimizedData;
       currentTranslations[activeMarket] = { ...currentTrans, [field]: value };
       nextListing.translations = currentTranslations;
     }
@@ -159,35 +174,48 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     onUpdate(nextListing);
   };
 
-  const translateMarket = async (marketCode: string) => {
+  /**
+   * 重构核心翻译函数：增加同步存库支持
+   */
+  const translateMarket = async (marketCode: string, currentListingState?: Listing) => {
     if (marketCode === 'US' || translatingMarkets.has(marketCode)) return;
+    
+    // 使用传入的状态或当前最新状态，避免闭包过时
+    const activeState = currentListingState || localListing;
+    
     setTranslatingMarkets(prev => new Set(prev).add(marketCode));
     try {
-      const sourceData = localListing.optimized || {
-        optimized_title: localListing.cleaned.title,
-        optimized_features: localListing.cleaned.features || [],
-        optimized_description: localListing.cleaned.description || '',
-        search_keywords: localListing.cleaned.search_keywords || '',
-        optimized_weight_value: localListing.cleaned.item_weight_value,
-        optimized_weight_unit: localListing.cleaned.item_weight_unit,
-        optimized_length: localListing.cleaned.item_length,
-        optimized_width: localListing.cleaned.item_width,
-        optimized_height: localListing.cleaned.item_height,
-        optimized_size_unit: localListing.cleaned.item_size_unit
+      const sourceData = activeState.optimized || {
+        optimized_title: activeState.cleaned.title,
+        optimized_features: activeState.cleaned.features || [],
+        optimized_description: activeState.cleaned.description || '',
+        search_keywords: activeState.cleaned.search_keywords || '',
+        optimized_weight_value: activeState.cleaned.item_weight_value,
+        optimized_weight_unit: activeState.cleaned.item_weight_unit,
+        optimized_length: activeState.cleaned.item_length,
+        optimized_width: activeState.cleaned.item_width,
+        optimized_height: activeState.cleaned.item_height,
+        optimized_size_unit: activeState.cleaned.item_size_unit
       } as OptimizedData;
       
       const targetLang = MARKET_LANG_MAP[marketCode];
       let trans: Partial<OptimizedData>;
 
       const isEnglishMkt = ['UK', 'CA', 'AU', 'SG', 'IE'].includes(marketCode);
+      
       if (isEnglishMkt || !targetLang) {
+        // 加拿大等英语站逻辑
         trans = { ...sourceData };
       } else {
+        // 墨西哥（ES）等非英语站调用 AI
         if (engine === 'openai') trans = await translateListingWithOpenAI(sourceData, targetLang);
         else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceData, targetLang);
         else trans = await translateListingWithAI(sourceData, targetLang);
       }
 
+      if (!trans || Object.keys(trans).length === 0) throw new Error("AI returned empty translation");
+
+      // 换算逻辑
       const isMetric = METRIC_MARKETS.includes(marketCode);
       const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
       
@@ -202,9 +230,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const finalTrans: OptimizedData = {
         ...sourceData,
         ...trans,
-        optimized_price: parseFloat(((localListing.cleaned.price || 0) * rate).toFixed(2)),
-        optimized_shipping: parseFloat(((localListing.cleaned.shipping || 0) * rate).toFixed(2)),
-        // 重量与尺寸标准化
+        optimized_price: parseFloat(((activeState.cleaned.price || 0) * rate).toFixed(2)),
+        optimized_shipping: parseFloat(((activeState.cleaned.shipping || 0) * rate).toFixed(2)),
         optimized_weight_value: needsWeightConv ? convertVal(sourceData.optimized_weight_value, 0.453) : sourceData.optimized_weight_value,
         optimized_weight_unit: getAmazonStandardUnit(isMetric ? 'kg' : 'lb', marketCode),
         optimized_length: needsDimConv ? convertVal(sourceData.optimized_length, 2.54) : sourceData.optimized_length,
@@ -213,13 +240,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_size_unit: getAmazonStandardUnit(isMetric ? 'cm' : 'in', marketCode)
       };
 
-      const nextListing = { ...localListing };
-      nextListing.translations = { ...(nextListing.translations || {}), [marketCode]: finalTrans };
+      const nextListing = { 
+        ...activeState, 
+        translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } 
+      };
+
       setLocalListing(nextListing); 
       onUpdate(nextListing);
+      
+      // 关键修复：翻译完成后立即同步到数据库
+      await syncToSupabase(nextListing);
+      
       return nextListing;
     } catch (e) {
       console.error(`Translate ${marketCode} failed:`, e);
+      return null;
     } finally {
       setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(marketCode); return n; });
     }
@@ -230,20 +265,24 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const targetMarkets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
     setBatchProgress({ current: 0, total: targetMarkets.length, market: '' });
     
+    // 串行执行，确保每个站点的状态都被正确继承
+    let currentListing = { ...localListing };
     for (let i = 0; i < targetMarkets.length; i++) {
       const mkt = targetMarkets[i];
       setBatchProgress({ current: i + 1, total: targetMarkets.length, market: mkt.code });
-      await translateMarket(mkt.code);
+      const result = await translateMarket(mkt.code, currentListing);
+      if (result) currentListing = result;
     }
     
+    setBatchProgress({ current: 0, total: 0, market: '' });
     setIsBatchTranslating(false);
   };
 
-  const handleMarketClick = (code: string) => {
+  const handleMarketClick = async (code: string) => {
     setActiveMarket(code);
-    // 交互增强：如果点击了未翻译站点，自动触发单点翻译
+    // 交互增强：如果点击了未翻译站点，自动触发单点翻译并存库
     if (code !== 'US' && !localListing.translations?.[code] && !translatingMarkets.has(code)) {
-      translateMarket(code);
+      await translateMarket(code);
     }
   };
 
