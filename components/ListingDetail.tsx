@@ -39,84 +39,25 @@ const MARKET_LANG_MAP: Record<string, string> = {
   'TR': 'Turkish', 'SA': 'Arabic', 'AE': 'Arabic'
 };
 
-const METRIC_MARKETS = ['DE', 'FR', 'IT', 'ES', 'JP', 'UK', 'CA', 'MX', 'PL', 'NL', 'SE', 'BE', 'SG', 'AU', 'EG', 'TR', 'SA', 'AE'];
-
 const parseNumeric = (val: any): number => {
   if (val === undefined || val === null || val === '') return 0;
   const n = parseFloat(String(val).replace(/[^0-9.]/g, ''));
   return isNaN(n) ? 0 : n;
 };
 
-// 增强版：站点单位本地化映射
 const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
-  
-  // 如果已经包含非英文字符，说明 AI 已经翻译过了，直接返回
   if (/[^\x00-\x7F]/.test(unit)) return unit;
-
-  // 阿拉伯语站点 (EG, SA, AE)
   if (['EG', 'SA', 'AE'].includes(market)) {
-    const arMap: Record<string, string> = {
-      'kg': 'كيلوجرام', 'kilogram': 'كيلوجرام', 'kilograms': 'كيلوجرام',
-      'g': 'جرام', 'gram': 'جرام', 'grams': 'جرام',
-      'lb': 'رطل', 'lbs': 'رطل', 'pound': 'رطل', 'pounds': 'رطل',
-      'oz': 'أونصة', 'ounce': 'أونصة', 'ounces': 'أونصة',
-      'in': 'بوصة', 'inch': 'بوصة', 'inches': 'بوصة',
-      'cm': 'سنتيمتر', 'centimeter': 'سنتيمتر', 'centimeters': 'سنتيمتر',
-      'mm': 'ملليمتر', 'millimeter': 'ملليمتر', 'millimeters': 'ملليمتر'
-    };
+    const arMap: Record<string, string> = { 'kg': 'كيلوجرام', 'lb': 'رطل', 'in': 'بوصة', 'cm': 'سنتيمتر' };
     return arMap[u] || unit;
   }
-
-  // 日本站 (JP)
   if (market === 'JP') {
-    const jpMap: Record<string, string> = {
-      'lb': 'ポンド', 'lbs': 'ポンド', 'pounds': 'ポンド', 'pound': 'ポンド',
-      'kg': 'キログラム', 'kilogram': 'キログラム', 'kilograms': 'キログラム',
-      'oz': 'オンス', 'ounce': 'オンス', 'ounces': 'オンス',
-      'g': 'グラム', 'gram': 'グラム', 'grams': 'グラム',
-      'in': 'インチ', 'inch': 'インチ', 'inches': 'インチ',
-      'cm': 'センチメートル', 'centimeter': 'センチメートル', 'centimeters': 'センチメートル',
-      'mm': 'ミリメートル', 'millimeter': 'ミリメートル', 'millimeters': 'ミリメートル'
-    };
+    const jpMap: Record<string, string> = { 'lb': 'ポンド', 'kg': 'キログラム', 'in': 'インチ', 'cm': 'センチメートル' };
     return jpMap[u] || unit;
   }
-
-  // 德语站点 (DE)
-  if (market === 'DE') {
-    const deMap: Record<string, string> = {
-      'kg': 'Kilogramm', 'kilograms': 'Kilogramm', 'g': 'Gramm', 'grams': 'Gramm',
-      'lb': 'Pfund', 'lbs': 'Pfund', 'in': 'Zoll', 'inch': 'Zoll', 'cm': 'Zentimeter', 'centimeter': 'Zentimeter'
-    };
-    if (deMap[u]) return deMap[u];
-  }
-
-  // 法语/比利时 (FR, BE)
-  if (['FR', 'BE'].includes(market)) {
-    const frMap: Record<string, string> = {
-      'kg': 'Kilogrammes', 'kilograms': 'Kilogrammes', 'g': 'Grammes', 'in': 'Pouces', 'inch': 'Pouces', 'cm': 'Centimètres'
-    };
-    if (frMap[u]) return frMap[u];
-  }
-
-  // 西班牙/墨西哥 (ES, MX)
-  if (['ES', 'MX'].includes(market)) {
-    const esMap: Record<string, string> = {
-      'kg': 'Kilogramos', 'lb': 'Libras', 'in': 'Pulgadas', 'inch': 'Pulgadas', 'cm': 'Centímetros'
-    };
-    if (esMap[u]) return esMap[u];
-  }
-
-  const standardMap: Record<string, string> = {
-    'lb': 'Pounds', 'lbs': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
-    'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
-    'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces',
-    'g': 'Grams', 'gram': 'Grams', 'grams': 'Grams',
-    'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches',
-    'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters',
-    'mm': 'Millimeters', 'millimeter': 'Millimeters', 'millimeters': 'Millimeters'
-  };
+  const standardMap: Record<string, string> = { 'lb': 'Pounds', 'kg': 'Kilograms', 'in': 'Inches', 'cm': 'Centimeters' };
   return standardMap[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
 };
 
@@ -131,13 +72,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, market: '' });
-  const [isStandardizing, setIsStandardizing] = useState(false);
   const [translatingMarkets, setTranslatingMarkets] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   
   const [showImageEditor, setShowImageEditor] = useState(false);
   const [showSourcingModal, setShowSourcingModal] = useState(false);
-  const [showSourcingForm, setShowSourcingForm] = useState<{show: boolean, data: SourcingRecord | null}>({show: false, data: null});
   
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [previewImage, setPreviewImage] = useState<string>(listing.cleaned?.main_image || '');
@@ -168,45 +107,55 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         updated_at: new Date().toISOString()
       }).eq('id', targetListing.id);
       if (error) throw error;
-    } catch (e) { 
-      console.error("Supabase Sync Failed:", e);
-    } finally { 
-      setIsSaving(false); 
-    }
+    } catch (e) { console.error("Supabase Sync Failed:", e); } 
+    finally { setIsSaving(false); }
   };
 
   const getFieldValue = (optField: string, cleanField: string) => {
     const isUS = activeMarket === 'US';
     const sourceData = isUS ? localListing.optimized : localListing.translations?.[activeMarket];
     
+    // 1. 特殊处理：五点描述
     if (optField === 'optimized_features') {
+      const rawFeats = sourceData ? ((sourceData as any)['optimized_features'] || (sourceData as any)['features'] || (sourceData as any)['bullet_points']) : null;
       let feats: string[] = [];
-      const rawFeats = sourceData ? ((sourceData as any)[optField] || (sourceData as any)['features'] || (sourceData as any)['bullet_points']) : null;
-      
       if (Array.isArray(rawFeats)) {
-        feats = rawFeats.filter(p => p && String(p).trim() !== '');
-      } 
-      else if (isUS) {
-        const rawPoints = localListing.cleaned?.bullet_points || localListing.cleaned?.features;
-        if (Array.isArray(rawPoints)) {
-          feats = rawPoints.filter(p => p && String(p).trim() !== '');
-        }
+        feats = rawFeats.map(f => String(f || "").trim());
+      } else if (typeof rawFeats === 'string' && rawFeats.trim() !== '') {
+        feats = rawFeats.split('\n').map(f => f.trim()).filter(Boolean);
       }
+      
+      // 如果是非美国站且 sourceData 存在（说明翻译过了），即便为空也显示空
+      if (!isUS && sourceData) {
+        const result = [...feats];
+        while (result.length < 5) result.push('');
+        return result.slice(0, 5);
+      }
+
+      // 如果是美国站，允许回退到 cleaned 数据
+      if (isUS && feats.length === 0) {
+        feats = (localListing.cleaned?.bullet_points || localListing.cleaned?.features || []).filter(Boolean);
+      }
+
       const result = [...feats];
       while (result.length < 5) result.push('');
       return result.slice(0, 5);
     }
 
-    const shortKey = optField.replace('optimized_', '');
-    const optVal = sourceData ? ((sourceData as any)[optField] ?? (sourceData as any)[shortKey]) : null;
+    // 2. 普通字段逻辑
+    let val = sourceData ? (sourceData as any)[optField] : null;
 
-    if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') {
-      return optVal;
+    // 严苛模式：如果是翻译站点且数据对象存在，直接返回结果（可能为空）
+    if (!isUS && sourceData) {
+      return val || "";
     }
+
+    // 如果是美国站，允许 fallback 到采集的原始数据
     if (isUS) {
-      return (localListing.cleaned as any)[cleanField] || '';
+      return val || (localListing.cleaned as any)[cleanField] || "";
     }
-    return '';
+
+    return "";
   };
 
   const updateField = (field: string, value: any) => {
@@ -253,54 +202,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       
       if (!trans || Object.keys(trans).length === 0) throw new Error("AI engine returned invalid or empty JSON.");
 
-      const isMetric = METRIC_MARKETS.includes(marketCode);
-      const rateEntry = exchangeRates.find(r => r.marketplace === marketCode);
-      const rate = rateEntry ? rateEntry.rate : 1;
+      const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
 
-      const rawWeightValue = parseNumeric(activeState.optimized?.optimized_weight_value || activeState.cleaned.item_weight_value || activeState.cleaned.item_weight);
-      const rawWeightUnit = (activeState.optimized?.optimized_weight_unit || activeState.cleaned.item_weight_unit || 'lb').toLowerCase();
-      
-      let finalWeight = rawWeightValue;
-      let finalWeightUnit = rawWeightUnit;
-
-      if (isMetric) {
-        if (rawWeightUnit.includes('lb') || rawWeightUnit.includes('pound')) {
-          finalWeight = rawWeightValue * 0.453592;
-          finalWeightUnit = 'Kilograms';
-        } else if (rawWeightUnit.includes('oz') || rawWeightUnit.includes('ounce')) {
-          finalWeight = rawWeightValue * 0.0283495;
-          finalWeightUnit = 'Kilograms';
-        } else {
-          finalWeightUnit = 'Kilograms';
-        }
-      }
-
-      const rawL = parseNumeric(activeState.optimized?.optimized_length || activeState.cleaned.item_length);
-      const rawW = parseNumeric(activeState.optimized?.optimized_width || activeState.cleaned.item_width);
-      const rawH = parseNumeric(activeState.optimized?.optimized_height || activeState.cleaned.item_height);
-      const rawSizeUnit = (activeState.optimized?.optimized_size_unit || activeState.cleaned.item_size_unit || 'in').toLowerCase();
-
-      let finalL = rawL, finalW = rawW, finalH = rawH, finalSizeUnit = rawSizeUnit;
-      if (isMetric && (rawSizeUnit.includes('in') || rawSizeUnit.includes('inch'))) {
-        finalL = rawL * 2.54;
-        finalW = rawW * 2.54;
-        finalH = rawH * 2.54;
-        finalSizeUnit = 'Centimeters';
-      } else if (isMetric) {
-        finalSizeUnit = 'Centimeters';
-      }
-
+      // 核心变更：不再混入 sourceDataForTranslation，如果 trans 缺失某个字段，则该字段保持为空。
       const finalTrans: OptimizedData = {
-        ...sourceDataForTranslation,
-        ...trans,
+        optimized_title: trans.optimized_title || "",
+        optimized_features: Array.isArray(trans.optimized_features) ? trans.optimized_features : ["", "", "", "", ""],
+        optimized_description: trans.optimized_description || "",
+        search_keywords: trans.search_keywords || "",
         optimized_price: parseFloat(((activeState.cleaned.price || 0) * rate).toFixed(2)),
         optimized_shipping: parseFloat(((activeState.cleaned.shipping || 0) * rate).toFixed(2)),
-        optimized_weight_value: finalWeight.toFixed(2),
-        optimized_weight_unit: getAmazonStandardUnit(trans.optimized_weight_unit || finalWeightUnit, marketCode),
-        optimized_length: finalL.toFixed(2),
-        optimized_width: finalW.toFixed(2),
-        optimized_height: finalH.toFixed(2),
-        optimized_size_unit: getAmazonStandardUnit(trans.optimized_size_unit || finalSizeUnit, marketCode)
+        optimized_weight_value: trans.optimized_weight_value || "",
+        optimized_weight_unit: getAmazonStandardUnit(trans.optimized_weight_unit, marketCode),
+        optimized_length: trans.optimized_length || "",
+        optimized_width: trans.optimized_width || "",
+        optimized_height: trans.optimized_height || "",
+        optimized_size_unit: getAmazonStandardUnit(trans.optimized_size_unit, marketCode)
       };
 
       const updatedListing = { 
@@ -343,126 +260,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
-  const uploadImageToHost = async (dataUrlOrBlob: string | Blob, asin: string): Promise<string> => {
-    let file: File;
-    if (typeof dataUrlOrBlob === 'string' && dataUrlOrBlob.startsWith('data:')) {
-      const res = await fetch(dataUrlOrBlob);
-      const blob = await res.blob();
-      file = new File([blob], `${asin}_${Date.now()}.jpg`, { type: 'image/jpeg' });
-    } else if (dataUrlOrBlob instanceof Blob) {
-      file = new File([dataUrlOrBlob], `${asin}_${Date.now()}.jpg`, { type: 'image/jpeg' });
-    } else if (typeof dataUrlOrBlob === 'string') {
-      const res = await fetch(`${CORS_PROXY}${encodeURIComponent(dataUrlOrBlob)}`);
-      const blob = await res.blob();
-      file = new File([blob], `${asin}_${Date.now()}.jpg`, { type: 'image/jpeg' });
-    } else {
-      throw new Error("Invalid image data");
-    }
-    const formDataBody = new FormData();
-    formDataBody.append('file', file);
-    const response = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formDataBody });
-    const data = await response.json();
-    return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
-  };
-
-  const processImageTo1600 = async (imageUrl: string): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1600;
-        canvas.height = 1600;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return reject("Canvas context fail");
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, 1600, 1600);
-        const targetInnerSize = 1500;
-        const scale = Math.min(targetInnerSize / img.width, targetInnerSize / img.height);
-        const drawW = img.width * scale;
-        const drawH = img.height * scale;
-        const x = (1600 - drawW) / 2;
-        const y = (1600 - drawH) / 2;
-        ctx.drawImage(img, x, y, drawW, drawH);
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject("Blob generation fail");
-        }, 'image/jpeg', 0.95);
-      };
-      img.onerror = () => reject("Image load fail");
-    });
-  };
-
-  const handleBatchStandardize = async () => {
-    setIsStandardizing(true);
-    try {
-      const nextListing = { ...localListing };
-      const allImgs = [nextListing.cleaned.main_image, ...(nextListing.cleaned.other_images || [])].filter(Boolean) as string[];
-      const processed: string[] = [];
-      for (const url of allImgs) {
-        const blob = await processImageTo1600(url);
-        const hostedUrl = await uploadImageToHost(blob, localListing.asin);
-        processed.push(hostedUrl);
-      }
-      nextListing.cleaned.main_image = processed[0];
-      nextListing.cleaned.other_images = processed.slice(1);
-      setLocalListing(nextListing); 
-      setPreviewImage(processed[0]); 
-      onUpdate(nextListing); 
-      await syncToSupabase(nextListing);
-    } catch (e: any) { 
-      console.error("Standardize Error:", e);
-      alert("Standardize failed: " + (e.message || String(e))); 
-    } finally { 
-      setIsStandardizing(false); 
-    }
-  };
-
-  const handleSingleStandardize = async (imgUrl: string) => {
-    setIsSaving(true);
-    try {
-      const blob = await processImageTo1600(imgUrl);
-      const hostedUrl = await uploadImageToHost(blob, localListing.asin);
-      
-      const nextListing = { ...localListing };
-      if (imgUrl === localListing.cleaned.main_image) {
-        nextListing.cleaned.main_image = hostedUrl;
-      } else {
-        const others = [...(localListing.cleaned.other_images || [])];
-        const idx = others.indexOf(imgUrl);
-        if (idx !== -1) {
-          others[idx] = hostedUrl;
-          nextListing.cleaned.other_images = others;
-        }
-      }
-      
-      if (previewImage === imgUrl) setPreviewImage(hostedUrl);
-      setLocalListing(nextListing);
-      onUpdate(nextListing);
-      await syncToSupabase(nextListing);
-    } catch (e: any) {
-      alert("Single standardize failed: " + (e.message || String(e)));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleAddImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsSaving(true);
-    try {
-      const url = await uploadImageToHost(file, localListing.asin);
-      const nextListing = { ...localListing };
-      nextListing.cleaned.other_images = [...(nextListing.cleaned.other_images || []), url];
-      setLocalListing(nextListing); 
-      onUpdate(nextListing); 
-      await syncToSupabase(nextListing);
-    } catch (err) { alert("Upload failed"); } 
-    finally { setIsSaving(false); if (e.target) e.target.value = ''; }
-  };
-
   const handleOptimize = async () => {
     setIsOptimizing(true);
     try {
@@ -472,15 +269,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(sourceData);
       else opt = await optimizeListingWithAI(sourceData);
       
-      const updatedListing: Listing = { 
-        ...localListing, 
-        optimized: opt, 
-        status: 'optimized',
-        updated_at: new Date().toISOString()
-      };
-      
-      setLocalListing({ ...updatedListing }); 
-      onUpdate({ ...updatedListing }); 
+      const updatedListing: Listing = { ...localListing, optimized: opt, status: 'optimized', updated_at: new Date().toISOString() };
+      setLocalListing(updatedListing); 
+      onUpdate(updatedListing); 
       await syncToSupabase(updatedListing);
       setActiveMarket('US'); 
     } catch (e: any) { alert(`Optimization Failed: ${e.message}`); } 
@@ -527,19 +318,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
                 <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
-                   {isSaving && (
-                     <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-center justify-center z-10">
-                        <Loader2 className="animate-spin text-indigo-600" size={32} />
-                     </div>
-                   )}
+                   {isSaving && <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-center justify-center z-10"><Loader2 className="animate-spin text-indigo-600" size={32} /></div>}
                    <img src={previewImage} className="max-w-full max-h-full object-contain transition-transform duration-700 group-hover:scale-110" />
                    <div className="absolute bottom-4 right-4 flex gap-2">
-                      <button onClick={handleBatchStandardize} disabled={isStandardizing || isSaving} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all disabled:opacity-50">
-                        {isStandardizing ? <Loader2 className="animate-spin" size={12} /> : <Box size={12} />} 1600 Std
-                      </button>
-                      <button onClick={() => setShowImageEditor(true)} disabled={isSaving} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all">
-                         <Wand2 size={12} /> AI Editor
-                      </button>
+                      <button onClick={() => setShowImageEditor(true)} disabled={isSaving} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all"><Wand2 size={12} /> AI Editor</button>
                    </div>
                 </div>
                 <div className="flex flex-wrap gap-2 pb-3">
@@ -547,78 +329,29 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                      <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
                         <img src={img} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                           <button 
-                             onClick={async (e) => { 
-                               e.stopPropagation(); 
-                               const nextListing = { ...localListing, cleaned: { ...localListing.cleaned, main_image: img } };
-                               setLocalListing(nextListing);
-                               setPreviewImage(img);
-                               onUpdate(nextListing);
-                               await syncToSupabase(nextListing);
-                             }} 
-                             className="absolute top-1 left-1 p-1 bg-white/20 hover:bg-amber-500 rounded-lg text-white transition-colors" 
-                             title="Set as Main"
-                           >
-                             <Star size={10} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} />
-                           </button>
-
-                           <button 
-                             onClick={async (e) => { 
-                               e.stopPropagation(); 
-                               const isMain = img === localListing.cleaned.main_image;
-                               if (isMain) {
-                                 alert(uiLang === 'zh' ? "主图不能直接删除，请先设置其他图为主图" : "Cannot delete main image. Switch main image first.");
-                                 return;
-                               }
-                               const others = (localListing.cleaned.other_images || []).filter(u => u !== img); 
-                               const nextListing = { ...localListing, cleaned: { ...localListing.cleaned, other_images: others } };
-                               setLocalListing(nextListing);
-                               onUpdate(nextListing);
-                               await syncToSupabase(nextListing);
-                             }} 
-                             className="absolute top-1 right-1 p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white transition-colors" 
-                             title="Delete"
-                           >
-                             <Trash2 size={10} />
-                           </button>
-
-                           <button 
-                             onClick={(e) => { e.stopPropagation(); handleSingleStandardize(img); }} 
-                             className="absolute inset-0 m-auto w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-indigo-500 rounded-xl text-white transition-all hover:scale-110" 
-                             title="Standardize 1600"
-                           >
-                             <Box size={16} />
-                           </button>
+                           <button onClick={(e) => { e.stopPropagation(); updateField('main_image', img); setPreviewImage(img); }} className="absolute top-1 left-1 p-1 bg-white/20 hover:bg-amber-500 rounded-lg text-white"><Star size={10} fill={img === localListing.cleaned.main_image ? "currentColor" : "none"} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); updateField('other_images', (localListing.cleaned.other_images || []).filter(u => u !== img)); }} className="absolute top-1 right-1 p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white"><Trash2 size={10} /></button>
                         </div>
                      </div>
                    ))}
                    <button onClick={() => fileInputRef.current?.click()} className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-600 transition-all shrink-0"><Plus size={20} /></button>
-                   <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAddImage} />
                 </div>
              </div>
 
              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Link2 size={14} className="text-orange-500" /> Sourcing Discovery</h3>
-                  <div className="flex gap-2">
-                    <button onClick={() => setShowSourcingModal(true)} className="p-2 bg-orange-50 text-orange-600 rounded-lg hover:bg-orange-100 transition-all"><Search size={14} /></button>
-                    <button onClick={() => setShowSourcingForm({show: true, data: null})} className="p-2 bg-slate-50 text-slate-400 rounded-lg hover:bg-slate-100 transition-all"><Plus size={14} /></button>
-                  </div>
-                </div>
+                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Link2 size={14} className="text-orange-500" /> Sourcing Discovery</h3>
                 <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar">
                    {(localListing.sourcing_data || []).map((s, idx) => (
-                     <div key={idx} className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 group">
-                        <img src={s.image || previewImage} className="w-10 h-10 rounded-lg object-cover" />
+                     <div key={idx} className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                        <img src={s.image} className="w-10 h-10 rounded-lg object-cover" />
                         <div className="flex-1 overflow-hidden">
                            <p className="text-[9px] font-black text-slate-800 truncate">{s.title}</p>
                            <p className="text-[9px] font-bold text-orange-600 uppercase">{s.price}</p>
                         </div>
-                        <div className="flex opacity-0 group-hover:opacity-100 transition-all">
-                           <a href={s.url} target="_blank" className="p-1.5 text-slate-300 hover:text-blue-500"><ExternalLink size={12}/></a>
-                           <button onClick={() => { const n = { ...localListing, sourcing_data: (localListing.sourcing_data || []).filter((_, i) => i !== idx) }; setLocalListing(n); onUpdate(n); syncToSupabase(n); }} className="p-1.5 text-slate-300 hover:text-red-500"><Trash2 size={12}/></button>
-                        </div>
+                        <a href={s.url} target="_blank" className="p-1.5 text-slate-300 hover:text-blue-500"><ExternalLink size={12}/></a>
                      </div>
                    ))}
+                   <button onClick={() => setShowSourcingModal(true)} className="w-full py-3 bg-orange-50 text-orange-600 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-orange-100 transition-all"><Search size={14} /> Search 1688</button>
                 </div>
              </div>
           </div>
@@ -627,44 +360,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="px-10 py-6 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between gap-6">
                    <div className="flex flex-1 overflow-x-auto no-scrollbar gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-inner">
-                      <button 
-                        onClick={() => handleMarketClick('US')} 
-                        className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
-                      >
-                        🇺🇸 Master
-                      </button>
-                      {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
-                        const isTranslated = !!localListing.translations?.[m.code];
-                        const isTranslating = translatingMarkets.has(m.code);
-                        return (
-                          <button 
-                            key={m.code} 
-                            onClick={() => handleMarketClick(m.code)} 
-                            className={`
-                              px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2
-                              ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : 
-                                isTranslated ? 'bg-white text-indigo-600 border-slate-50' : 
-                                'bg-slate-50/50 text-slate-300 border-slate-200 border-dashed opacity-70 hover:opacity-100'
-                              }
-                            `}
-                          >
-                            {m.flag} {m.code}
-                            {isTranslating && <Loader2 size={10} className="animate-spin" />}
-                          </button>
-                        );
-                      })}
+                      <button onClick={() => handleMarketClick('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 Master</button>
+                      {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => (
+                        <button key={m.code} onClick={() => handleMarketClick(m.code)} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2 ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : 'bg-white text-indigo-600 border-slate-50'}`}>
+                          {m.flag} {m.code} {translatingMarkets.has(m.code) && <Loader2 size={10} className="animate-spin" />}
+                        </button>
+                      ))}
                    </div>
-                   <button 
-                    onClick={handleBatchTranslate} 
-                    disabled={isBatchTranslating} 
-                    className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all shadow-sm shrink-0 border border-indigo-100 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest min-w-[160px] justify-center"
-                   >
+                   <button onClick={handleBatchTranslate} disabled={isBatchTranslating} className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all shadow-sm shrink-0 border border-indigo-100 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest">
                       {isBatchTranslating ? <Loader2 size={16} className="animate-spin" /> : <Languages size={16} />} 
-                      <span className="truncate">
-                        {isBatchTranslating 
-                          ? `${batchProgress.market} (${batchProgress.current}/${batchProgress.total})` 
-                          : 'Translate All'}
-                      </span>
+                      {isBatchTranslating ? `${batchProgress.current}/${batchProgress.total}` : 'Translate All'}
                    </button>
                 </div>
 
@@ -672,68 +377,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                    <div className="grid grid-cols-2 gap-8">
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={14} className="text-emerald-500" /> Price ({activeMarket})</label>
-                         <input 
-                            type="number" 
-                            step="0.01" 
-                            value={getFieldValue('optimized_price', 'price')} 
-                            onChange={(e) => updateField('optimized_price', parseFloat(e.target.value))} 
-                            onBlur={() => syncToSupabase(localListing)}
-                            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:bg-white transition-colors" 
-                         />
+                         <input type="number" step="0.01" value={getFieldValue('optimized_price', 'price')} onChange={(e) => updateField('optimized_price', parseFloat(e.target.value))} onBlur={() => syncToSupabase(localListing)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:bg-white transition-colors" />
                       </div>
                       <div className="space-y-3">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Truck size={14} className="text-blue-500" /> Shipping</label>
-                         <input 
-                            type="number" 
-                            step="0.01" 
-                            value={getFieldValue('optimized_shipping', 'shipping')} 
-                            onChange={(e) => updateField('optimized_shipping', parseFloat(e.target.value))} 
-                            onBlur={() => syncToSupabase(localListing)}
-                            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:bg-white transition-colors" 
-                         />
+                         <input type="number" step="0.01" value={getFieldValue('optimized_shipping', 'shipping')} onChange={(e) => updateField('optimized_shipping', parseFloat(e.target.value))} onBlur={() => syncToSupabase(localListing)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:bg-white transition-colors" />
                       </div>
                    </div>
 
-                   <div className="grid grid-cols-2 gap-8 pt-4 border-t border-slate-50">
-                      <div className="space-y-3">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} /> Item Weight (Standard)</label>
-                         <div className="flex gap-2">
-                            <input 
-                              value={getFieldValue('optimized_weight_value', 'item_weight_value')} 
-                              onChange={e => updateField('optimized_weight_value', e.target.value)} 
-                              onBlur={() => syncToSupabase(localListing)}
-                              className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:bg-white" 
-                              placeholder="Value" 
-                            />
-                            <input 
-                              value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} 
-                              onChange={e => updateField('optimized_weight_unit', e.target.value)} 
-                              onBlur={() => syncToSupabase(localListing)}
-                              className="w-32 px-2 py-3 bg-white border border-slate-200 rounded-xl font-black text-[10px] text-center outline-none focus:border-indigo-500" 
-                              placeholder="Unit" 
-                            />
-                         </div>
-                      </div>
-                      <div className="space-y-3">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Ruler size={14} /> Dimensions (L/W/H)</label>
-                         <div className="flex gap-1.5">
-                            <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold outline-none focus:bg-white" placeholder="L" />
-                            <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold outline-none focus:bg-white" placeholder="W" />
-                            <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold outline-none focus:bg-white" placeholder="H" />
-                            <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-28 px-1 py-3 bg-white border border-slate-200 rounded-xl font-black text-[9px] text-center outline-none focus:border-indigo-500" placeholder="Unit" />
-                         </div>
-                      </div>
-                   </div>
-
-                   <EditSection 
-                      label="Product Title" 
-                      icon={<ImageIcon size={14}/>} 
-                      value={getFieldValue('optimized_title', 'title')} 
-                      onChange={v => updateField('optimized_title', v)} 
-                      onBlur={() => syncToSupabase(localListing)}
-                      limit={200} 
-                      className="text-xl font-black" 
-                   />
+                   <EditSection label="Product Title" icon={<ImageIcon size={14}/>} value={getFieldValue('optimized_title', 'title')} onChange={v => updateField('optimized_title', v)} onBlur={() => syncToSupabase(localListing)} limit={200} className="text-xl font-black" />
 
                    <div className="space-y-4">
                       <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={14} /> Key Features (Bullets)</label>
@@ -741,16 +393,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          {(getFieldValue('optimized_features', 'features') as string[]).map((f: string, i: number) => (
                            <div key={i} className="flex gap-4 group">
                               <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-2 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
-                              <div className="flex-1">
-                                 <textarea 
-                                    value={f || ''} 
-                                    onChange={e => { const cur = [...(getFieldValue('optimized_features', 'features') as string[])]; cur[i] = e.target.value; updateField('optimized_features', cur); }} 
-                                    onBlur={() => syncToSupabase(localListing)}
-                                    className={`w-full p-4 bg-slate-50 border rounded-2xl text-sm font-bold leading-relaxed outline-none transition-all focus:bg-white ${f.length > 250 ? 'border-red-400 ring-2 ring-red-50' : 'border-slate-200 focus:border-indigo-500'}`} 
-                                    placeholder={`Bullet Point ${i+1}...`} 
-                                 />
-                                 <div className="px-1 text-[9px] font-black uppercase text-right"><span className={f.length > 250 ? 'text-red-500' : 'text-slate-400'}>{f.length} / 250</span></div>
-                              </div>
+                              <textarea value={f || ''} onChange={e => { const cur = [...(getFieldValue('optimized_features', 'features') as string[])]; cur[i] = e.target.value; updateField('optimized_features', cur); }} onBlur={() => syncToSupabase(localListing)} className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold leading-relaxed outline-none transition-all focus:bg-white" placeholder={`Bullet Point ${i+1}...`} />
                            </div>
                          ))}
                       </div>
@@ -764,33 +407,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
       </div>
 
-      {showSourcingForm.show && <SourcingFormModal initialData={showSourcingForm.data} onClose={() => setShowSourcingForm({show: false, data: null})} onSave={res => { const nextData = [...(localListing.sourcing_data || [])]; const existingIdx = nextData.findIndex(s => s.id === res.id); if (existingIdx >= 0) nextData[existingIdx] = res; else nextData.push(res); const next = { ...localListing, sourcing_data: nextData }; setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowSourcingForm({show: false, data: null}); }} />}
       {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const next = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowSourcingModal(false); }} />}
-      {showImageEditor && (
-        <ImageEditor 
-          imageUrl={previewImage} 
-          onClose={() => setShowImageEditor(false)} 
-          onSave={async (url) => { 
-            const nextListing = { ...localListing };
-            if (previewImage === localListing.cleaned.main_image) {
-              nextListing.cleaned.main_image = url;
-            } else {
-              const others = [...(localListing.cleaned.other_images || [])];
-              const idx = others.indexOf(previewImage);
-              if (idx !== -1) {
-                others[idx] = url;
-                nextListing.cleaned.other_images = others;
-              }
-            }
-            setPreviewImage(url); 
-            setLocalListing(nextListing);
-            onUpdate(nextListing);
-            await syncToSupabase(nextListing);
-            setShowImageEditor(false); 
-          }} 
-          uiLang={uiLang} 
-        />
-      )}
+      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={url => { updateField('main_image', url); setPreviewImage(url); syncToSupabase(localListing); setShowImageEditor(false); }} uiLang={uiLang} />}
     </div>
   );
 };
@@ -801,11 +419,6 @@ const EditSection = ({ label, icon, value, onChange, onBlur, limit, isMono, clas
       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">{icon} {label}</label>
       {limit && <span className={`text-[9px] font-black uppercase ${(value || '').length > limit ? 'text-red-500' : 'text-slate-400'}`}>{(value || '').length} / {limit}</span>}
     </div>
-    <textarea 
-      value={value || ''} 
-      onChange={e => onChange(e.target.value)} 
-      onBlur={onBlur}
-      className={`w-full p-6 bg-slate-50 border rounded-[2rem] font-bold outline-none transition-all focus:bg-white ${isMono ? 'font-mono' : ''} border-slate-200 focus:border-indigo-500 ${className}`} 
-    />
+    <textarea value={value || ''} onChange={e => onChange(e.target.value)} onBlur={onBlur} className={`w-full p-6 bg-slate-50 border border-slate-200 rounded-[2rem] font-bold outline-none transition-all focus:bg-white ${isMono ? 'font-mono' : ''} ${className}`} />
   </div>
 );

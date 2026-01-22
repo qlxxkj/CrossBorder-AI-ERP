@@ -3,22 +3,30 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion for the US marketplace.
-
-[STRICT CONSTRAINTS]
-1. optimized_title: Max 200 characters. SEO-rich, no brand names.
-2. optimized_features: Array of exactly 5 strings. Each MUST start with a "[KEYWORD]: " prefix.
-3. optimized_description: 1000-1500 characters. Use HTML tags like <p> and <br>.
-4. search_keywords: High-volume relevant terms.
-5. Measurements (US Standard): 
-   - optimized_weight_value: Pure number string.
-   - optimized_weight_unit: "Pounds" or "Ounces".
-   - optimized_length, optimized_width, optimized_height: Pure number strings.
-   - optimized_size_unit: "Inches".
-6. PROHIBITED: No Brand Names, No Extreme Words (Best, Perfect, etc.).
-
-Return ONLY a flat JSON object matching these keys.
+You are an expert Amazon Listing Optimizer. Return ONLY flat JSON.
+Keys: optimized_title, optimized_features (array), optimized_description, search_keywords.
 `;
+
+const normalizeOptimizedData = (raw: any): OptimizedData => {
+  const result: any = {};
+  result.optimized_title = raw.optimized_title || raw.title || "";
+  result.optimized_description = raw.optimized_description || raw.description || "";
+  result.search_keywords = raw.search_keywords || raw.keywords || "";
+  let feats = raw.optimized_features || raw.features || raw.bullet_points || [];
+  if (typeof feats === 'string') feats = feats.split('\n').filter(Boolean);
+  if (!Array.isArray(feats)) feats = [];
+  while (feats.length < 5) feats.push("");
+  result.optimized_features = feats.slice(0, 5);
+  
+  result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || "");
+  result.optimized_weight_unit = raw.optimized_weight_unit || raw.weight_unit || "";
+  result.optimized_length = String(raw.optimized_length || raw.length || "");
+  result.optimized_width = String(raw.optimized_width || raw.width || "");
+  result.optimized_height = String(raw.optimized_height || raw.height || "");
+  result.optimized_size_unit = raw.optimized_size_unit || raw.size_unit || "";
+  
+  return result as OptimizedData;
+};
 
 const extractJSONObject = (text: string) => {
   try {
@@ -26,7 +34,6 @@ const extractJSONObject = (text: string) => {
     if (!match) return null;
     return JSON.parse(match[0]);
   } catch (e) {
-    console.error("DeepSeek JSON Extraction failed. Raw:", text);
     return null;
   }
 };
@@ -45,7 +52,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
-        { role: "system", content: "You are a professional Amazon copywriter who outputs raw JSON. DO NOT use markdown code blocks." },
+        { role: "system", content: "Amazon copywriter. Output JSON. DO NOT TRANSLATE KEYS." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
@@ -53,19 +60,9 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
   });
   
   if (!response.ok) throw new Error(`DeepSeek API Error: ${response.status}`);
-
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || "{}";
-  const result = extractJSONObject(content);
-  
-  if (!result) throw new Error("DeepSeek returned invalid or unparsable JSON.");
-  
-  if (!result.optimized_features || !Array.isArray(result.optimized_features)) {
-    result.optimized_features = [];
-  }
-  while (result.optimized_features.length < 5) result.optimized_features.push("");
-  
-  return result as OptimizedData;
+  const raw = extractJSONObject(data.choices?.[0]?.message?.content || "{}");
+  return normalizeOptimizedData(raw || {});
 };
 
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
@@ -74,14 +71,9 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
 
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const prompt = `
-    Task: Translate this Amazon listing to "${targetLangName}". 
-    [STRICT RULES]: 
-    1. DO NOT translate JSON Keys.
-    2. Keep HTML tags.
-    3. Maintain "[KEYWORD]: " style.
-    4. Translate measurement units (e.g. Kilograms, Centimeters) into the official language used in "${targetLangName}" (e.g. 'Kilogramos' for Spanish).
-    5. Return ONLY a valid JSON object.
-    Source: ${JSON.stringify(sourceData)}
+    Translate listing to "${targetLangName}". 
+    STRICT: KEEP KEYS optimized_title, optimized_features, optimized_description, search_keywords.
+    Data: ${JSON.stringify(sourceData)}
   `;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
@@ -97,10 +89,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   });
   
   if (!response.ok) throw new Error(`DeepSeek Translate API Error: ${response.status}`);
-
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || "{}";
-  const result = extractJSONObject(content);
-  if (!result) throw new Error("DeepSeek returned empty or malformed translation JSON.");
-  return result;
+  const raw = extractJSONObject(data.choices?.[0]?.message?.content || "{}");
+  return normalizeOptimizedData(raw || {});
 };

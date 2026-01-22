@@ -6,28 +6,58 @@ const UNIFIED_OPTIMIZE_PROMPT = `
 You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion for the US marketplace.
 
 [STRICT CONSTRAINTS]
-1. optimized_title: Max 200 characters. SEO-rich, no brand names.
-2. optimized_features: Array of exactly 5 strings. Each MUST start with a "[KEYWORD]: " prefix.
-3. optimized_description: 1000-1500 characters. Use HTML tags like <p> and <br>.
-4. search_keywords: High-volume relevant terms.
-5. Measurements (US Standard): 
-   - optimized_weight_value: Pure number string.
-   - optimized_weight_unit: "Pounds" or "Ounces".
-   - optimized_length, optimized_width, optimized_height: Pure number strings.
-   - optimized_size_unit: "Inches".
-6. PROHIBITED: No Brand Names, No Extreme Words (Best, Perfect, etc.).
+1. optimized_title: Max 200 characters. SEO-rich.
+2. optimized_features: Array of exactly 5 strings.
+3. optimized_description: 1000-1500 characters. Use HTML tags.
+4. search_keywords: High-volume terms.
+5. Measurements: 
+   - optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
 
-Return ONLY a flat JSON object matching these keys.
+Return ONLY a flat JSON object matching these exact keys.
 `;
 
-// 辅助函数：从杂乱文本中强制提取 JSON 对象
+// 强力归一化：不进行 Master 填充，仅进行 Key 映射
+const normalizeOptimizedData = (raw: any): OptimizedData => {
+  const result: any = {};
+  
+  // 映射标题
+  result.optimized_title = raw.optimized_title || raw.title || raw.product_title || "";
+  
+  // 映射描述
+  result.optimized_description = raw.optimized_description || raw.description || raw.desc || raw.product_description || "";
+  
+  // 映射关键词
+  result.search_keywords = raw.search_keywords || raw.keywords || raw.tags || raw.search_terms || "";
+  
+  // 映射五点 (强制转为数组并过滤空值)
+  let feats = raw.optimized_features || raw.features || raw.bullet_points || raw.bullets || [];
+  if (typeof feats === 'string') {
+    feats = feats.split('\n').map(s => s.trim().replace(/^[-*•\d.]+\s*/, '')).filter(Boolean);
+  }
+  if (!Array.isArray(feats)) feats = [];
+  // 保证 5 个槽位，但如果 raw 里没给，这里就留空，方便用户排查
+  const finalFeats = ["", "", "", "", ""];
+  feats.slice(0, 5).forEach((f, i) => finalFeats[i] = String(f));
+  result.optimized_features = finalFeats;
+  
+  // 映射物流尺寸
+  result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || raw.weight || "");
+  result.optimized_weight_unit = raw.optimized_weight_unit || raw.weight_unit || "";
+  result.optimized_length = String(raw.optimized_length || raw.length || "");
+  result.optimized_width = String(raw.optimized_width || raw.width || "");
+  result.optimized_height = String(raw.optimized_height || raw.height || "");
+  result.optimized_size_unit = raw.optimized_size_unit || raw.size_unit || "";
+  
+  return result as OptimizedData;
+};
+
 const extractJSONObject = (text: string) => {
   try {
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
     return JSON.parse(match[0]);
   } catch (e) {
-    console.error("JSON Extraction failed for text:", text);
+    console.error("JSON Extraction failed:", text);
     return null;
   }
 };
@@ -38,38 +68,13 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}`,
-      config: { 
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            optimized_title: { type: Type.STRING },
-            optimized_features: { type: Type.ARRAY, items: { type: Type.STRING } },
-            optimized_description: { type: Type.STRING },
-            search_keywords: { type: Type.STRING },
-            optimized_weight_value: { type: Type.STRING },
-            optimized_weight_unit: { type: Type.STRING },
-            optimized_length: { type: Type.STRING },
-            optimized_width: { type: Type.STRING },
-            optimized_height: { type: Type.STRING },
-            optimized_size_unit: { type: Type.STRING }
-          },
-          required: ["optimized_title", "optimized_features", "optimized_description", "search_keywords"]
-        }
-      }
+      config: { responseMimeType: "application/json" }
     });
-    
-    const data = extractJSONObject(response.text || "{}");
-    if (!data) throw new Error("Gemini returned invalid or unparsable JSON during optimization.");
-    
-    if (!data.optimized_features || !Array.isArray(data.optimized_features)) {
-      data.optimized_features = [];
-    }
-    while (data.optimized_features.length < 5) data.optimized_features.push("");
-    return data as OptimizedData;
+    const rawData = extractJSONObject(response.text || "{}");
+    if (!rawData) throw new Error("Invalid AI Response during optimization.");
+    return normalizeOptimizedData(rawData);
   } catch (error: any) { 
-    console.error("Gemini Optimize Error:", error);
-    throw new Error(`Gemini Optimization Failed: ${error.message || "Unknown error"}`);
+    throw new Error(`Gemini Optimization Failed: ${error.message}`);
   }
 };
 
@@ -78,12 +83,13 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   const prompt = `
     Task: Translate this Amazon listing to "${targetLangName}". 
     [STRICT RULES]: 
-    1. DO NOT translate JSON Keys (e.g. optimized_title, search_keywords).
-    2. Keep HTML tags intact.
-    3. Maintain "[KEYWORD]: " style for bullets.
-    4. IMPORTANT: Translate measurement units (e.g. Kilograms, Centimeters) into the official language used in "${targetLangName}" market (e.g., 'كيلوجرام' for Arabic, 'Kilogramm' for German, 'Kilogramos' for Spanish).
-    5. Return ONLY a valid JSON object.
-    Source Data: ${JSON.stringify(sourceData)}
+    1. KEEP ALL JSON KEYS UNCHANGED (optimized_title, optimized_features, optimized_description, search_keywords).
+    2. DO NOT translate keys like "optimized_title", only translate the string content.
+    3. The "optimized_features" MUST remain an array of strings.
+    4. Return exactly the same JSON structure. 
+    5. If any content is inappropriate for translation, leave the value as an empty string "".
+    
+    Data to translate: ${JSON.stringify(sourceData)}
   `;
   try {
     const response = await ai.models.generateContent({
@@ -91,15 +97,11 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
       contents: prompt,
       config: { responseMimeType: "application/json" }
     });
-    
-    const data = extractJSONObject(response.text || "{}");
-    if (!data || Object.keys(data).length === 0) {
-      throw new Error("Gemini returned empty or malformed translation JSON.");
-    }
-    return data;
+    const rawData = extractJSONObject(response.text || "{}");
+    if (!rawData) throw new Error("Empty translation result.");
+    return normalizeOptimizedData(rawData);
   } catch (error: any) { 
-    console.error("Gemini Translate Error:", error);
-    throw new Error(`Gemini Translation Failed: ${error.message || "Unknown error"}`);
+    throw new Error(`Gemini Translation Failed: ${error.message}`);
   }
 };
 
@@ -113,6 +115,6 @@ export const editImageWithAI = async (base64Image: string, prompt: string): Prom
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) return part.inlineData.data;
     }
-    throw new Error("No image data returned from Gemini Image API.");
+    throw new Error("No image data returned.");
   } catch (error: any) { throw error; }
 };
