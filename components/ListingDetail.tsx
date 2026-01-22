@@ -4,7 +4,7 @@ import {
   ArrowLeft, Sparkles, Image as ImageIcon, Edit2, Trash2, Plus, X,
   Globe, Languages, Loader2, DollarSign, Truck, Save, ChevronRight,
   Zap, Weight, Ruler, ListFilter, FileText, Wand2, Search, 
-  ExternalLink, Link2, Star, Box, Hash, Cpu, Brain, AlertTriangle, RefreshCw
+  ExternalLink, Link2, Star, Box, Hash, Cpu, Brain, AlertTriangle, RefreshCw, Scale
 } from 'lucide-react';
 import { Listing, OptimizedData, CleanedData, UILanguage, ExchangeRate, SourcingRecord } from '../types';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
@@ -39,18 +39,36 @@ const MARKET_LANG_MAP: Record<string, string> = {
   'TR': 'Turkish', 'SA': 'Arabic', 'AE': 'Arabic'
 };
 
-const getAmazonStandardUnit = (unit: string | undefined, market: string) => {
+// 换算工具：英制 -> 公制
+const convertToMetric = (val: string | number | undefined, factor: number) => {
+  const num = parseFloat(String(val || "0").replace(/[^0-9.]/g, ''));
+  if (isNaN(num) || num === 0) return "";
+  return (num * factor).toFixed(2);
+};
+
+// 单位本地化翻译工具
+const getLocalizedUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
+  
+  // 如果已是本地语言（非ASCII），则保持
   if (/[^\x00-\x7F]/.test(unit)) return unit;
+
+  const isMetric = !['US', 'CA', 'UK'].includes(market);
+
   if (['EG', 'SA', 'AE'].includes(market)) {
     const arMap: Record<string, string> = { 'kg': 'كيلوجرام', 'lb': 'رطل', 'in': 'بوصة', 'cm': 'سنتيمتر' };
-    return arMap[u] || unit;
+    return arMap[u] || (isMetric ? (u.includes('lb') ? 'كيلوجرام' : 'سنتيمتر') : unit);
   }
   if (market === 'JP') {
     const jpMap: Record<string, string> = { 'lb': 'ポンド', 'kg': 'キログラム', 'in': 'インチ', 'cm': 'センチメートル' };
-    return jpMap[u] || unit;
+    return jpMap[u] || (isMetric ? (u.includes('lb') ? 'キログラム' : 'センチメートル') : unit);
   }
+  if (['MX', 'BR', 'ES'].includes(market)) {
+    const esMap: Record<string, string> = { 'lb': 'Libras', 'kg': 'Kilogramos', 'in': 'Pulgadas', 'cm': 'Centímetros' };
+    return esMap[u] || (isMetric ? (u.includes('lb') ? 'Kilogramos' : 'Centímetros') : unit);
+  }
+
   const standardMap: Record<string, string> = { 'lb': 'Pounds', 'kg': 'Kilograms', 'in': 'Inches', 'cm': 'Centimeters' };
   return standardMap[u] || (unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase());
 };
@@ -75,6 +93,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [previewImage, setPreviewImage] = useState<string>(listing.cleaned?.main_image || '');
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
+
+  const allImages = [localListing.cleaned?.main_image, ...(localListing.cleaned?.other_images || [])].filter(Boolean) as string[];
 
   useEffect(() => {
     setLocalListing(listing);
@@ -155,38 +175,64 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     onUpdate(nextListing);
   };
 
+  const performLogisticsConversion = (source: any, targetMkt: string) => {
+    const isMetricTarget = !['US', 'CA', 'UK'].includes(targetMkt);
+    const sUnitW = String(source.item_weight_unit || source.optimized_weight_unit || "").toLowerCase();
+    const sUnitS = String(source.item_size_unit || source.optimized_size_unit || "").toLowerCase();
+
+    let weight = source.item_weight_value || source.optimized_weight_value || "";
+    let l = source.item_length || source.optimized_length || "";
+    let w = source.item_width || source.optimized_width || "";
+    let h = source.item_height || source.optimized_height || "";
+
+    // 换算：如果源是英制（或空）且目标是公制
+    if (isMetricTarget && (sUnitW.includes('lb') || !sUnitW)) {
+      weight = convertToMetric(weight, 0.453592);
+    }
+    if (isMetricTarget && (sUnitS.includes('in') || !sUnitS)) {
+      l = convertToMetric(l, 2.54);
+      w = convertToMetric(w, 2.54);
+      h = convertToMetric(h, 2.54);
+    }
+
+    return {
+      optimized_weight_value: weight,
+      optimized_weight_unit: getLocalizedUnit(isMetricTarget ? 'kg' : 'lb', targetMkt),
+      optimized_length: l,
+      optimized_width: w,
+      optimized_height: h,
+      optimized_size_unit: getLocalizedUnit(isMetricTarget ? 'cm' : 'in', targetMkt)
+    };
+  };
+
   const translateMarket = async (marketCode: string, currentListingState?: Listing) => {
     if (marketCode === 'US' || translatingMarkets.has(marketCode)) return;
     const activeState = currentListingState || localListing;
     setTranslatingMarkets(prev => new Set(prev).add(marketCode));
     try {
-      const sourceDataForTranslation = activeState.optimized || {
+      const sourceData = activeState.optimized || {
         optimized_title: activeState.cleaned.title,
         optimized_features: (activeState.cleaned.bullet_points || activeState.cleaned.features || []).filter(Boolean),
         optimized_description: activeState.cleaned.description || '',
         search_keywords: activeState.cleaned.search_keywords || '',
-        optimized_weight_value: activeState.cleaned.item_weight_value || '',
-        optimized_weight_unit: activeState.cleaned.item_weight_unit || '',
-        optimized_length: activeState.cleaned.item_length || '',
-        optimized_width: activeState.cleaned.item_width || '',
-        optimized_height: activeState.cleaned.item_height || '',
-        optimized_size_unit: activeState.cleaned.item_size_unit || ''
+        ...activeState.cleaned
       } as OptimizedData;
       
       const targetLang = MARKET_LANG_MAP[marketCode];
       let trans: Partial<OptimizedData> = {};
       
       if (['UK', 'CA', 'AU', 'SG', 'IE'].includes(marketCode) || !targetLang) {
-        trans = { ...sourceDataForTranslation };
+        trans = { ...sourceData };
       } else {
-        if (engine === 'openai') trans = await translateListingWithOpenAI(sourceDataForTranslation, targetLang);
-        else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceDataForTranslation, targetLang);
-        else trans = await translateListingWithAI(sourceDataForTranslation, targetLang);
+        if (engine === 'openai') trans = await translateListingWithOpenAI(sourceData, targetLang);
+        else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(sourceData, targetLang);
+        else trans = await translateListingWithAI(sourceData, targetLang);
       }
       
-      if (!trans) throw new Error("Empty AI Response.");
+      if (!trans) throw new Error("AI Empty Response.");
 
       const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
+      const logistics = performLogisticsConversion(activeState.optimized || activeState.cleaned, marketCode);
 
       const finalTrans: OptimizedData = {
         optimized_title: trans.optimized_title || "",
@@ -195,12 +241,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         search_keywords: trans.search_keywords || "",
         optimized_price: parseFloat(((activeState.cleaned.price || 0) * rate).toFixed(2)),
         optimized_shipping: parseFloat(((activeState.cleaned.shipping || 0) * rate).toFixed(2)),
-        optimized_weight_value: trans.optimized_weight_value || "",
-        optimized_weight_unit: getAmazonStandardUnit(trans.optimized_weight_unit, marketCode),
-        optimized_length: trans.optimized_length || "",
-        optimized_width: trans.optimized_width || "",
-        optimized_height: trans.optimized_height || "",
-        optimized_size_unit: getAmazonStandardUnit(trans.optimized_size_unit, marketCode)
+        ...logistics
       };
 
       const updatedListing = { ...activeState, translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } };
@@ -209,33 +250,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       await syncToSupabase(updatedListing); 
       return updatedListing;
     } catch (e: any) {
-      alert(`Translate ${marketCode} error: ${e.message}`);
+      alert(`Translate ${marketCode} failed: ${e.message}`);
       return null;
     } finally {
       setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(marketCode); return n; });
     }
-  };
-
-  // Fix: Implemented missing handleBatchTranslate function to resolve 'Cannot find name' error
-  const handleBatchTranslate = async () => {
-    const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
-    setIsBatchTranslating(true);
-    setBatchProgress({ current: 0, total: marketsToTranslate.length, market: '' });
-    
-    let currentState = { ...localListing };
-    
-    for (let i = 0; i < marketsToTranslate.length; i++) {
-      const m = marketsToTranslate[i];
-      setBatchProgress(prev => ({ ...prev, current: i, market: m.code }));
-      
-      const updated = await translateMarket(m.code, currentState);
-      if (updated) {
-        currentState = updated;
-      }
-    }
-    
-    setBatchProgress(prev => ({ ...prev, current: marketsToTranslate.length }));
-    setIsBatchTranslating(false);
   };
 
   const handleMarketClick = async (code: string) => {
@@ -243,22 +262,37 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (code === 'US') return;
     
     const trans = localListing.translations?.[code];
-    // 核心修复逻辑：如果该站点已翻译但核心内容为空，允许重新触发翻译修复
-    const isCorrupted = trans && (!trans.optimized_description || trans.optimized_features.every(f => !f));
+    const isMissingLogistics = !trans?.optimized_weight_value || !trans?.optimized_length || !trans?.optimized_weight_unit;
+    const isMissingContent = !trans || !trans.optimized_description || trans.optimized_features.every(f => !f);
     
-    if (!trans || (isCorrupted && window.confirm(`${code} 站内容不完整，是否尝试重新 AI 翻译修复？`))) {
-      await translateMarket(code);
+    if (isMissingContent || isMissingLogistics) {
+      const msg = !trans ? `${code} 站尚未翻译，是否立即开始？` : `${code} 站数据不完整（可能缺少物流信息），是否立即通过 AI 重新生成并修复单位换算？`;
+      if (window.confirm(msg)) {
+        await translateMarket(code);
+      }
     }
+  };
+
+  const handleBatchTranslate = async () => {
+    const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
+    setIsBatchTranslating(true);
+    let currentState = { ...localListing };
+    for (let i = 0; i < marketsToTranslate.length; i++) {
+      const m = marketsToTranslate[i];
+      setBatchProgress({ current: i + 1, total: marketsToTranslate.length, market: m.code });
+      const updated = await translateMarket(m.code, currentState);
+      if (updated) currentState = updated;
+    }
+    setIsBatchTranslating(false);
   };
 
   const handleOptimize = async () => {
     setIsOptimizing(true);
     try {
-      const sourceData = localListing.cleaned!;
       let opt: OptimizedData;
-      if (engine === 'openai') opt = await optimizeListingWithOpenAI(sourceData);
-      else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(sourceData);
-      else opt = await optimizeListingWithAI(sourceData);
+      if (engine === 'openai') opt = await optimizeListingWithOpenAI(localListing.cleaned);
+      else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(localListing.cleaned);
+      else opt = await optimizeListingWithAI(localListing.cleaned);
       
       const updatedListing: Listing = { ...localListing, optimized: opt, status: 'optimized', updated_at: new Date().toISOString() };
       setLocalListing(updatedListing); 
@@ -268,8 +302,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } catch (e: any) { alert(`Optimize Error: ${e.message}`); } 
     finally { setIsOptimizing(false); }
   };
-
-  const allImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].filter(Boolean) as string[];
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-inter text-slate-900">
@@ -354,9 +386,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       <button onClick={() => handleMarketClick('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>🇺🇸 Master</button>
                       {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
                         const trans = localListing.translations?.[m.code];
-                        const isTranslated = !!trans;
-                        const isCorrupted = isTranslated && (!trans.optimized_description || trans.optimized_features.every(f => !f));
-                        const isTranslating = translatingMarkets.has(m.code);
+                        const isMissingLogistics = !trans?.optimized_weight_value || !trans?.optimized_length;
+                        const isCorrupted = (!!trans) && (!trans.optimized_description || trans.optimized_features.every(f => !f) || isMissingLogistics);
                         return (
                           <button 
                             key={m.code} 
@@ -364,13 +395,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             className={`
                               px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 flex items-center gap-2 border-2 relative
                               ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : 
-                                isTranslated ? 'bg-white text-indigo-600 border-slate-100' : 
+                                trans ? 'bg-white text-indigo-600 border-slate-100' : 
                                 'bg-slate-50/50 text-slate-300 border-slate-200 border-dashed opacity-70 hover:opacity-100'
                               }
                             `}
                           >
-                            {m.flag} {m.code} {isTranslating && <Loader2 size={10} className="animate-spin" />}
-                            {isCorrupted && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full border-2 border-white animate-pulse" title="Missing Content" />}
+                            {m.flag} {m.code} {translatingMarkets.has(m.code) && <Loader2 size={10} className="animate-spin" />}
+                            {isCorrupted && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full border-2 border-white animate-pulse" title="Incomplete Content" />}
                           </button>
                         );
                       })}
@@ -393,26 +424,38 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       </div>
                    </div>
 
-                   {/* 新增：物流规格编辑区 */}
-                   <div className="bg-slate-50/50 p-8 rounded-[2rem] border border-slate-100 space-y-6">
+                   {/* 重构：物流规格编辑区 - 深度对齐布局 */}
+                   <div className="bg-slate-50/50 p-8 rounded-[2.5rem] border border-slate-100 space-y-8">
                       <div className="flex items-center justify-between">
-                         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
+                         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Box size={14} /> Logistics Specifications</h3>
+                         {activeMarket !== 'US' && (
+                           <button 
+                            onClick={() => { 
+                              const res = performLogisticsConversion(localListing.optimized || localListing.cleaned, activeMarket); 
+                              Object.entries(res).forEach(([k, v]) => updateField(k, v)); 
+                            }} 
+                            className="flex items-center gap-1.5 text-[9px] font-black text-indigo-600 uppercase bg-white px-3 py-1.5 rounded-xl border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                           >
+                             <Scale size={12} /> Auto Recalculate & Translate
+                           </button>
+                         )}
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                         <div className="space-y-2">
-                            <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Weight</label>
-                            <div className="flex gap-2">
-                               <input value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs" placeholder="0.00" />
-                               <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-20 px-2 py-2.5 bg-white border border-slate-200 rounded-xl font-black text-[10px] uppercase text-center" placeholder="Unit" />
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                         <div className="space-y-3">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} className="text-indigo-400"/> Item Weight</label>
+                            <div className="flex gap-3">
+                               <input value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="flex-1 px-5 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="0.00" />
+                               <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-32 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
                             </div>
                          </div>
-                         <div className="md:col-span-2 space-y-2">
-                            <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Dimensions (L x W x H)</label>
+                         <div className="space-y-3">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Ruler size={14} className="text-indigo-400"/> Dimensions (L × W × H)</label>
                             <div className="flex gap-2">
-                               <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs text-center" placeholder="L" />
-                               <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs text-center" placeholder="W" />
-                               <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs text-center" placeholder="H" />
-                               <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-20 px-2 py-2.5 bg-white border border-slate-200 rounded-xl font-black text-[10px] uppercase text-center" placeholder="Unit" />
+                               <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="L" />
+                               <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="W" />
+                               <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="H" />
+                               <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} onBlur={() => syncToSupabase(localListing)} className="w-24 px-2 py-3.5 bg-white border border-slate-200 rounded-2xl font-black text-[11px] uppercase text-center focus:ring-4 focus:ring-indigo-500/5 transition-all outline-none" placeholder="Unit" />
                             </div>
                          </div>
                       </div>

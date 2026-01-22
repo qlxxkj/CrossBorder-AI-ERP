@@ -4,7 +4,7 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
 You are an expert Amazon Listing Optimizer. Return ONLY flat JSON.
-Keys: optimized_title, optimized_features (array), optimized_description, search_keywords.
+Keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
 PROHIBITED: NO Car Brand Names.
 `;
 

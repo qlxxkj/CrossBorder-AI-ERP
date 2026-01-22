@@ -10,7 +10,7 @@ You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and con
 2. Measurements: optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
 3. PROHIBITED: 
    - No Brand Names.
-   - NO Car Brand Names (e.g., BMW, Toyota, Mercedes, Tesla, Honda, etc.).
+   - NO Car Brand Names (e.g., BMW, Toyota, Mercedes, Tesla, Honda, etc.) to avoid trademark issues.
    - No Extreme Words (Best, Perfect, etc.).
 
 Return ONLY a flat JSON object.
@@ -19,17 +19,11 @@ Return ONLY a flat JSON object.
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
   
-  // 标题映射
-  result.optimized_title = raw.optimized_title || raw.title || raw.product_title || "";
+  result.optimized_title = raw.optimized_title || raw.title || "";
+  result.optimized_description = raw.optimized_description || raw.description || "";
+  result.search_keywords = raw.search_keywords || raw.keywords || "";
   
-  // 描述映射
-  result.optimized_description = raw.optimized_description || raw.description || raw.desc || raw.product_description || "";
-  
-  // 关键词映射
-  result.search_keywords = raw.search_keywords || raw.keywords || raw.tags || raw.search_terms || "";
-  
-  // 五点描述归一化 (针对 CA, MX, BR 经常出现的单字符串格式进行拆分)
-  let feats = raw.optimized_features || raw.features || raw.bullet_points || raw.bullets || [];
+  let feats = raw.optimized_features || raw.features || raw.bullet_points || [];
   if (typeof feats === 'string') {
     feats = feats.split('\n').map(s => s.trim().replace(/^[-*•\d.]+\s*/, '')).filter(Boolean);
   }
@@ -38,8 +32,8 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   feats.slice(0, 5).forEach((f, i) => finalFeats[i] = String(f));
   result.optimized_features = finalFeats;
   
-  // 物流字段映射 (核心修复：确保单位和数值不丢失)
-  result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || raw.weight || "");
+  // 物流字段解析补全
+  result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || "");
   result.optimized_weight_unit = raw.optimized_weight_unit || raw.weight_unit || "";
   result.optimized_length = String(raw.optimized_length || raw.length || "");
   result.optimized_width = String(raw.optimized_width || raw.width || "");
