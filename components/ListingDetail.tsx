@@ -149,8 +149,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
    * 增强：强制从 Master 站点拉取源数据，解决字段缺失问题
    */
   const performLogisticsConversion = (targetMkt: string) => {
-    // 强制溯源：优先使用 Master 站点的优化数据，其次是清理后的原始数据
-    // Fix: Separately access opt and clean properties to avoid type errors on CleanedData | OptimizedData union
     const opt = localListing.optimized;
     const clean = localListing.cleaned;
     const isMetric = !['US', 'CA', 'UK'].includes(targetMkt);
@@ -169,12 +167,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     };
 
     if (isMetric) {
-      // 重量换算: lb -> kg
       if (sUnitW.includes('lb') || sUnitW.includes('pound')) {
         const n = num(valW);
         valW = n > 0 ? (n * 0.453592).toFixed(2) : "";
       }
-      // 尺寸换算: in -> cm
       if (sUnitS.includes('in') || sUnitS.includes('inch')) {
         const nl = num(l), nw = num(w), nh = num(h);
         l = nl > 0 ? (nl * 2.54).toFixed(2) : "";
@@ -205,7 +201,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(source, targetLang);
       else trans = await translateListingWithAI(source, targetLang);
       
-      // 核心注入：物流自动换算 (始终回溯 Master 源)
       const logistics = performLogisticsConversion(code);
       const rate = exchangeRates.find(r => r.marketplace === code)?.rate || 1;
       
@@ -264,7 +259,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       </div>
       {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(n); updateField('sourcing_data', n.sourcing_data); setShowSourcingModal(false); }} />}
       {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={record => { let data = [...(localListing.sourcing_data || [])]; if (editingSourceRecord) data = data.map(s => s.id === record.id ? record : s); else data.push(record); updateField('sourcing_data', data); setShowSourcingForm(false); }} />}
-      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={u => { updateField('main_image', u); setPreviewImage(u); setShowImageEditor(false); }} uiLang={lang} />}
+      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={u => { updateField('main_image', u); setPreviewImage(u); setShowImageEditor(false); }} uiLang={uiLang} />}
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; setIsSaving(true); const fd = new FormData(); fd.append('file', file); const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd }); const data = await res.json(); const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url; if (u) { updateField('other_images', [...(localListing.cleaned.other_images || []), u]); setPreviewImage(u); } setIsSaving(false); }} />
     </div>
   );

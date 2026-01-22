@@ -127,7 +127,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
               </div>
            </div>
            
-           {/* 尺寸：加宽数值框 (flex-[2])，确保长数值不截断 */}
+           {/* 尺寸：加宽数值框 (flex-[1.5])，确保长数值不截断 */}
            <div className="space-y-3 min-w-0">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">Dimensions (L × W × H)</label>
               <div className="flex gap-2 w-full">
