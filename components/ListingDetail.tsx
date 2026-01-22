@@ -131,18 +131,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const getFieldValue = (optField: string, cleanField: string) => {
     if (activeMarket === 'US') {
       const optVal = localListing.optimized ? (localListing.optimized as any)[optField] : null;
-      
-      // 核心修复：如果 optimized 里的值是无效的（空数组或空字符串），回退到 cleaned
       if (optField === 'optimized_features') {
-        if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && String(v).trim() !== '')) {
-           return optVal;
-        }
+        if (Array.isArray(optVal) && optVal.length > 0 && optVal.some(v => v && String(v).trim() !== '')) return optVal;
         return localListing.cleaned?.features || ['', '', '', '', ''];
       }
-
-      if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') {
-        return optVal;
-      }
+      if (optVal !== undefined && optVal !== null && String(optVal).trim() !== '') return optVal;
       return (localListing.cleaned as any)[cleanField] || '';
     } else {
       const trans = localListing.translations?.[activeMarket];
@@ -192,34 +185,63 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         else trans = await translateListingWithAI(sourceDataForTranslation, targetLang);
       }
       if (!trans || Object.keys(trans).length === 0) throw new Error("AI translation failed");
+
       const isMetric = METRIC_MARKETS.includes(marketCode);
       const rateEntry = exchangeRates.find(r => r.marketplace === marketCode);
       const rate = rateEntry ? rateEntry.rate : 1;
-      const rawWeight = parseNumeric(activeState.optimized?.optimized_weight_value || activeState.cleaned.item_weight_value || activeState.cleaned.item_weight);
+
+      // 核心换算逻辑（纯前端计算）
+      const rawWeightValue = parseNumeric(activeState.optimized?.optimized_weight_value || activeState.cleaned.item_weight_value || activeState.cleaned.item_weight);
+      const rawWeightUnit = (activeState.optimized?.optimized_weight_unit || activeState.cleaned.item_weight_unit || 'lb').toLowerCase();
+      
+      let finalWeight = rawWeightValue;
+      let finalWeightUnit = rawWeightUnit;
+
+      if (isMetric) {
+        if (rawWeightUnit.includes('lb') || rawWeightUnit.includes('pound')) {
+          finalWeight = rawWeightValue * 0.453592;
+          finalWeightUnit = 'Kilograms';
+        } else if (rawWeightUnit.includes('oz') || rawWeightUnit.includes('ounce')) {
+          finalWeight = rawWeightValue * 0.0283495;
+          finalWeightUnit = 'Kilograms';
+        } else {
+          finalWeightUnit = 'Kilograms';
+        }
+      }
+
       const rawL = parseNumeric(activeState.optimized?.optimized_length || activeState.cleaned.item_length);
       const rawW = parseNumeric(activeState.optimized?.optimized_width || activeState.cleaned.item_width);
       const rawH = parseNumeric(activeState.optimized?.optimized_height || activeState.cleaned.item_height);
-      const rawWeightUnit = (activeState.optimized?.optimized_weight_unit || activeState.cleaned.item_weight_unit || 'lb').toLowerCase();
       const rawSizeUnit = (activeState.optimized?.optimized_size_unit || activeState.cleaned.item_size_unit || 'in').toLowerCase();
-      const needsWeightConv = isMetric && (rawWeightUnit.includes('lb') || rawWeightUnit.includes('pound'));
-      const needsDimConv = isMetric && (rawSizeUnit.includes('in') || rawSizeUnit.includes('inch'));
-      const finalWeight = needsWeightConv ? (rawWeight * 0.4535).toFixed(2) : rawWeight.toString();
-      const finalL = needsDimConv ? (rawL * 2.54).toFixed(2) : rawL.toString();
-      const finalW = needsDimConv ? (rawW * 2.54).toFixed(2) : rawW.toString();
-      const finalH = needsDimConv ? (rawH * 2.54).toFixed(2) : rawH.toString();
+
+      let finalL = rawL, finalW = rawW, finalH = rawH, finalSizeUnit = rawSizeUnit;
+      if (isMetric && (rawSizeUnit.includes('in') || rawSizeUnit.includes('inch'))) {
+        finalL = rawL * 2.54;
+        finalW = rawW * 2.54;
+        finalH = rawH * 2.54;
+        finalSizeUnit = 'Centimeters';
+      } else if (isMetric) {
+        finalSizeUnit = 'Centimeters';
+      }
+
       const finalTrans: OptimizedData = {
         ...sourceDataForTranslation,
         ...trans,
         optimized_price: parseFloat(((activeState.cleaned.price || 0) * rate).toFixed(2)),
         optimized_shipping: parseFloat(((activeState.cleaned.shipping || 0) * rate).toFixed(2)),
-        optimized_weight_value: finalWeight,
-        optimized_weight_unit: getAmazonStandardUnit(isMetric ? 'kg' : 'lb', marketCode),
-        optimized_length: finalL,
-        optimized_width: finalW,
-        optimized_height: finalH,
-        optimized_size_unit: getAmazonStandardUnit(isMetric ? 'cm' : 'in', marketCode)
+        optimized_weight_value: finalWeight.toFixed(2),
+        optimized_weight_unit: getAmazonStandardUnit(finalWeightUnit, marketCode),
+        optimized_length: finalL.toFixed(2),
+        optimized_width: finalW.toFixed(2),
+        optimized_height: finalH.toFixed(2),
+        optimized_size_unit: getAmazonStandardUnit(finalSizeUnit, marketCode)
       };
-      const nextListing = { ...activeState, translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } };
+
+      const nextListing = { 
+        ...activeState, 
+        translations: { ...(activeState.translations || {}), [marketCode]: finalTrans } 
+      };
+
       setLocalListing(nextListing); 
       onUpdate(nextListing);
       await syncToSupabase(nextListing); 
@@ -313,15 +335,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         status: 'optimized',
         updated_at: new Date().toISOString()
       };
-      
       setLocalListing(updatedListing); 
       onUpdate(updatedListing); 
       await syncToSupabase(updatedListing);
-    } catch (e: any) { 
-      alert(`Failed: ${e.message}`); 
-    } finally { 
-      setIsOptimizing(false); 
-    }
+    } catch (e: any) { alert(`Failed: ${e.message}`); } 
+    finally { setIsOptimizing(false); }
   };
 
   const allImages = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].filter(Boolean) as string[];
@@ -477,7 +495,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Weight size={14} /> Item Weight (Standard)</label>
                          <div className="flex gap-2">
                             <input value={getFieldValue('optimized_weight_value', 'item_weight_value')} onChange={e => updateField('optimized_weight_value', e.target.value)} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm" placeholder="Value" />
-                            <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-32 px-2 py-3 bg-white border border-slate-200 rounded-xl font-black text-[10px] text-center" placeholder="Pounds / Kilograms" />
+                            <input value={getFieldValue('optimized_weight_unit', 'item_weight_unit')} onChange={e => updateField('optimized_weight_unit', e.target.value)} className="w-32 px-2 py-3 bg-white border border-slate-200 rounded-xl font-black text-[10px] text-center" placeholder="Pounds / Ounces" />
                          </div>
                       </div>
                       <div className="space-y-3">
@@ -486,7 +504,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                             <input value={getFieldValue('optimized_length', 'item_length')} onChange={e => updateField('optimized_length', e.target.value)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" placeholder="L" />
                             <input value={getFieldValue('optimized_width', 'item_width')} onChange={e => updateField('optimized_width', e.target.value)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" placeholder="W" />
                             <input value={getFieldValue('optimized_height', 'item_height')} onChange={e => updateField('optimized_height', e.target.value)} className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs font-bold" placeholder="H" />
-                            <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-28 px-1 py-3 bg-white border border-slate-200 rounded-xl font-black text-[9px] text-center" placeholder="Inches / Centimeters" />
+                            <input value={getFieldValue('optimized_size_unit', 'item_size_unit')} onChange={e => updateField('optimized_size_unit', e.target.value)} className="w-28 px-1 py-3 bg-white border border-slate-200 rounded-xl font-black text-[9px] text-center" placeholder="Inches" />
                          </div>
                       </div>
                    </div>

@@ -6,17 +6,19 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   if (!apiKey) throw new Error("OpenAI API Key is missing.");
 
   const prompt = `
-    You are an expert Amazon Listing Optimizer. Optimize this product for maximum SEO and conversion.
-    Source Data: ${JSON.stringify(cleanedData)}
+    You are an expert Amazon Listing Optimizer. Your goal is to maximize SEO and conversion.
 
-    [STRICT RULES]
-    1. Title: Max 200 chars. SEO-rich. No brands.
-    2. Bullet Points: Exactly 5. Each MUST start with "[KEYWORD]: " prefix.
-    3. Description: 1000-1500 chars HTML (<p>, <br>).
-    4. Logistics: Extract optimized_weight_value (number), optimized_weight_unit (full name e.g. "Pounds"), optimized_length, optimized_width, optimized_height (numbers), optimized_size_unit (full name e.g. "Inches").
-    5. Prohibited: No Brand names, no "Best/Perfect".
+    [STRICT CONSTRAINTS]
+    1. Title: Max 200 characters. No brands.
+    2. Bullet Points: Exactly 5 points. EACH MUST START with "[KEYWORD]: " prefix.
+    3. Description: 1000-1500 characters HTML (<p>, <br>).
+    4. Logistics: Extract optimized_weight_value (number), optimized_weight_unit (Pounds/Ounces), optimized_length, optimized_width, optimized_height (numbers), optimized_size_unit (Inches).
+    5. No extreme words or brand names.
 
-    Return ONLY JSON matching the schema of OptimizedData.
+    Analyze and optimize:
+    ${JSON.stringify(cleanedData)}
+
+    Return JSON only.
   `;
 
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -34,7 +36,6 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   });
   const data = await response.json();
   const result = JSON.parse(data.choices[0].message.content);
-  
   if (result.optimized_features && result.optimized_features.length < 5) {
     while (result.optimized_features.length < 5) result.optimized_features.push("");
   }
@@ -44,7 +45,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
 export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const apiKey = process.env.OPENAI_API_KEY;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const prompt = `Translate this Amazon listing to "${targetLangName}". Keep HTML tags and "[KEYWORD]: " style: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate to "${targetLangName}", keep HTML and "[KEYWORD]: " style: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 

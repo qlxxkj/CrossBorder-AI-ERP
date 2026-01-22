@@ -6,17 +6,15 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
   if (!apiKey) throw new Error("DeepSeek API Key missing.");
 
   const prompt = `
-    Optimize Amazon listing for US market. 
+    You are an expert Amazon Listing Optimizer. Optimize for SEO/Conversion.
+    Constraints: 
+    - 5 Bullets starting with "[KEYWORD]: "
+    - Title < 200 chars
+    - Description 1000-1500 chars HTML
+    - Extract Logistics: weight_value (number), weight_unit (Pounds/Ounces), length, width, height (numbers), size_unit (Inches).
+    - No brands.
+    
     Source: ${JSON.stringify(cleanedData)}
-
-    [CONSTRAINTS]
-    - Title: Max 200 chars.
-    - Bullets: Exactly 5. MUST start with "[KEYWORD]: ".
-    - Description: 1000-1500 chars HTML.
-    - Logistics: Extract structured values (numbers) and full unit names ("Pounds", "Inches").
-    - NO BRANDS.
-
-    Return ONLY JSON.
   `;
 
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
