@@ -33,7 +33,11 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       </div>
       <div className="flex flex-wrap gap-2">
          {allImages.map((img, i) => (
-           <div key={i} onMouseEnter={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60'}`}>
+           <div 
+            key={i} 
+            onClick={() => setPreviewImage(img)} 
+            className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg' : 'border-transparent opacity-60 hover:opacity-100'}`}
+           >
               <img src={img} className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 flex flex-col justify-between p-1">
                  <div className="flex justify-between w-full">

@@ -166,7 +166,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') trans = await translateListingWithDeepSeek(source, targetLang);
       else trans = await translateListingWithAI(source, targetLang);
       
-      // 换算逻辑：调用组件库提供的核心换算函数
       const logistics = calculateMarketLogistics(localListing, code);
       const rate = exchangeRates.find(r => r.marketplace === code)?.rate || 1;
       
@@ -200,9 +199,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     await syncToSupabase(localListing);
   };
 
-  /**
-   * 增强型强制换算：执行后立即同步数据库
-   */
   const handleRecalculateCurrent = async () => {
     if (activeMarket === 'US') return;
 
@@ -214,10 +210,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       trans[activeMarket] = { ...(trans[activeMarket] || {}), ...results } as OptimizedData;
       next.translations = trans;
       
-      // 执行 React 状态向上同步
       onUpdate(next);
-      
-      // 核心：在状态闭包中立即触发数据库同步
       syncToSupabase(next);
       
       return next;
@@ -285,7 +278,28 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       </div>
       {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(n); updateField('sourcing_data', n.sourcing_data); setShowSourcingModal(false); }} />}
       {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={record => { let data = [...(localListing.sourcing_data || [])]; if (editingSourceRecord) data = data.map(s => s.id === record.id ? record : s); else data.push(record); updateField('sourcing_data', data); setShowSourcingForm(false); }} />}
-      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={u => { updateField('main_image', u); setPreviewImage(u); setShowImageEditor(false); }} uiLang={uiLang} />}
+      {showImageEditor && (
+        <ImageEditor 
+          imageUrl={previewImage} 
+          onClose={() => setShowImageEditor(false)} 
+          onSave={u => { 
+            // 核心修复：动态判断当前保存的是哪张图片
+            if (previewImage === localListing.cleaned.main_image) {
+              updateField('main_image', u); 
+            } else {
+              const others = [...(localListing.cleaned.other_images || [])];
+              const idx = others.indexOf(previewImage);
+              if (idx !== -1) {
+                others[idx] = u;
+                updateField('other_images', others);
+              }
+            }
+            setPreviewImage(u); 
+            setShowImageEditor(false); 
+          }} 
+          uiLang={uiLang} 
+        />
+      )}
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; setIsSaving(true); const fd = new FormData(); fd.append('file', file); const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd }); const data = await res.json(); const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url; if (u) { updateField('other_images', [...(localListing.cleaned.other_images || []), u]); setPreviewImage(u); } setIsSaving(false); }} />
     </div>
   );
