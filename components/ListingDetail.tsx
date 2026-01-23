@@ -134,7 +134,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } catch (e) {} finally { setIsSaving(false); }
   };
 
-  const updateField = (field: string, value: any) => {
+  // 增强版 updateField，支持即时同步
+  const updateField = (field: string, value: any, shouldSync: boolean = false) => {
     setLocalListing(prev => {
       const next = { ...prev };
       if (activeMarket === 'US') {
@@ -150,6 +151,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         next.translations = trans;
       }
       onUpdate(next);
+      if (shouldSync) syncToSupabase(next);
       return next;
     });
   };
@@ -201,18 +203,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleRecalculateCurrent = async () => {
     if (activeMarket === 'US') return;
-
     const results = calculateMarketLogistics(localListing, activeMarket);
-    
     setLocalListing(prev => {
       const next = { ...prev };
       const trans = { ...(next.translations || {}) };
       trans[activeMarket] = { ...(trans[activeMarket] || {}), ...results } as OptimizedData;
       next.translations = trans;
-      
       onUpdate(next);
       syncToSupabase(next);
-      
       return next;
     });
   };
@@ -235,8 +233,38 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
-             <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={updateField} isSaving={isSaving} isProcessing={isProcessingImages} onStandardizeAll={async () => { setIsProcessingImages(true); const newMain = await standardizeImage(localListing.cleaned.main_image || ''); const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImage(u))); updateField('main_image', newMain); updateField('other_images', newOthers); setPreviewImage(newMain); setIsProcessingImages(false); }} onStandardizeOne={(u) => standardizeImage(u).then(n => { if(u === localListing.cleaned.main_image) { updateField('main_image', n); setPreviewImage(n); } else { updateField('other_images', localListing.cleaned.other_images?.map(x => x === u ? n : x)); } })} setShowEditor={setShowImageEditor} fileInputRef={fileInputRef} />
-             <ListingSourcingSection listing={localListing} updateField={updateField} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
+             <ListingImageSection 
+              listing={localListing} 
+              previewImage={previewImage} 
+              setPreviewImage={setPreviewImage} 
+              updateField={(f, v) => updateField(f, v, true)} // 图片相关改动始终触发同步
+              isSaving={isSaving} 
+              isProcessing={isProcessingImages} 
+              onStandardizeAll={async () => { 
+                setIsProcessingImages(true); 
+                const newMain = await standardizeImage(localListing.cleaned.main_image || ''); 
+                const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImage(u))); 
+                setLocalListing(prev => {
+                  const next = { ...prev, cleaned: { ...prev.cleaned, main_image: newMain, other_images: newOthers } };
+                  onUpdate(next); syncToSupabase(next); return next;
+                });
+                setPreviewImage(newMain); setIsProcessingImages(false); 
+              }} 
+              onStandardizeOne={async (u) => {
+                setIsProcessingImages(true);
+                const n = await standardizeImage(u);
+                setLocalListing(prev => {
+                  const next = { ...prev };
+                  if(u === prev.cleaned.main_image) { next.cleaned = { ...next.cleaned, main_image: n }; setPreviewImage(n); }
+                  else { next.cleaned = { ...next.cleaned, other_images: prev.cleaned.other_images?.map(x => x === u ? n : x) }; }
+                  onUpdate(next); syncToSupabase(next); return next;
+                });
+                setIsProcessingImages(false);
+              }} 
+              setShowEditor={setShowImageEditor} 
+              fileInputRef={fileInputRef} 
+             />
+             <ListingSourcingSection listing={localListing} updateField={(f, v) => updateField(f, v, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
           </div>
           <div className="lg:col-span-8">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
@@ -276,31 +304,44 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
         </div>
       </div>
-      {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(n); updateField('sourcing_data', n.sourcing_data); setShowSourcingModal(false); }} />}
-      {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={record => { let data = [...(localListing.sourcing_data || [])]; if (editingSourceRecord) data = data.map(s => s.id === record.id ? record : s); else data.push(record); updateField('sourcing_data', data); setShowSourcingForm(false); }} />}
+      {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(n); updateField('sourcing_data', n.sourcing_data, true); setShowSourcingModal(false); }} />}
+      {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={record => { let data = [...(localListing.sourcing_data || [])]; if (editingSourceRecord) data = data.map(s => s.id === record.id ? record : s); else data.push(record); updateField('sourcing_data', data, true); setShowSourcingForm(false); }} />}
       {showImageEditor && (
         <ImageEditor 
           imageUrl={previewImage} 
           onClose={() => setShowImageEditor(false)} 
           onSave={u => { 
-            // 核心修复：动态判断当前保存的是哪张图片
-            if (previewImage === localListing.cleaned.main_image) {
-              updateField('main_image', u); 
-            } else {
-              const others = [...(localListing.cleaned.other_images || [])];
-              const idx = others.indexOf(previewImage);
-              if (idx !== -1) {
-                others[idx] = u;
-                updateField('other_images', others);
+            setLocalListing(prev => {
+              const next = { ...prev };
+              if (previewImage === prev.cleaned.main_image) { next.cleaned = { ...next.cleaned, main_image: u }; } 
+              else {
+                const others = [...(prev.cleaned.other_images || [])];
+                const idx = others.indexOf(previewImage);
+                if (idx !== -1) { others[idx] = u; next.cleaned = { ...next.cleaned, other_images: others }; }
               }
-            }
-            setPreviewImage(u); 
+              setPreviewImage(u); onUpdate(next); syncToSupabase(next); return next;
+            });
             setShowImageEditor(false); 
           }} 
           uiLang={uiLang} 
         />
       )}
-      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; setIsSaving(true); const fd = new FormData(); fd.append('file', file); const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd }); const data = await res.json(); const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url; if (u) { updateField('other_images', [...(localListing.cleaned.other_images || []), u]); setPreviewImage(u); } setIsSaving(false); }} />
+      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={async (e) => { 
+        const file = e.target.files?.[0]; if (!file) return; 
+        setIsSaving(true); 
+        const fd = new FormData(); fd.append('file', file); 
+        try {
+          const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd }); 
+          const data = await res.json(); 
+          const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url; 
+          if (u) {
+            setLocalListing(prev => {
+              const next = { ...prev, cleaned: { ...prev.cleaned, other_images: [...(prev.cleaned.other_images || []), u] } };
+              setPreviewImage(u); onUpdate(next); syncToSupabase(next); return next;
+            });
+          }
+        } catch(err) {} finally { setIsSaving(false); }
+      }} />
     </div>
   );
 };

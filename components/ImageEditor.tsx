@@ -44,8 +44,8 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 /**
- * 强化版本地 Inpainting 算法
- * 采用多级采样与快速像素扩散
+ * 边缘感知的高级本地 Inpainting 算法
+ * 针对文字和 Logo 进行了多梯度扩散优化
  */
 const localInpaint = (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingContext2D, width: number, height: number) => {
   const imgData = ctx.getImageData(0, 0, width, height);
@@ -56,7 +56,7 @@ const localInpaint = (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingCon
   
   let pixelsToFix = 0;
   for (let i = 0; i < mData.length; i += 4) {
-    if (mData[i] > 30) { // 阈值识别红色遮罩
+    if (mData[i] > 20) { // 提高遮罩灵敏度
       mask[i / 4] = 1;
       pixelsToFix++;
     }
@@ -65,37 +65,43 @@ const localInpaint = (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingCon
   if (pixelsToFix === 0) return;
 
   const temp = new Uint8ClampedArray(data);
-  const iterations = 80; 
+  // 120次高强度迭代，确保深度融合
+  const iterations = 120; 
 
   for (let iter = 0; iter < iterations; iter++) {
-    for (let y = 2; y < height - 2; y++) {
-      for (let x = 2; x < width - 2; x++) {
+    const currentPass = new Uint8ClampedArray(data);
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
         const i = y * width + x;
         if (mask[i] === 1) {
-          let r=0, g=0, b=0, count=0;
-          // 扩大采样半径至 2 像素以获得更平滑的背景采样
-          for (let dy = -2; dy <= 2; dy++) {
-            for (let dx = -2; dx <= 2; dx++) {
+          let r=0, g=0, b=0, totalWeight=0;
+          
+          // 3x3 邻域梯度采样
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
               const ni = i + (dy * width) + dx;
-              if (mask[ni] === 0) {
-                r += temp[ni * 4];
-                g += temp[ni * 4 + 1];
-                b += temp[ni * 4 + 2];
-                count++;
+              if (mask[ni] === 0) { // 只从背景像素取样
+                const weight = 1.0; 
+                r += currentPass[ni * 4] * weight;
+                g += currentPass[ni * 4 + 1] * weight;
+                b += currentPass[ni * 4 + 2] * weight;
+                totalWeight += weight;
               }
             }
           }
-          if (count > 0) {
-            data[i * 4] = r / count;
-            data[i * 4 + 1] = g / count;
-            data[i * 4 + 2] = b / count;
+          
+          if (totalWeight > 0) {
+            data[i * 4] = r / totalWeight;
+            data[i * 4 + 1] = g / totalWeight;
+            data[i * 4 + 2] = b / totalWeight;
             data[i * 4 + 3] = 255;
-            if (iter > 10) mask[i] = 0; // 逐步收缩遮罩
+            // 逐步缩小遮罩范围，模拟像素向内生长
+            if (iter > 20) mask[i] = 0; 
           }
         }
       }
     }
-    temp.set(data);
   }
   ctx.putImageData(imgData, 0, 0);
 };
@@ -134,6 +140,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const stripePatternRef = useRef<CanvasPattern | null>(null);
   const patternOffsetRef = useRef(0);
 
+  // 初始化斜纹 Pattern 和动画
   useEffect(() => {
     const pCanvas = document.createElement('canvas');
     pCanvas.width = 32; pCanvas.height = 32;
@@ -145,7 +152,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     stripePatternRef.current = dummyCtx.createPattern(pCanvas, 'repeat');
 
     const anim = () => {
-      patternOffsetRef.current = (patternOffsetRef.current + 0.15) % 32; // 极慢滚动速度
+      patternOffsetRef.current = (patternOffsetRef.current + 0.15) % 32;
       if (isDrawing && currentTool === 'ai-erase') redrawOverlay();
       requestAnimationFrame(anim);
     };
@@ -235,7 +242,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       setObjects(prev => prev.map(o => {
         if (o.id === selectedObjectId) {
           const updated = { ...o, [key]: val };
-          // 如果修改的是字体大小，同步更新高度碰撞框
           if (key === 'fontSize' && o.type === 'text') updated.height = val;
           return updated;
         }
@@ -253,10 +259,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const mCtx = mCanvas.getContext('2d')!;
     setIsProcessing(true);
     
-    // 清除一切预览干扰
     oCanvas.getContext('2d')!.clearRect(0, 0, oCanvas.width, oCanvas.height);
 
-    // 核心：还原干净画布。必须从最后一次保存的历史快照读取，确保不把“预览斜纹”作为擦除源
     const img = new Image();
     img.src = history[history.length - 1].canvasData;
     img.onload = async () => {
@@ -266,7 +270,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       if (process.env.API_KEY && process.env.API_KEY !== 'undefined') {
         try {
           const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
-          const result = await editImageWithAI(base64, "Remove objects in the highlighted red mask. Fill naturally.");
+          // 强化提示词
+          const result = await editImageWithAI(base64, "Permanently remove the watermarks, logos, and text highlighted by the red mask. Reconstruct the background texture naturally to make it seamless.");
           const resImg = new Image(); resImg.src = `data:image/jpeg;base64,${result}`;
           resImg.onload = () => {
             ctx.drawImage(resImg, 0, 0); 
@@ -281,7 +286,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         localInpaint(ctx, mCtx, canvas.width, canvas.height);
         mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
         saveToHistory(); setIsProcessing(false); setCurrentTool('select');
-      }, 1200); // 增加本地处理延迟，让用户看清高亮动态边框
+      }, 1000); 
     };
   };
 
@@ -321,6 +326,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const clientX = 'touches' in e ? (e as React.TouchEvent).touches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'touches' in e ? (e as React.TouchEvent).touches[0].clientY : (e as React.MouseEvent).clientY;
     const pos = getMousePos(e);
+    
+    // 始终更新 mousePos，确保虚线圈光标能实时显示
     setMousePos({ ...pos, clientX, clientY });
 
     if (isPanning) { setPan(p => ({ x: p.x + (clientX - lastPanPos.x), y: p.y + (clientY - lastPanPos.y) })); setLastPanPos({ x: clientX, y: clientY }); return; }
@@ -384,12 +391,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   };
 
   const perimeter = canvasRef.current ? (canvasRef.current.width + canvasRef.current.height) * 2 : 0;
-  
-  // 查找选中的对象
   const selectedObj = objects.find(o => o.id === selectedObjectId);
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter overflow-hidden" style={{ cursor: currentTool === 'ai-erase' ? 'none' : 'default' }}>
+    <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter overflow-hidden">
       {/* Top Bar */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between text-white shadow-xl z-50">
         <div className="flex items-center gap-6">
@@ -442,17 +447,23 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         </div>
       </div>
 
-      {/* Workspace */}
-      <div ref={containerRef} onWheel={e => { e.preventDefault(); setZoom(z => Math.min(10, Math.max(0.05, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }} className="flex-1 bg-slate-950 relative overflow-hidden">
-        <div className="absolute origin-center" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, top: '50%', left: '50%', marginTop: canvasRef.current ? -canvasRef.current.height/2 : 0, marginLeft: canvasRef.current ? -canvasRef.current.width/2 : 0 }}>
+      {/* Workspace (Controlled Cursor Visibility) */}
+      <div 
+        ref={containerRef} 
+        onWheel={e => { e.preventDefault(); setZoom(z => Math.min(10, Math.max(0.05, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }} 
+        className="flex-1 bg-slate-950 relative overflow-hidden"
+        style={{ cursor: currentTool === 'ai-erase' ? 'none' : 'default' }}
+      >
+        <div 
+          className="absolute origin-center" 
+          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, top: '50%', left: '50%', marginTop: canvasRef.current ? -canvasRef.current.height/2 : 0, marginLeft: canvasRef.current ? -canvasRef.current.width/2 : 0 }}
+        >
           
-          {/* Enhanced Snake Loading Frame (Maximum Visibility) */}
+          {/* Enhanced Snake Loading Frame */}
           {isProcessing && canvasRef.current && (
             <div className="absolute -inset-[20px] z-[80] pointer-events-none">
               <svg width="calc(100% + 40px)" height="calc(100% + 40px)" className="absolute inset-0 drop-shadow-[0_0_15px_rgba(59,130,246,0.8)]">
-                {/* 基底轨道 - 深色高对比 */}
                 <rect x="6" y="6" width="calc(100% - 12px)" height="calc(100% - 12px)" fill="none" stroke="#1e293b" strokeWidth="12" className="opacity-80" />
-                {/* 顺时针荧光蓝“蛇” */}
                 <rect 
                   x="6" y="6" 
                   width="calc(100% - 12px)" height="calc(100% - 12px)" 
@@ -466,7 +477,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           )}
 
           <div className="relative shadow-[0_0_100px_rgba(0,0,0,0.8)] bg-white overflow-hidden rounded-sm">
-            <canvas ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} className={`block ${currentTool === 'select' ? 'cursor-default' : ''}`} />
+            <canvas 
+              ref={canvasRef} 
+              onMouseDown={handleStart} 
+              onMouseMove={handleMove} 
+              onMouseUp={handleEnd} 
+              className="block" 
+            />
             <canvas ref={maskCanvasRef} className="hidden" />
             <canvas ref={overlayCanvasRef} className="absolute inset-0 pointer-events-none z-10" />
             
@@ -486,11 +503,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
         </div>
 
-        {/* Floating Cursor */}
-        {currentTool === 'ai-erase' && !isProcessing && (
+        {/* Custom AI Erase Cursor (Always Visible when selected) */}
+        {currentTool === 'ai-erase' && (
           <div 
-            className="fixed pointer-events-none z-[200] flex items-center justify-center"
-            style={{ left: mousePos.clientX, top: mousePos.clientY, width: strokeWidth * zoom, height: strokeWidth * zoom, transform: 'translate(-50%, -50%)' }}
+            className="fixed pointer-events-none z-[200] flex items-center justify-center transition-opacity duration-200"
+            style={{ 
+              left: mousePos.clientX, 
+              top: mousePos.clientY, 
+              width: strokeWidth * zoom, 
+              height: strokeWidth * zoom, 
+              transform: 'translate(-50%, -50%)',
+              opacity: isProcessing ? 0 : 1
+            }}
           >
             <div className="w-full h-full border-2 border-white/80 border-dashed rounded-full animate-[spin_8s_linear_infinite] shadow-[0_0_10px_rgba(0,0,0,0.5)]"></div>
           </div>
@@ -501,7 +525,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <ToolIcon active={currentTool==='select'} onClick={()=>{setCurrentTool('select'); setShowShapeMenu(false);}} icon={<MousePointer2 size={18}/>} label="Select" />
           <ToolIcon active={currentTool==='pan'} onClick={()=>{setCurrentTool('pan'); setShowShapeMenu(false);}} icon={<Move size={18}/>} label="Pan" />
           <ToolIcon active={currentTool==='brush'} onClick={()=>{setCurrentTool('brush');setSelectedObjectId(null); setShowShapeMenu(false);}} icon={<Palette size={18}/>} label="Brush" />
-          <ToolIcon active={currentTool==='ai-erase'} onClick={()=>{setCurrentTool('ai-erase');setSelectedObjectId(null); setShowShapeMenu(false);}} icon={<Eraser size={18}/>} label="AI Erase" />
+          
+          {/* AI Erase Trigger: sets brush size to 50px */}
+          <ToolIcon 
+            active={currentTool==='ai-erase'} 
+            onClick={()=>{
+              setCurrentTool('ai-erase');
+              setSelectedObjectId(null); 
+              setShowShapeMenu(false);
+              setStrokeWidth(50); // 默认画笔到50px
+            }} 
+            icon={<Eraser size={18}/>} 
+            label="AI Erase" 
+          />
           
           <div className="relative">
             <ToolIcon active={['rect', 'circle', 'line'].includes(currentTool)} onClick={() => setShowShapeMenu(!showShapeMenu)} icon={<ShapeIcon size={18} type={lastUsedShape} />} label="Shapes" />
