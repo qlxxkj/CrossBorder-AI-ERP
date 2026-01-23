@@ -44,8 +44,8 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 /**
- * 增强版本地内容识别填充算法
- * 使用边缘像素梯度分析，提升 Logo 擦除后的背景融合度
+ * 深度修复的本地 Inpainting 算法
+ * 使用边缘向中心扩散的高性能扩散算法
  */
 const localInpaint = (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingContext2D, width: number, height: number) => {
   const imgData = ctx.getImageData(0, 0, width, height);
@@ -54,51 +54,42 @@ const localInpaint = (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingCon
   const mData = maskData.data;
   
   const mask = new Uint8Array(width * height);
-  let hasMask = false;
+  let pixelsToFix = 0;
   
   for (let i = 0; i < mData.length; i += 4) {
-    if (mData[i] > 0) { // 只要遮罩层有像素就视为待擦除
+    if (mData[i] > 0) { // 检查红色分量
       mask[i / 4] = 1;
-      hasMask = true;
+      pixelsToFix++;
     }
   }
 
-  if (!hasMask) return;
+  if (pixelsToFix === 0) return;
 
   const temp = new Uint8ClampedArray(data);
-  const iterations = 15; // 更多迭代次数提升融合质量
+  const iterations = 30; // 增加迭代以确保大面积 Logo 完全消失
 
   for (let iter = 0; iter < iterations; iter++) {
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
         const i = y * width + x;
         if (mask[i] === 1) {
-          let r=0, g=0, b=0, count=0, weightSum=0;
-          
-          // 增加采样步长和权重
-          const offsets = [
-            {idx: -width-1, w: 0.7}, {idx: -width, w: 1}, {idx: -width+1, w: 0.7},
-            {idx: -1, w: 1}, {idx: 1, w: 1},
-            {idx: width-1, w: 0.7}, {idx: width, w: 1}, {idx: width+1, w: 0.7}
-          ];
-
-          for (const o of offsets) {
-            const ni = i + o.idx;
+          let r=0, g=0, b=0, count=0;
+          // 检查邻域，只从非遮罩（干净）像素取样
+          const neighbors = [i-width-1, i-width, i-width+1, i-1, i+1, i+width-1, i+width, i+width+1];
+          for (const ni of neighbors) {
             if (mask[ni] === 0) {
-              r += temp[ni * 4] * o.w;
-              g += temp[ni * 4 + 1] * o.w;
-              b += temp[ni * 4 + 2] * o.w;
-              weightSum += o.w;
+              r += temp[ni * 4];
+              g += temp[ni * 4 + 1];
+              b += temp[ni * 4 + 2];
               count++;
             }
           }
-          
           if (count > 0) {
-            data[i * 4] = r / weightSum;
-            data[i * 4 + 1] = g / weightSum;
-            data[i * 4 + 2] = b / weightSum;
+            data[i * 4] = r / count;
+            data[i * 4 + 1] = g / count;
+            data[i * 4 + 2] = b / count;
             data[i * 4 + 3] = 255;
-            mask[i] = 0; 
+            mask[i] = 0; // 填补后标记为可用参考点
           }
         }
       }
@@ -110,14 +101,15 @@ const localInpaint = (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingCon
 
 export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onSave, uiLang }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const maskCanvasRef = useRef<HTMLCanvasElement>(null); // 记录逻辑遮罩
+  const maskCanvasRef = useRef<HTMLCanvasElement>(null); 
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null); // 用于绘制条纹预览
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [currentTool, setCurrentTool] = useState<Tool>('select');
   const [isProcessing, setIsProcessing] = useState(false);
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [fillColor, setFillColor] = useState('#ffffff');
-  const [strokeWidth, setStrokeWidth] = useState(30); // 默认画笔调大，适合擦除
+  const [strokeWidth, setStrokeWidth] = useState(40);
   const [fontSize, setFontSize] = useState(40);      
   const [opacity, setOpacity] = useState(1); 
   const [zoom, setZoom] = useState(1);
@@ -138,33 +130,61 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [history, setHistory] = useState<EditorState[]>([]);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0, clientX: 0, clientY: 0 });
 
-  // 创建黑白斜纹 Pattern
   const stripePatternRef = useRef<CanvasPattern | null>(null);
   const patternOffsetRef = useRef(0);
 
   useEffect(() => {
     const patternCanvas = document.createElement('canvas');
-    patternCanvas.width = 20; patternCanvas.height = 20;
+    patternCanvas.width = 30; patternCanvas.height = 30;
     const pctx = patternCanvas.getContext('2d')!;
-    pctx.fillStyle = 'rgba(255,255,255,0.4)'; pctx.fillRect(0,0,20,20);
-    pctx.strokeStyle = 'rgba(0,0,0,0.5)'; pctx.lineWidth = 4;
-    pctx.beginPath(); pctx.moveTo(0, 20); pctx.lineTo(20, 0); pctx.stroke();
-    const ctx = canvasRef.current?.getContext('2d');
-    if (ctx) stripePatternRef.current = ctx.createPattern(patternCanvas, 'repeat');
+    pctx.fillStyle = 'rgba(255,255,255,0.4)'; pctx.fillRect(0,0,30,30);
+    pctx.strokeStyle = 'rgba(0,0,0,0.4)'; pctx.lineWidth = 8;
+    pctx.beginPath(); pctx.moveTo(0, 30); pctx.lineTo(30, 0); pctx.stroke();
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    stripePatternRef.current = ctx.createPattern(patternCanvas, 'repeat');
 
-    // 条纹滚动动画
     const anim = () => {
-      patternOffsetRef.current = (patternOffsetRef.current + 0.5) % 20;
+      patternOffsetRef.current = (patternOffsetRef.current + 0.8) % 30;
+      if (isDrawing && currentTool === 'ai-erase') redrawOverlay();
       requestAnimationFrame(anim);
     };
-    anim();
-  }, []);
+    const reqId = requestAnimationFrame(anim);
+    return () => cancelAnimationFrame(reqId);
+  }, [isDrawing, currentTool]);
+
+  const redrawOverlay = () => {
+    const oCanvas = overlayCanvasRef.current;
+    if (!oCanvas) return;
+    const oCtx = oCanvas.getContext('2d')!;
+    oCtx.clearRect(0, 0, oCanvas.width, oCanvas.height);
+    if (!stripePatternRef.current) return;
+
+    // 将逻辑遮罩（maskCanvas）的内容作为剪切路径，在其上填充滚动的斜纹
+    oCtx.save();
+    oCtx.translate(patternOffsetRef.current, 0);
+    oCtx.fillStyle = stripePatternRef.current;
+    // 这里我们直接利用已经画在 maskCanvas 上的“红色笔迹”
+    oCtx.globalAlpha = 1;
+    // 技巧：利用绘图模式只在 mask 有像素的地方画
+    oCtx.globalCompositeOperation = 'source-over';
+    
+    // 我们需要把 maskCanvas 的形状画到 overlay 上
+    const mCanvas = maskCanvasRef.current;
+    if (mCanvas) {
+       // 将 mask 复制到临时绘制
+       oCtx.drawImage(mCanvas, -patternOffsetRef.current, 0);
+       oCtx.globalCompositeOperation = 'source-in';
+       oCtx.fillRect(-patternOffsetRef.current, 0, oCanvas.width + 30, oCanvas.height);
+    }
+    oCtx.restore();
+  };
 
   useEffect(() => {
     const initCanvas = async () => {
       const canvas = canvasRef.current;
       const mCanvas = maskCanvasRef.current;
-      if (!canvas || !mCanvas) return;
+      const oCanvas = overlayCanvasRef.current;
+      if (!canvas || !mCanvas || !oCanvas) return;
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) return;
       setIsProcessing(true);
@@ -176,8 +196,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const img = new Image();
         img.src = localUrl;
         img.onload = () => {
-          canvas.width = mCanvas.width = img.width;
-          canvas.height = mCanvas.height = img.height;
+          canvas.width = mCanvas.width = oCanvas.width = img.width;
+          canvas.height = mCanvas.height = oCanvas.height = img.height;
           ctx.drawImage(img, 0, 0);
           if (containerRef.current) {
             const scale = Math.min((containerRef.current.clientWidth - 100) / img.width, (containerRef.current.clientHeight - 100) / img.height, 0.9);
@@ -201,17 +221,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const handleSmartErase = async () => {
     const canvas = canvasRef.current;
     const mCanvas = maskCanvasRef.current;
-    if (!canvas || !mCanvas) return;
+    const oCanvas = overlayCanvasRef.current;
+    if (!canvas || !mCanvas || !oCanvas) return;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const mCtx = mCanvas.getContext('2d')!;
+    const oCtx = oCanvas.getContext('2d')!;
 
     setIsProcessing(true);
     
+    // 无论哪种模式，清除 Overlay 预览
+    oCtx.clearRect(0, 0, oCanvas.width, oCanvas.height);
+
     if (process.env.API_KEY && process.env.API_KEY !== 'undefined') {
       try {
-        // 将当前画布与条纹混合后的视觉效果重置为干净的图片数据（算法只需要遮罩）
-        const base64 = history[history.length - 1].canvasData.split(',')[1];
-        // 遮罩由于是画在 mCtx 上的，提取它
+        const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
         const maskBase64 = mCanvas.toDataURL('image/png').split(',')[1];
         const result = await editImageWithAI(base64, "Erase highlighted parts using the mask.");
         const img = new Image(); img.src = `data:image/jpeg;base64,${result}`;
@@ -225,21 +248,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       } catch (e) { console.warn("Fallback to local..."); }
     }
 
+    // 本地修复逻辑
     setTimeout(() => {
-      // 1. 先把画布恢复到涂抹前的状态（即 history 最后一项）
-      const img = new Image();
-      img.src = history[history.length - 1].canvasData;
-      img.onload = () => {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
-        // 2. 调用内容识别填充
-        localInpaint(ctx, mCtx, canvas.width, canvas.height);
-        mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
-        saveToHistory();
-        setIsProcessing(false);
-        setCurrentTool('select');
-      };
-    }, 100);
+      localInpaint(ctx, mCtx, canvas.width, canvas.height);
+      mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
+      saveToHistory();
+      setIsProcessing(false);
+      setCurrentTool('select');
+    }, 800); // 留出一点动画时间看“贪吃蛇”
   };
 
   const handleStart = (e: React.MouseEvent | React.TouchEvent) => {
@@ -270,11 +286,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (['rect', 'circle', 'line', 'select-fill', 'crop'].includes(currentTool)) setSelection({x1:pos.x, y1:pos.y, x2:pos.x, y2:pos.y});
     
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
-      const ctx = canvasRef.current?.getContext('2d')!;
       const mCtx = maskCanvasRef.current?.getContext('2d')!;
-      [ctx, mCtx].forEach(c => {
-        c.beginPath(); c.moveTo(pos.x, pos.y); c.lineCap = 'round'; c.lineJoin = 'round';
-      });
+      const ctx = canvasRef.current?.getContext('2d')!;
+      if (currentTool === 'brush') {
+         ctx.beginPath(); ctx.moveTo(pos.x, pos.y);
+      } else {
+         mCtx.beginPath(); mCtx.moveTo(pos.x, pos.y);
+      }
     }
   };
 
@@ -296,19 +314,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!isDrawing) return;
     if (['rect', 'circle', 'line', 'select-fill', 'crop'].includes(currentTool)) setSelection(p => p ? {...p, x2: pos.x, y2: pos.y} : null);
     else {
-      const ctx = canvasRef.current?.getContext('2d')!;
-      const mCtx = maskCanvasRef.current?.getContext('2d')!;
-      if (currentTool === 'ai-erase' && stripePatternRef.current) {
-        ctx.save();
-        ctx.translate(patternOffsetRef.current, 0);
-        ctx.strokeStyle = stripePatternRef.current;
-        ctx.lineWidth = strokeWidth;
-        ctx.lineTo(pos.x - patternOffsetRef.current, pos.y);
-        ctx.stroke();
-        ctx.restore();
-        // 逻辑遮罩只存纯色
-        mCtx.strokeStyle = 'red'; mCtx.lineWidth = strokeWidth; mCtx.lineTo(pos.x, pos.y); mCtx.stroke();
+      if (currentTool === 'ai-erase') {
+        const mCtx = maskCanvasRef.current?.getContext('2d')!;
+        mCtx.lineCap = 'round'; mCtx.lineJoin = 'round';
+        mCtx.strokeStyle = 'red'; mCtx.lineWidth = strokeWidth; 
+        mCtx.lineTo(pos.x, pos.y); mCtx.stroke();
+        redrawOverlay();
       } else if (currentTool === 'brush') {
+        const ctx = canvasRef.current?.getContext('2d')!;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.strokeStyle = strokeColor; ctx.lineWidth = strokeWidth; ctx.globalAlpha = opacity; ctx.lineTo(pos.x, pos.y); ctx.stroke();
       }
     }
@@ -355,7 +369,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     return { x: (cx - rect.left) / zoom, y: (cy - rect.top) / zoom };
   };
 
-  const ShapeIcon = lastUsedShape === 'rect' ? Square : lastUsedShape === 'circle' ? Circle : Minus;
+  const perimeter = canvasRef.current ? (canvasRef.current.width + canvasRef.current.height) * 2 : 0;
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter overflow-hidden" style={{ cursor: currentTool === 'ai-erase' ? 'none' : 'default' }}>
@@ -373,7 +387,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             const scale = Math.min(1500/canvas.width, 1500/canvas.height);
             tCtx.drawImage(canvas, (1600-canvas.width*scale)/2, (1600-canvas.height*scale)/2, canvas.width*scale, canvas.height*scale);
             canvas.width = 1600; canvas.height = 1600; canvas.getContext('2d')!.drawImage(temp, 0, 0);
-            maskCanvasRef.current!.width = 1600; maskCanvasRef.current!.height = 1600;
+            maskCanvasRef.current!.width = overlayCanvasRef.current!.width = 1600;
+            maskCanvasRef.current!.height = overlayCanvasRef.current!.height = 1600;
             setZoom(Math.min((containerRef.current!.clientWidth-100)/1600, (containerRef.current!.clientHeight-100)/1600, 1));
             saveToHistory([]);
           }} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
@@ -414,18 +429,40 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       <div ref={containerRef} onWheel={e => { e.preventDefault(); setZoom(z => Math.min(10, Math.max(0.05, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }} className="flex-1 bg-slate-950 relative overflow-hidden cursor-grab active:cursor-grabbing">
         <div className="absolute origin-center" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, top: '50%', left: '50%', marginTop: canvasRef.current ? -canvasRef.current.height/2 : 0, marginLeft: canvasRef.current ? -canvasRef.current.width/2 : 0 }}>
           
-          {/* Win11 处理中加载边框 */}
-          {isProcessing && (
-            <div className="absolute -inset-[3px] z-[60] pointer-events-none rounded-lg overflow-hidden">
-               <div className="absolute inset-0 border-[2px] border-blue-400/30"></div>
-               <div className="absolute inset-0 border-[3px] border-transparent border-t-blue-500 animate-[spin_1.5s_linear_infinite]"></div>
+          {/* Win11 “贪吃蛇”加载边框 */}
+          {isProcessing && canvasRef.current && (
+            <div className="absolute -inset-[4px] z-[60] pointer-events-none">
+              <svg width="100%" height="100%" className="absolute inset-0">
+                {/* 浅蓝色底框 */}
+                <rect 
+                  x="1" y="1" 
+                  width="calc(100% - 2px)" height="calc(100% - 2px)" 
+                  fill="none" 
+                  stroke="#3b82f6" 
+                  strokeWidth="2" 
+                  className="opacity-30"
+                />
+                {/* 深蓝色贪吃蛇段 */}
+                <rect 
+                  x="1" y="1" 
+                  width="calc(100% - 2px)" height="calc(100% - 2px)" 
+                  fill="none" 
+                  stroke="#2563eb" 
+                  strokeWidth="3" 
+                  strokeDasharray={`${perimeter * 0.2} ${perimeter * 0.8}`}
+                  className="animate-[snake_3s_linear_infinite]"
+                />
+              </svg>
             </div>
           )}
 
           <div className="relative shadow-[0_0_100px_rgba(0,0,0,0.5)] bg-white overflow-hidden rounded-sm">
             <canvas ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} className="block" />
             <canvas ref={maskCanvasRef} className="hidden" />
-            <svg className="absolute inset-0 pointer-events-none w-full h-full" viewBox={`0 0 ${canvasRef.current?.width||0} ${canvasRef.current?.height||0}`}>
+            {/* Overlay 层：专门用于展示条纹预览 */}
+            <canvas ref={overlayCanvasRef} className="absolute inset-0 pointer-events-none z-10" />
+            
+            <svg className="absolute inset-0 pointer-events-none w-full h-full z-20" viewBox={`0 0 ${canvasRef.current?.width||0} ${canvasRef.current?.height||0}`}>
               {selection && <rect x={Math.min(selection.x1, selection.x2)} y={Math.min(selection.y1, selection.y2)} width={Math.abs(selection.x1-selection.x2)} height={Math.abs(selection.y1-selection.y2)} fill={currentTool==='select-fill'?fillColor:'none'} stroke={strokeColor} strokeWidth={2} strokeDasharray="5,5" />}
               {objects.map(obj => (
                 <g key={obj.id} transform={`rotate(${obj.rotation*180/Math.PI} ${obj.x+obj.width/2} ${obj.y+obj.height/2})`} opacity={obj.opacity}>
@@ -509,6 +546,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           )}
         </div>
       </div>
+
+      <style>{`
+        @keyframes snake {
+          from { stroke-dashoffset: ${perimeter}; }
+          to { stroke-dashoffset: 0; }
+        }
+      `}</style>
     </div>
   );
 };
@@ -519,3 +563,8 @@ const ToolIcon = ({ active, onClick, icon, label }: any) => (
     <span className="text-[7px] font-black uppercase tracking-tighter opacity-60 group-hover:opacity-100">{label}</span>
   </button>
 );
+const ShapeIcon = ({ size, type }: any) => {
+  if (type === 'rect') return <Square size={size} />;
+  if (type === 'circle') return <Circle size={size} />;
+  return <Minus size={size} />;
+};
