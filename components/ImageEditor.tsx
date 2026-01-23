@@ -2,10 +2,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   X, Eraser, Scissors, PaintBucket, Crop, Save, Undo, 
-  Wand2, Loader2, Download, MousePointer2, Maximize, 
-  Type, Square, Circle, Minus, Move, Palette, Trash2,
-  ZoomIn, ZoomOut, RotateCcw, Box, ArrowUpRight, RefreshCw, 
-  Shapes, ChevronRight
+  Wand2, Loader2, MousePointer2, Maximize, 
+  Type, Square, Circle, Minus, Palette, ZoomIn, ZoomOut, Move
 } from 'lucide-react';
 import { editImageWithAI } from '../services/geminiService';
 import { UILanguage } from '../types';
@@ -17,7 +15,7 @@ interface ImageEditorProps {
   uiLang: UILanguage;
 }
 
-type Tool = 'select' | 'select-fill' | 'brush' | 'ai-erase' | 'crop' | 'rect' | 'circle' | 'line' | 'text' | 'none';
+type Tool = 'select' | 'select-fill' | 'brush' | 'ai-erase' | 'crop' | 'rect' | 'circle' | 'line' | 'text' | 'pan';
 
 interface EditorObject {
   id: string;
@@ -31,7 +29,7 @@ interface EditorObject {
   fill: string;
   strokeWidth: number;
   fontSize?: number; 
-  opacity: number; // 0 to 1
+  opacity: number;
   text?: string;
 }
 
@@ -60,13 +58,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [isProcessing, setIsProcessing] = useState(false);
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [fillColor, setFillColor] = useState('#ffffff');
-  
   const [strokeWidth, setStrokeWidth] = useState(5); 
   const [fontSize, setFontSize] = useState(40);      
-  
   const [opacity, setOpacity] = useState(1); 
-  const [zoom, setZoom] = useState(1);
   
+  // 画布视图状态：缩放与平移
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [lastPanPos, setLastPanPos] = useState({ x: 0, y: 0 });
+
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [lastUsedShape, setLastUsedShape] = useState<'rect' | 'circle' | 'line'>('rect');
 
@@ -86,51 +87,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const selectedObject = objects.find(o => o.id === selectedObjectId);
   const isEditingText = selectedObject?.type === 'text' || (currentTool === 'text' && !selectedObject);
 
-  useEffect(() => {
-    if (selectedObjectId) {
-      const obj = objects.find(o => o.id === selectedObjectId);
-      if (obj) {
-        setStrokeColor(obj.stroke);
-        setFillColor(obj.fill);
-        setOpacity(obj.opacity);
-        if (obj.type === 'text') {
-          setFontSize(obj.fontSize || 40);
-        } else {
-          setStrokeWidth(obj.strokeWidth);
-        }
-      }
-    }
-  }, [selectedObjectId]);
-
-  const updateSelectedObjectProperty = (property: keyof EditorObject, value: any) => {
-    if (selectedObjectId) {
-      setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, [property]: value } : o));
-    }
-  };
-
-  const saveToHistory = useCallback((currentObjects?: EditorObject[]) => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const newState: EditorState = {
-        canvasData: canvas.toDataURL('image/png'),
-        objects: currentObjects ? [...currentObjects] : [...objects]
-      };
-      setHistory(prev => [...prev.slice(-30), newState]);
-    }
-  }, [objects]);
-
+  // 初始化画布
   useEffect(() => {
     const initCanvas = async () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) return;
 
       setIsProcessing(true);
       try {
         const proxyUrl = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
         const response = await fetch(proxyUrl);
-        if (!response.ok) throw new Error("Failed to fetch image through proxy");
         const blob = await response.blob();
         const localUrl = URL.createObjectURL(blob);
 
@@ -139,107 +107,32 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         img.onload = () => {
           canvas.width = img.width;
           canvas.height = img.height;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0);
           
           if (containerRef.current) {
-            const padding = 120;
-            const availableW = containerRef.current.clientWidth - padding;
-            const availableH = containerRef.current.clientHeight - padding;
-            const scale = Math.min(availableW / img.width, availableH / img.height, 1);
+            const scale = Math.min((containerRef.current.clientWidth - 100) / img.width, (containerRef.current.clientHeight - 100) / img.height, 1);
             setZoom(scale || 1);
+            setPan({ x: 0, y: 0 });
           }
           
-          const initialState: EditorState = {
-            canvasData: canvas.toDataURL('image/png'),
-            objects: []
-          };
-          setHistory([initialState]);
+          setHistory([{ canvasData: canvas.toDataURL('image/png'), objects: [] }]);
           setIsProcessing(false);
           URL.revokeObjectURL(localUrl);
         };
       } catch (err) {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.src = imageUrl;
-        img.onload = () => {
-          canvas.width = img.width;
-          canvas.height = img.height;
-          (ctx as CanvasRenderingContext2D).drawImage(img, 0, 0);
-          const initialState: EditorState = {
-            canvasData: canvas.toDataURL('image/png'),
-            objects: []
-          };
-          setHistory([initialState]);
-          setIsProcessing(false);
-        };
+        setIsProcessing(false);
       }
     };
     initCanvas();
   }, [imageUrl]);
 
-  const undo = () => {
-    if (history.length <= 1) return;
-    const newHistory = [...history];
-    newHistory.pop(); 
-    const prevState = newHistory[newHistory.length - 1];
-    
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null;
-    if (canvas && ctx && prevState) {
-      const img = new Image();
-      img.src = prevState.canvasData;
-      img.onload = () => {
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
-        setObjects(prevState.objects);
-        setHistory(newHistory);
-      };
-    }
-  };
-
-  const standardize = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const currentData = canvas.toDataURL();
-    const tempImg = new Image();
-    tempImg.src = currentData;
-    tempImg.onload = () => {
-      const targetSize = 1600;
-      const safeArea = 1500;
-      
-      const scale = Math.min(safeArea / tempImg.width, safeArea / tempImg.height);
-      const drawW = tempImg.width * scale;
-      const drawH = tempImg.height * scale;
-      const offsetX = (targetSize - drawW) / 2;
-      const offsetY = (targetSize - drawH) / 2;
-
-      const transformedObjects = objects.map(obj => ({
-        ...obj,
-        x: obj.x * scale + offsetX,
-        y: obj.y * scale + offsetY,
-        width: obj.width * scale,
-        height: obj.height * scale,
-        strokeWidth: obj.strokeWidth * scale,
-        fontSize: obj.fontSize ? obj.fontSize * scale : undefined
-      }));
-
-      canvas.width = targetSize;
-      canvas.height = targetSize;
-      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, targetSize, targetSize);
-      ctx.drawImage(tempImg, offsetX, offsetY, drawW, drawH);
-
-      setObjects(transformedObjects);
-      saveToHistory(transformedObjects);
-      
-      if (containerRef.current) {
-        setZoom(Math.min((containerRef.current.clientHeight - 120) / 1600, 1));
-      }
-    };
+  // 处理滚轮缩放
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const scaleFactor = 1.1;
+    const delta = e.deltaY > 0 ? 1 / scaleFactor : scaleFactor;
+    const newZoom = Math.min(Math.max(0.05, zoom * delta), 10);
+    setZoom(newZoom);
   };
 
   const getMousePos = (e: React.MouseEvent | React.TouchEvent) => {
@@ -254,6 +147,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       clientX = e.clientX;
       clientY = e.clientY;
     }
+    // 核心：计算相对于缩放和平移后的画布坐标
     return {
       x: (clientX - rect.left) / zoom,
       y: (clientY - rect.top) / zoom
@@ -262,6 +156,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const handleStart = (e: React.MouseEvent | React.TouchEvent) => {
     const pos = getMousePos(e);
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    
+    // 如果是选择工具且点击处没有对象，或者专门选了平移工具，则开启平移
+    const hit = objects.slice().reverse().find(obj => 
+      pos.x >= obj.x && pos.x <= obj.x + obj.width &&
+      pos.y >= obj.y && pos.y <= obj.y + obj.height
+    );
+
+    if (currentTool === 'pan' || (currentTool === 'select' && !hit && !selectedObjectId)) {
+      setIsPanning(true);
+      setLastPanPos({ x: clientX, y: clientY });
+      return;
+    }
+
     setStartPos(pos);
 
     if (currentTool === 'select') {
@@ -272,28 +181,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           const rotateHandleY = obj.y - 30 / zoom;
           const centerX = obj.x + obj.width / 2;
           
-          const distToRotate = Math.sqrt(Math.pow(pos.x - centerX, 2) + Math.pow(pos.y - rotateHandleY, 2));
-          if (distToRotate < handleSize) {
+          if (Math.sqrt(Math.pow(pos.x - centerX, 2) + Math.pow(pos.y - rotateHandleY, 2)) < handleSize) {
             setIsRotating(true);
             return;
           }
 
-          const isOverResizeHandle = 
-            pos.x >= obj.x + obj.width - handleSize && 
-            pos.x <= obj.x + obj.width + handleSize && 
-            pos.y >= obj.y + obj.height - handleSize && 
-            pos.y <= obj.y + obj.height + handleSize;
-
-          if (isOverResizeHandle) {
+          if (pos.x >= obj.x + obj.width - handleSize && pos.x <= obj.x + obj.width + handleSize && 
+              pos.y >= obj.y + obj.height - handleSize && pos.y <= obj.y + obj.height + handleSize) {
             setIsResizing(true);
             return;
           }
 
-          const isOverBody = 
-            pos.x >= obj.x && pos.x <= obj.x + obj.width &&
-            pos.y >= obj.y && pos.y <= obj.y + obj.height;
-          
-          if (isOverBody) {
+          if (pos.x >= obj.x && pos.x <= obj.x + obj.width && pos.y >= obj.y && pos.y <= obj.y + obj.height) {
             setIsDragging(true);
             setDragOffset({ x: pos.x - obj.x, y: pos.y - obj.y });
             return;
@@ -301,11 +200,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         }
       }
 
-      const hit = objects.slice().reverse().find(obj => 
-        pos.x >= obj.x && pos.x <= obj.x + obj.width &&
-        pos.y >= obj.y && pos.y <= obj.y + obj.height
-      );
-      
       if (hit) {
         setSelectedObjectId(hit.id);
         setIsDragging(true);
@@ -322,20 +216,30 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
 
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
-      const ctx = canvasRef.current?.getContext('2d') as CanvasRenderingContext2D | null;
+      const ctx = canvasRef.current?.getContext('2d');
       if (ctx) {
         ctx.beginPath();
         ctx.moveTo(pos.x, pos.y);
         ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.globalAlpha = opacity;
         ctx.strokeStyle = currentTool === 'ai-erase' ? 'rgba(255, 0, 0, 0.6)' : strokeColor;
         ctx.lineWidth = strokeWidth;
+        ctx.globalAlpha = opacity;
       }
     }
   };
 
   const handleMove = (e: React.MouseEvent | React.TouchEvent) => {
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    if (isPanning) {
+      const dx = clientX - lastPanPos.x;
+      const dy = clientY - lastPanPos.y;
+      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      setLastPanPos({ x: clientX, y: clientY });
+      return;
+    }
+
     const pos = getMousePos(e);
     
     if (currentTool === 'select' && selectedObjectId) {
@@ -343,24 +247,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       if (!obj) return;
 
       if (isDragging) {
-        setObjects(prev => prev.map(o => 
-          o.id === selectedObjectId 
-            ? { ...o, x: pos.x - dragOffset.x, y: pos.y - dragOffset.y }
-            : o
-        ));
+        setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, x: pos.x - dragOffset.x, y: pos.y - dragOffset.y } : o));
       } else if (isResizing) {
-        setObjects(prev => prev.map(o => 
-          o.id === selectedObjectId 
-            ? { ...o, width: Math.max(10, pos.x - o.x), height: Math.max(10, pos.y - o.y) }
-            : o
-        ));
+        setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, width: Math.max(10, pos.x - o.x), height: Math.max(10, pos.y - o.y) } : o));
       } else if (isRotating) {
         const centerX = obj.x + obj.width / 2;
         const centerY = obj.y + obj.height / 2;
-        const angle = Math.atan2(pos.y - centerY, pos.x - centerX) + Math.PI / 2;
-        setObjects(prev => prev.map(o => 
-          o.id === selectedObjectId ? { ...o, rotation: angle } : o
-        ));
+        setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, rotation: Math.atan2(pos.y - centerY, pos.x - centerX) + Math.PI / 2 } : o));
       }
       return;
     }
@@ -370,19 +263,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (['rect', 'circle', 'line', 'select-fill', 'crop'].includes(currentTool)) {
       setSelection(prev => prev ? { ...prev, x2: pos.x, y2: pos.y } : null);
     } else if (currentTool === 'brush' || currentTool === 'ai-erase') {
-      const ctx = canvasRef.current?.getContext('2d') as CanvasRenderingContext2D | null;
-      if (ctx) {
-        ctx.lineTo(pos.x, pos.y);
-        ctx.stroke();
-      }
+      const ctx = canvasRef.current?.getContext('2d');
+      if (ctx) { ctx.lineTo(pos.x, pos.y); ctx.stroke(); }
     }
   };
 
   const handleEnd = (e: React.MouseEvent | React.TouchEvent) => {
+    if (isPanning) {
+      setIsPanning(false);
+      return;
+    }
+
     if (currentTool === 'select') {
-      if (isDragging || isResizing || isRotating) {
-        saveToHistory(objects);
-      }
+      if (isDragging || isResizing || isRotating) saveToHistory(objects);
       setIsDragging(false);
       setIsResizing(false);
       setIsRotating(false);
@@ -394,25 +287,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     
     const pos = getMousePos(e);
 
-    // 核心改进：如果是填充工具，松开鼠标立即应用填充
     if (currentTool === 'select-fill') {
       const x = Math.min(startPos.x, pos.x);
       const y = Math.min(startPos.y, pos.y);
       const w = Math.abs(startPos.x - pos.x);
       const h = Math.abs(startPos.y - pos.y);
-
-      // 只有当选择区域大于一定阈值时才进行填充，防止误触
       if (w > 2 && h > 2) {
-        const newObj: EditorObject = {
-          id: crypto.randomUUID(),
-          type: 'rect',
-          x, y, width: w, height: h,
-          rotation: 0,
-          stroke: 'transparent',
-          fill: fillColor,
-          strokeWidth: 0,
-          opacity: opacity
-        };
+        const newObj: EditorObject = { id: crypto.randomUUID(), type: 'rect', x, y, width: w, height: h, rotation: 0, stroke: 'transparent', fill: fillColor, strokeWidth: 0, opacity: opacity };
         const nextObjects = [...objects, newObj];
         setObjects(nextObjects);
         saveToHistory(nextObjects);
@@ -429,11 +310,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         y: Math.min(startPos.y, pos.y),
         width: Math.abs(startPos.x - pos.x),
         height: Math.abs(startPos.y - pos.y),
-        rotation: 0,
-        stroke: strokeColor,
-        fill: fillColor,
-        strokeWidth: strokeWidth,
-        opacity: opacity
+        rotation: 0, stroke: strokeColor, fill: fillColor, strokeWidth: strokeWidth, opacity: opacity
       };
       const nextObjects = [...objects, newObj];
       setObjects(nextObjects);
@@ -445,19 +322,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const text = window.prompt(uiLang === 'zh' ? "输入文字:" : "Enter text:");
       if (text) {
         const newObj: EditorObject = {
-          id: crypto.randomUUID(),
-          type: 'text',
-          x: pos.x,
-          y: pos.y,
-          width: text.length * fontSize * 0.6,
-          height: fontSize,
-          rotation: 0,
-          stroke: strokeColor,
-          fill: fillColor,
-          strokeWidth: 1,
-          fontSize: fontSize, 
-          opacity: opacity,
-          text: text
+          id: crypto.randomUUID(), type: 'text', x: pos.x, y: pos.y, width: text.length * fontSize * 0.6, height: fontSize, rotation: 0, stroke: strokeColor, fill: fillColor, strokeWidth: 1, fontSize: fontSize, opacity: opacity, text: text
         };
         const nextObjects = [...objects, newObj];
         setObjects(nextObjects);
@@ -470,46 +335,27 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   };
 
-  const handleCrop = () => {
-    if (!selection) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
-    if (!ctx) return;
-    const x = Math.min(selection.x1, selection.x2);
-    const y = Math.min(selection.y1, selection.y2);
-    const w = Math.abs(selection.x1 - selection.x2);
-    const h = Math.abs(selection.y1 - selection.y2);
-    if (w < 5 || h < 5) return;
-    const imageData = ctx.getImageData(x, y, w, h);
-    canvas.width = w;
-    canvas.height = h;
-    ctx.putImageData(imageData, 0, 0);
-    saveToHistory();
-    setSelection(null);
-    setZoom(1);
-    setCurrentTool('select');
-  };
+  const saveToHistory = useCallback((currentObjects?: EditorObject[]) => {
+    if (canvasRef.current) {
+      setHistory(prev => [...prev.slice(-30), { canvasData: canvasRef.current!.toDataURL('image/png'), objects: currentObjects ? [...currentObjects] : [...objects] }]);
+    }
+  }, [objects]);
 
-  const runAIErase = async () => {
-    setIsProcessing(true);
-    try {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
-      const result = await editImageWithAI(base64, "Please erase the red highlighted areas cleanly.");
+  const undo = () => {
+    if (history.length <= 1) return;
+    const newHistory = [...history];
+    newHistory.pop();
+    const prevState = newHistory[newHistory.length - 1];
+    const ctx = canvasRef.current?.getContext('2d');
+    if (ctx && prevState) {
       const img = new Image();
-      img.src = `data:image/jpeg;base64,${result}`;
+      img.src = prevState.canvasData;
       img.onload = () => {
-        const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, canvasRef.current!.width, canvasRef.current!.height);
         ctx.drawImage(img, 0, 0);
-        saveToHistory();
-        setIsProcessing(false);
+        setObjects(prevState.objects);
+        setHistory(newHistory);
       };
-    } catch (e: any) {
-      alert("AI Erase failed: " + e.message);
-      setIsProcessing(false);
     }
   };
 
@@ -518,18 +364,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
     setIsProcessing(true);
 
     objects.forEach(obj => {
       ctx.save();
       const cx = obj.x + obj.width / 2;
       const cy = obj.y + obj.height / 2;
-      
       ctx.translate(cx, cy);
       ctx.rotate(obj.rotation);
       ctx.translate(-cx, -cy);
-
       ctx.globalAlpha = obj.opacity;
       ctx.strokeStyle = obj.stroke;
       ctx.fillStyle = obj.fill;
@@ -537,82 +380,43 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       ctx.lineCap = 'round';
 
       if (obj.type === 'rect') {
-        ctx.beginPath();
-        ctx.rect(obj.x, obj.y, obj.width, obj.height);
-        ctx.fill();
-        ctx.stroke();
+        ctx.beginPath(); ctx.rect(obj.x, obj.y, obj.width, obj.height); ctx.fill(); ctx.stroke();
       } else if (obj.type === 'circle') {
         const r = Math.sqrt(obj.width * obj.width + obj.height * obj.height) / 2;
-        ctx.beginPath();
-        ctx.arc(obj.x + obj.width/2, obj.y + obj.height/2, r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+        ctx.beginPath(); ctx.arc(obj.x + obj.width/2, obj.y + obj.height/2, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       } else if (obj.type === 'line') {
-        ctx.beginPath();
-        ctx.moveTo(obj.x, obj.y);
-        ctx.lineTo(obj.x + obj.width, obj.y + obj.height);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(obj.x, obj.y); ctx.lineTo(obj.x + obj.width, obj.y + obj.height); ctx.stroke();
       } else if (obj.type === 'text' && obj.text) {
-        const fs = obj.fontSize || 40;
-        ctx.font = `bold ${fs}px Inter, sans-serif`;
+        ctx.font = `bold ${obj.fontSize || 40}px Inter, sans-serif`;
         ctx.fillText(obj.text, obj.x, obj.y + obj.height);
-        if (obj.stroke !== 'transparent' && obj.strokeWidth > 0) {
-           ctx.strokeText(obj.text, obj.x, obj.y + obj.height);
-        }
+        if (obj.stroke !== 'transparent' && obj.strokeWidth > 0) ctx.strokeText(obj.text, obj.x, obj.y + obj.height);
       }
       ctx.restore();
     });
 
     canvas.toBlob(async (blob) => {
-      if (!blob) {
-        setIsProcessing(false);
-        return;
-      }
+      if (!blob) return;
       try {
-        const file = new File([blob], `edit_${Date.now()}.jpg`, { type: 'image/jpeg' });
-        const formDataBody = new FormData();
-        formDataBody.append('file', file);
-        
-        const response = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: formDataBody });
-        if (!response.ok) throw new Error("Upload failed");
-        
-        const data = await response.json();
-        const remoteUrl = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
-        
-        if (remoteUrl) {
-          onSave(remoteUrl);
-        } else {
-          throw new Error("Invalid response from server");
-        }
-      } catch (err: any) {
-        alert("Upload failed: " + (err.message || String(err)));
-      } finally {
-        setIsProcessing(false);
-      }
+        const fd = new FormData();
+        fd.append('file', new File([blob], `edit_${Date.now()}.jpg`, { type: 'image/jpeg' }));
+        const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
+        const data = await res.json();
+        const url = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+        if (url) onSave(url);
+      } catch (err) {
+        alert("Upload failed");
+      } finally { setIsProcessing(false); }
     }, 'image/jpeg', 0.95);
   };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObjectId) {
-        const nextObjects = objects.filter(o => o.id !== selectedObjectId);
-        setObjects(nextObjects);
-        setSelectedObjectId(null);
-        saveToHistory(nextObjects);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectId, objects, saveToHistory]);
 
   const ShapeIcon = lastUsedShape === 'rect' ? Square : lastUsedShape === 'circle' ? Circle : Minus;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter">
-      <div className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between text-white shadow-xl z-20">
+    <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter overflow-hidden">
+      {/* 顶部工具栏 - 固定 */}
+      <div className="fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between text-white shadow-xl z-50">
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-all"><X size={20} /></button>
-          <div className="h-6 w-px bg-slate-800"></div>
           <h2 className="font-black tracking-tighter text-xl bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent uppercase">AI Media Lab</h2>
         </div>
 
@@ -620,79 +424,43 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <div className="flex bg-slate-800 p-1 rounded-xl">
             <button onClick={() => setZoom(prev => Math.max(0.05, prev - 0.1))} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400"><ZoomOut size={16} /></button>
             <span className="px-3 flex items-center text-[10px] font-black text-slate-300 w-16 justify-center">{(zoom * 100).toFixed(0)}%</span>
-            <button onClick={() => setZoom(prev => Math.min(5, prev + 0.1))} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400"><ZoomIn size={16} /></button>
+            <button onClick={() => setZoom(prev => Math.min(10, prev + 0.1))} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400"><ZoomIn size={16} /></button>
           </div>
-          <button onClick={undo} disabled={history.length <= 1} className="p-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-xl text-slate-300 transition-all"><Undo size={18} /></button>
-          <button onClick={standardize} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-black flex items-center gap-2 border border-slate-700"><Maximize size={16} /> 1600*1600</button>
+          <button onClick={undo} disabled={history.length <= 1} className="p-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-xl text-slate-300"><Undo size={18} /></button>
           <button onClick={handleFinalSave} disabled={isProcessing} className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transform active:scale-95 transition-all">
             {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save & Apply
           </button>
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden relative">
-        <div className="w-24 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-6 gap-6 z-40 relative">
-          <ToolIcon active={currentTool === 'select'} onClick={() => { setCurrentTool('select'); setShowShapeMenu(false); }} icon={<MousePointer2 size={20} />} label="Select" />
-          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Palette size={20} />} label="Brush" />
-          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Eraser size={20} />} label="AI Erase" />
-          
-          <div className="relative group/shape">
-            <ToolIcon 
-              active={['rect', 'circle', 'line'].includes(currentTool)} 
-              onClick={() => { setShowShapeMenu(!showShapeMenu); }} 
-              icon={<ShapeIcon size={20} />} 
-              label="Shapes" 
+      {/* 主工作区 - 无限背景 */}
+      <div 
+        ref={containerRef} 
+        onWheel={handleWheel}
+        className="flex-1 bg-slate-950 relative overflow-hidden cursor-grab active:cursor-grabbing"
+      >
+        {/* 画布包裹层 - 应用平移和缩放 */}
+        <div 
+          className="absolute origin-center transition-transform duration-75"
+          style={{ 
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            top: '50%',
+            left: '50%',
+            marginTop: canvasRef.current ? -canvasRef.current.height / 2 : 0,
+            marginLeft: canvasRef.current ? -canvasRef.current.width / 2 : 0
+          }}
+        >
+          <div className="relative shadow-[0_0_100px_rgba(0,0,0,0.5)] bg-white">
+            <canvas 
+              ref={canvasRef} 
+              onMouseDown={handleStart} 
+              onMouseMove={handleMove} 
+              onMouseUp={handleEnd}
+              className="block"
+              style={{ cursor: currentTool === 'pan' ? 'grab' : currentTool === 'select' ? 'default' : 'crosshair' }}
             />
-            {showShapeMenu && (
-              <div 
-                className="fixed left-24 top-auto bg-slate-800 border border-slate-700 p-2 rounded-xl shadow-2xl flex flex-col gap-2 z-[100] animate-in slide-in-from-left-2 duration-200"
-                style={{ marginTop: '-40px' }}
-              >
-                <button onClick={() => { setCurrentTool('rect'); setLastUsedShape('rect'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 transition-all ${currentTool === 'rect' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Square size={20} /></button>
-                <button onClick={() => { setCurrentTool('circle'); setLastUsedShape('circle'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 transition-all ${currentTool === 'circle' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Circle size={20} /></button>
-                <button onClick={() => { setCurrentTool('line'); setLastUsedShape('line'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 transition-all ${currentTool === 'line' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Minus size={20} /></button>
-              </div>
-            )}
-          </div>
-
-          <ToolIcon active={currentTool === 'text'} onClick={() => { setCurrentTool('text'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Type size={20} />} label="Text" />
-          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<PaintBucket size={20} />} label="Fill" />
-          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Scissors size={20} />} label="Crop" />
-          
-          <div className="mt-auto flex flex-col gap-4 pb-4">
-             <div className="space-y-1">
-               <span className="text-[8px] font-black text-slate-500 uppercase text-center block">Stroke</span>
-               <input 
-                type="color" 
-                value={strokeColor} 
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setStrokeColor(v);
-                  updateSelectedObjectProperty('stroke', v);
-                }} 
-                className="w-10 h-10 rounded-xl cursor-pointer bg-slate-800 p-1 border border-slate-700 transition-all hover:scale-105" 
-               />
-             </div>
-             <div className="space-y-1">
-               <span className="text-[8px] font-black text-slate-500 uppercase text-center block">Fill</span>
-               <input 
-                type="color" 
-                value={fillColor} 
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setFillColor(v);
-                  updateSelectedObjectProperty('fill', v);
-                }} 
-                className="w-10 h-10 rounded-xl cursor-pointer bg-slate-800 p-1 border border-slate-700 transition-all hover:scale-105" 
-               />
-             </div>
-          </div>
-        </div>
-
-        <div ref={containerRef} className="flex-1 bg-slate-950 overflow-auto flex items-center justify-center p-20 relative z-10">
-          <div className="relative shadow-2xl transition-transform duration-75 origin-center" style={{ transform: `scale(${zoom})` }}>
-            <canvas ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} className="block relative" style={{ cursor: currentTool === 'none' ? 'default' : currentTool === 'select' ? 'default' : 'crosshair' }} />
             
+            {/* 矢量对象层 */}
             <svg 
               className="absolute inset-0 pointer-events-none w-full h-full"
               viewBox={`0 0 ${canvasRef.current?.width || 0} ${canvasRef.current?.height || 0}`}
@@ -700,177 +468,127 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               {isDrawing && selection && ['rect', 'circle', 'line', 'select-fill'].includes(currentTool) && (
                 <g opacity={opacity}>
                   {['rect', 'select-fill'].includes(currentTool) && (
-                    <rect 
-                      x={Math.min(selection.x1, selection.x2)} 
-                      y={Math.min(selection.y1, selection.y2)} 
-                      width={Math.abs(selection.x1 - selection.x2)} 
-                      height={Math.abs(selection.y1 - selection.y2)} 
-                      stroke={currentTool === 'select-fill' ? '#fff' : strokeColor} 
-                      fill={currentTool === 'select-fill' ? fillColor : fillColor} 
-                      strokeWidth={currentTool === 'select-fill' ? 1 : strokeWidth} 
-                      strokeDasharray={currentTool === 'select-fill' ? "5,5" : "none"}
-                    />
+                    <rect x={Math.min(selection.x1, selection.x2)} y={Math.min(selection.y1, selection.y2)} width={Math.abs(selection.x1 - selection.x2)} height={Math.abs(selection.y1 - selection.y2)} stroke={currentTool === 'select-fill' ? '#fff' : strokeColor} fill={fillColor} strokeWidth={currentTool === 'select-fill' ? 1 : strokeWidth} strokeDasharray={currentTool === 'select-fill' ? "5,5" : "none"} />
                   )}
                   {currentTool === 'circle' && (
-                    <ellipse 
-                      cx={(selection.x1 + selection.x2) / 2} 
-                      cy={(selection.y1 + selection.y2) / 2} 
-                      rx={Math.abs(selection.x1 - selection.x2) / 2} 
-                      ry={Math.abs(selection.y1 - selection.y2) / 2} 
-                      stroke={strokeColor} 
-                      fill={fillColor} 
-                      strokeWidth={strokeWidth} 
-                    />
+                    <ellipse cx={(selection.x1 + selection.x2) / 2} cy={(selection.y1 + selection.y2) / 2} rx={Math.abs(selection.x1 - selection.x2) / 2} ry={Math.abs(selection.y1 - selection.y2) / 2} stroke={strokeColor} fill={fillColor} strokeWidth={strokeWidth} />
                   )}
                   {currentTool === 'line' && (
-                    <line 
-                      x1={selection.x1} 
-                      y1={selection.y1} 
-                      x2={selection.x2} 
-                      y2={selection.y2} 
-                      stroke={strokeColor} 
-                      strokeWidth={strokeWidth} 
-                    />
+                    <line x1={selection.x1} y1={selection.y1} x2={selection.x2} y2={selection.y2} stroke={strokeColor} strokeWidth={strokeWidth} />
                   )}
                 </g>
               )}
 
               {objects.map(obj => (
-                <g 
-                  key={obj.id} 
-                  className={selectedObjectId === obj.id ? 'opacity-100' : 'opacity-80'}
-                  transform={`rotate(${(obj.rotation * 180) / Math.PI} ${obj.x + obj.width / 2} ${obj.y + obj.height / 2})`}
-                  style={{ opacity: obj.opacity }}
-                >
+                <g key={obj.id} transform={`rotate(${(obj.rotation * 180) / Math.PI} ${obj.x + obj.width / 2} ${obj.y + obj.height / 2})`} style={{ opacity: obj.opacity }}>
                   {obj.type === 'rect' && <rect x={obj.x} y={obj.y} width={obj.width} height={obj.height} stroke={obj.stroke} fill={obj.fill} strokeWidth={obj.strokeWidth} />}
                   {obj.type === 'circle' && <ellipse cx={obj.x + obj.width/2} cy={obj.y + obj.height/2} rx={obj.width/2} ry={obj.height/2} stroke={obj.stroke} fill={obj.fill} strokeWidth={obj.strokeWidth} />}
                   {obj.type === 'line' && <line x1={obj.x} y1={obj.y} x2={obj.x + obj.width} y2={obj.y + obj.height} stroke={obj.stroke} strokeWidth={obj.strokeWidth} />}
-                  {obj.type === 'text' && (
-                    <text 
-                      x={obj.x} 
-                      y={obj.y + obj.height} 
-                      fill={obj.fill} 
-                      stroke={obj.stroke} 
-                      strokeWidth={obj.strokeWidth} 
-                      style={{ font: `bold ${obj.fontSize || 40}px Inter, sans-serif` }}
-                    >
-                      {obj.text}
-                    </text>
-                  )}
+                  {obj.type === 'text' && <text x={obj.x} y={obj.y + obj.height} fill={obj.fill} stroke={obj.stroke} strokeWidth={obj.strokeWidth} style={{ font: `bold ${obj.fontSize || 40}px Inter, sans-serif` }}>{obj.text}</text>}
                   {selectedObjectId === obj.id && (
                     <>
-                      <rect 
-                        x={obj.x} y={obj.y} width={obj.width} height={obj.height} 
-                        fill="none" stroke="#6366f1" strokeWidth={2 / zoom} strokeDasharray="4"
-                      />
-                      <circle 
-                        cx={obj.x + obj.width} cy={obj.y + obj.height} r={6 / zoom} 
-                        fill="#6366f1" className="cursor-nwse-resize pointer-events-auto" 
-                      />
+                      <rect x={obj.x} y={obj.y} width={obj.width} height={obj.height} fill="none" stroke="#6366f1" strokeWidth={2 / zoom} strokeDasharray="4" />
+                      <circle cx={obj.x + obj.width} cy={obj.y + obj.height} r={6 / zoom} fill="#6366f1" className="cursor-nwse-resize pointer-events-auto" />
                       <line x1={obj.x + obj.width/2} y1={obj.y} x2={obj.x + obj.width/2} y2={obj.y - 30/zoom} stroke="#6366f1" strokeWidth={2/zoom} />
-                      <circle 
-                        cx={obj.x + obj.width/2} cy={obj.y - 30/zoom} r={8 / zoom} 
-                        fill="#6366f1" className="cursor-pointer pointer-events-auto"
-                      />
+                      <circle cx={obj.x + obj.width/2} cy={obj.y - 30/zoom} r={8 / zoom} fill="#6366f1" className="cursor-pointer pointer-events-auto" />
                     </>
                   )}
                 </g>
               ))}
             </svg>
+          </div>
+        </div>
 
-            {selection && (currentTool === 'crop') && (
-               <div className="absolute pointer-events-none border-2 border-white" style={{ left: Math.min(selection.x1, selection.x2), top: Math.min(selection.y1, selection.y2), width: Math.abs(selection.x1 - selection.x2), height: Math.abs(selection.y1 - selection.y2) }}>
-                 <div className="absolute inset-0 border-2 border-dashed border-black/50 animate-pulse"></div>
-               </div>
+        {/* 左侧工具栏 - 固定 */}
+        <div className="fixed left-6 top-1/2 -translate-y-1/2 w-16 bg-slate-900/90 backdrop-blur-xl border border-slate-800 flex flex-col items-center py-6 gap-6 rounded-3xl shadow-2xl z-50">
+          <ToolIcon active={currentTool === 'select'} onClick={() => { setCurrentTool('select'); setShowShapeMenu(false); }} icon={<MousePointer2 size={18} />} label="Select" />
+          <ToolIcon active={currentTool === 'pan'} onClick={() => { setCurrentTool('pan'); setShowShapeMenu(false); }} icon={<Move size={18} />} label="Pan" />
+          <ToolIcon active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Palette size={18} />} label="Brush" />
+          <ToolIcon active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Eraser size={18} />} label="AI Erase" />
+          
+          <div className="relative">
+            <ToolIcon active={['rect', 'circle', 'line'].includes(currentTool)} onClick={() => setShowShapeMenu(!showShapeMenu)} icon={<ShapeIcon size={18} />} label="Shapes" />
+            {showShapeMenu && (
+              <div className="absolute left-20 top-0 bg-slate-800 border border-slate-700 p-2 rounded-xl shadow-2xl flex flex-col gap-2 z-[100] animate-in slide-in-from-left-2">
+                <button onClick={() => { setCurrentTool('rect'); setLastUsedShape('rect'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 ${currentTool === 'rect' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Square size={18} /></button>
+                <button onClick={() => { setCurrentTool('circle'); setLastUsedShape('circle'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 ${currentTool === 'circle' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Circle size={18} /></button>
+                <button onClick={() => { setCurrentTool('line'); setLastUsedShape('line'); setShowShapeMenu(false); }} className={`p-3 rounded-lg hover:bg-indigo-600 ${currentTool === 'line' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}><Minus size={18} /></button>
+              </div>
             )}
           </div>
 
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 rounded-[2.5rem] shadow-2xl z-30 min-w-[700px]">
-             <div className="flex flex-col gap-3 flex-1">
-               <div className="flex justify-between">
-                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                   {isEditingText ? 'Standard Font Size (px)' : 'Stroke Weight (px)'}
-                 </span>
-                 <span className="text-[10px] font-black text-blue-400">
-                   {isEditingText ? `${fontSize}px` : `${strokeWidth}px`}
-                 </span>
-               </div>
-               <input 
-                type="range" 
-                min={isEditingText ? 12 : 1} 
-                max={isEditingText ? 150 : 50} 
-                value={isEditingText ? fontSize : strokeWidth} 
-                onChange={(e) => {
-                  const v = parseInt(e.target.value);
-                  if (isEditingText) {
-                    setFontSize(v);
-                    if (selectedObject?.type === 'text') {
-                      updateSelectedObjectProperty('fontSize', v);
-                      updateSelectedObjectProperty('width', (selectedObject.text?.length || 1) * v * 0.6);
-                      updateSelectedObjectProperty('height', v);
-                    }
-                  } else {
-                    setStrokeWidth(v);
-                    if (selectedObject && selectedObject.type !== 'text') {
-                      updateSelectedObjectProperty('strokeWidth', v);
-                    }
-                  }
-                }} 
-                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" 
-               />
-             </div>
-
-             <div className="w-px h-8 bg-slate-800"></div>
-
-             <div className="flex flex-col gap-3 flex-1">
-               <div className="flex justify-between">
-                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Opacity</span>
-                 <span className="text-[10px] font-black text-indigo-400">{Math.round(opacity * 100)}%</span>
-               </div>
-               <input 
-                type="range" min="0" max="1" step="0.01" value={opacity} 
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value);
-                  setOpacity(v);
-                  updateSelectedObjectProperty('opacity', v);
-                }} 
-                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" 
-               />
-             </div>
-             
-             {currentTool === 'ai-erase' && (
-               <button onClick={runAIErase} disabled={isProcessing} className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-3 transition-all active:scale-95 disabled:opacity-50">
-                 {isProcessing ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} />} AI ERASE
-               </button>
-             )}
-             {currentTool === 'crop' && (
-               <button onClick={handleCrop} disabled={!selection} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black shadow-xl active:scale-95 transition-all">CONFIRM CROP</button>
-             )}
-             {!['ai-erase', 'crop'].includes(currentTool) && (
-                <div className="px-6 text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
-                  {currentTool === 'select' ? (selectedObjectId ? 'Object Selected' : 'Select Tool') : currentTool === 'select-fill' ? 'Fill (Drag to apply)' : `${currentTool} tool`}
-                </div>
-             )}
-          </div>
-
-          {isProcessing && (
-            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/70 backdrop-blur-md">
-              <Loader2 size={40} className="text-indigo-500 animate-spin" />
-              <p className="mt-8 text-white font-black tracking-[0.3em] text-sm uppercase">AI Processing / Uploading...</p>
-            </div>
-          )}
+          <ToolIcon active={currentTool === 'text'} onClick={() => { setCurrentTool('text'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Type size={18} />} label="Text" />
+          <ToolIcon active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<PaintBucket size={18} />} label="Fill" />
+          <ToolIcon active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelectedObjectId(null); setShowShapeMenu(false); }} icon={<Scissors size={18} />} label="Crop" />
         </div>
+
+        {/* 底部属性栏 - 固定 */}
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 rounded-[2.5rem] shadow-2xl z-50 min-w-[600px]">
+           <div className="flex items-center gap-4">
+             <div className="space-y-1">
+               <span className="text-[8px] font-black text-slate-500 uppercase text-center block">Stroke</span>
+               <input type="color" value={strokeColor} onChange={(e) => { setStrokeColor(e.target.value); if(selectedObjectId) setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, stroke: e.target.value } : o)); }} className="w-8 h-8 rounded-lg cursor-pointer bg-slate-800 border border-slate-700" />
+             </div>
+             <div className="space-y-1">
+               <span className="text-[8px] font-black text-slate-500 uppercase text-center block">Fill</span>
+               <input type="color" value={fillColor} onChange={(e) => { setFillColor(e.target.value); if(selectedObjectId) setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, fill: e.target.value } : o)); }} className="w-8 h-8 rounded-lg cursor-pointer bg-slate-800 border border-slate-700" />
+             </div>
+           </div>
+
+           <div className="w-px h-8 bg-slate-800"></div>
+
+           <div className="flex flex-col gap-2 flex-1">
+             <div className="flex justify-between text-[8px] font-black text-slate-500 uppercase">
+               <span>{isEditingText ? 'Font Size' : 'Stroke Weight'}</span>
+               <span>{isEditingText ? fontSize : strokeWidth}px</span>
+             </div>
+             <input type="range" min={isEditingText ? 12 : 1} max={isEditingText ? 150 : 50} value={isEditingText ? fontSize : strokeWidth} onChange={(e) => { const v = parseInt(e.target.value); if(isEditingText) { setFontSize(v); if(selectedObject?.type === 'text') setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, fontSize: v, width: (o.text?.length || 1) * v * 0.6, height: v } : o)); } else { setStrokeWidth(v); if(selectedObject && selectedObject.type !== 'text') setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, strokeWidth: v } : o)); } }} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+           </div>
+
+           <div className="flex flex-col gap-2 flex-1">
+             <div className="flex justify-between text-[8px] font-black text-slate-500 uppercase">
+               <span>Opacity</span>
+               <span>{Math.round(opacity * 100)}%</span>
+             </div>
+             <input type="range" min="0" max="1" step="0.01" value={opacity} onChange={(e) => { const v = parseFloat(e.target.value); setOpacity(v); if(selectedObjectId) setObjects(prev => prev.map(o => o.id === selectedObjectId ? { ...o, opacity: v } : o)); }} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+           </div>
+           
+           {currentTool === 'ai-erase' && (
+             <button onClick={async () => {
+                setIsProcessing(true);
+                try {
+                  const base64 = canvasRef.current!.toDataURL('image/jpeg', 0.9).split(',')[1];
+                  const result = await editImageWithAI(base64, "Erase red areas.");
+                  const img = new Image();
+                  img.src = `data:image/jpeg;base64,${result}`;
+                  img.onload = () => {
+                    const ctx = canvasRef.current!.getContext('2d')!;
+                    ctx.clearRect(0, 0, canvasRef.current!.width, canvasRef.current!.height);
+                    ctx.drawImage(img, 0, 0);
+                    saveToHistory();
+                    setIsProcessing(false);
+                  };
+                } catch (e) { setIsProcessing(false); }
+             }} className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black shadow-xl flex items-center gap-2"><Wand2 size={14} /> AI ERASE</button>
+           )}
+        </div>
+
+        {isProcessing && (
+          <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-950/70 backdrop-blur-md">
+            <Loader2 size={40} className="text-indigo-500 animate-spin" />
+            <p className="mt-8 text-white font-black tracking-[0.3em] text-sm uppercase">Processing...</p>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
 const ToolIcon = ({ active, onClick, icon, label }: any) => (
-  <button onClick={onClick} className={`flex flex-col items-center gap-1.5 group transition-all shrink-0 ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/10 border border-indigo-500/50 shadow-lg' : 'bg-slate-800/50 hover:bg-slate-800'}`}>
+  <button onClick={onClick} className={`flex flex-col items-center gap-1 group transition-all shrink-0 ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+    <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/20 border border-indigo-500/50 shadow-lg' : 'hover:bg-slate-800'}`}>
       {icon}
     </div>
-    <span className="text-[8px] font-black uppercase tracking-tighter">{label}</span>
+    <span className="text-[7px] font-black uppercase tracking-tighter opacity-60 group-hover:opacity-100">{label}</span>
   </button>
 );
