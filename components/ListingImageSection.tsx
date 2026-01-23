@@ -35,12 +35,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
             <button onClick={onStandardizeAll} disabled={isProcessing} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 hover:bg-indigo-700 transition-all"><Maximize2 size={12} /> 1600 Std All</button>
             <button onClick={() => setShowEditor(true)} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all"><Wand2 size={12} /> AI Editor</button>
          </div>
-
-         {hoverImage && (
-           <div className="absolute top-4 left-4 px-3 py-1 bg-amber-500 text-white text-[8px] font-black uppercase rounded-lg shadow-lg animate-pulse">
-             Temporary Preview
-           </div>
-         )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -57,7 +51,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
            >
               <img src={img} className="w-full h-full object-cover" />
               
-              {/* 遮罩操作区 */}
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 flex flex-col justify-between p-1 transition-opacity">
                  <div className="flex justify-between w-full">
                     <button 
@@ -74,13 +67,12 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
                     </button>
                  </div>
                  
-                 {/* 优化：1600按钮移到左下角，改为图标，减少误触空间 */}
                  <button 
                   onClick={(e) => { e.stopPropagation(); onStandardizeOne(img); }} 
                   title="Standardize to 1600px"
-                  className="w-6 h-6 flex items-center justify-center bg-indigo-600 text-white rounded-lg hover:bg-indigo-400 transition-colors shadow-lg"
+                  className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg hover:bg-indigo-400 transition-colors shadow-lg"
                  >
-                   <Zap size={10} />
+                   <Maximize2 size={10} />
                  </button>
               </div>
            </div>

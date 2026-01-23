@@ -30,6 +30,8 @@ const App: React.FC = () => {
   const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
 
   const viewRef = useRef(view);
+  const sessionRef = useRef<string | null>(null);
+
   useEffect(() => { viewRef.current = view; }, [view]);
 
   const fetchListings = useCallback(async (orgId: string) => {
@@ -108,8 +110,12 @@ const App: React.FC = () => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
-      if (cur) fetchIdentity(cur.user.id, cur);
-      else setLoading(false);
+      if (cur) {
+        sessionRef.current = cur.user.id;
+        fetchIdentity(cur.user.id, cur);
+      } else {
+        setLoading(false);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
@@ -120,20 +126,24 @@ const App: React.FC = () => {
         setListings([]);
         setView(AppView.LANDING);
         setLoading(false);
+        sessionRef.current = null;
         return;
       }
 
-      if (newSession?.user?.id === session?.user?.id && event !== 'SIGNED_IN') return;
-
-      setSession(newSession);
-      if (newSession) {
-        setLoading(true);
-        fetchIdentity(newSession.user.id, newSession);
+      // 核心优化：如果用户 ID 没变，说明只是 Token 自动刷新或标签切换聚焦，不触发全屏加载
+      if (newSession.user.id === sessionRef.current) {
+        setSession(newSession);
+        return;
       }
+
+      sessionRef.current = newSession.user.id;
+      setSession(newSession);
+      setLoading(true);
+      fetchIdentity(newSession.user.id, newSession);
     });
     
     return () => subscription.unsubscribe();
-  }, [fetchIdentity, session?.user?.id]);
+  }, [fetchIdentity]);
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
