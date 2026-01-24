@@ -55,7 +55,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [previewImage, setPreviewImage] = useState<string>(listing.cleaned?.main_image || '');
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
 
-  useEffect(() => { setLocalListing(listing); fetchPricingData(); }, [listing.id]);
+  useEffect(() => { 
+    setLocalListing(listing); 
+    setPreviewImage(listing.cleaned?.main_image || ''); // Critical fix: reset preview image when ID changes
+    fetchPricingData(); 
+  }, [listing.id]);
 
   const fetchPricingData = async () => {
     if (!isSupabaseConfigured()) return;

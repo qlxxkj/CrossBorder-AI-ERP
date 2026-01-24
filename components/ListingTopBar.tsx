@@ -37,6 +37,20 @@ export const ListingTopBar: React.FC<ListingTopBarProps> = ({
            ))}
         </div>
       </div>
+
+      {/* Moved Delete to Center to avoid accidental clicks */}
+      <div className="flex items-center">
+        <button 
+          onClick={onDelete} 
+          disabled={isDeleting} 
+          className="flex items-center gap-2 px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-400 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 transition-all group"
+          title="Delete Listing"
+        >
+          {isDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} className="group-hover:scale-110 transition-transform" />}
+          <span>{uiLang === 'zh' ? '删除产品' : 'Delete Listing'}</span>
+        </button>
+      </div>
+
       <div className="flex items-center gap-3">
         <button onClick={onOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-8 py-2.5 rounded-2xl font-black text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-all uppercase shadow-sm disabled:opacity-50">
           {isOptimizing ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} AI Optimize Master
@@ -44,10 +58,6 @@ export const ListingTopBar: React.FC<ListingTopBarProps> = ({
         <div className="flex items-center bg-slate-900 rounded-2xl p-0.5 shadow-xl">
            <button onClick={onSave} disabled={isSaving || isDeleting} className="flex items-center gap-2 px-8 py-2.5 rounded-2xl font-black text-xs text-white hover:bg-black transition-all uppercase tracking-widest">
              {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} {t('save')}
-           </button>
-           <div className="w-px h-6 bg-white/10 mx-1"></div>
-           <button onClick={onDelete} disabled={isDeleting} className="p-2.5 text-slate-400 hover:text-red-400 rounded-2xl transition-all" title="Delete Listing">
-              {isDeleting ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
            </button>
            <div className="w-px h-6 bg-white/10 mx-1"></div>
            <button onClick={onNext} className="p-2.5 text-white hover:bg-white/10 rounded-2xl transition-all" title="Next Listing">
