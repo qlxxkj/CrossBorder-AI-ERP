@@ -6,24 +6,35 @@ const UNIFIED_OPTIMIZE_PROMPT = `
 You are a professional Amazon Listing Optimization Expert. Your goal is to maximize SEO and conversion.
 
 [STRICT CONSTRAINTS]
-1. TITLE: Max 200 characters.
-2. BULLETS: Exactly 5 bullet points. Each bullet MUST start with a bolded Keyword. Each bullet point MAX 250 characters.
-3. DESCRIPTION: Length between 1000 and 1700 characters. Use basic HTML (p, br, b).
-4. NO-GO ZONE: Strictly NO Brand Names, NO Ad words (Best, Top, Sale), NO extreme words, and NO Car or Motorcycle brand names (BMW, Toyota, Honda, etc.).
-5. MEASUREMENTS: Use FULL words for units (e.g., "Kilograms", "Centimeters").
+1. REMOVE ALL BRAND NAMES: Strictly NO Brand Names from the source data. DO NOT mention the original brand. NO famous Car or Motorcycle brands (BMW, Toyota, Honda, etc.).
+2. TITLE: Compelling title under 200 characters.
+3. BULLETS: Exactly 5 bullet points. EVERY point must have content. Each bullet MUST start with a capitalized KEYWORD followed by a colon. Max 250 characters per bullet point.
+4. DESCRIPTION: Length between 1000 and 1700 characters. Use basic HTML (<p>, <br>, <b>).
+5. SEARCH KEYWORDS: Generate high-traffic backend keywords. DO NOT leave this empty. Max 300 characters total.
+6. NO-GO ZONE: No Ad words (Best, Top, Sale), no extreme words ("#1", "Greatest").
+7. MEASUREMENTS: Use FULL words for units (e.g., "Kilograms", "Centimeters").
 
-Return ONLY a flat JSON object with keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
+Return ONLY a flat JSON object with keys: optimized_title, optimized_features (array of 5 strings), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
   result.optimized_title = String(raw.optimized_title || "").slice(0, 200);
   result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
-  result.search_keywords = String(raw.search_keywords || "").slice(0, 250);
+  // Support 300 characters for keywords as requested
+  result.search_keywords = String(raw.search_keywords || "").slice(0, 300);
   
   let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
-  result.optimized_features = feats.slice(0, 5).map((f: string) => String(f).slice(0, 250));
-  while (result.optimized_features.length < 5) result.optimized_features.push("");
+  // Ensure we have exactly 5 non-empty bullets
+  result.optimized_features = feats
+    .map((f: any) => String(f || "").trim())
+    .filter((f: string) => f.length > 0)
+    .slice(0, 5)
+    .map((f: string) => f.slice(0, 250));
+
+  while (result.optimized_features.length < 5) {
+    result.optimized_features.push("High quality product designed for durability and performance.");
+  }
 
   result.optimized_weight_value = String(raw.optimized_weight_value || "");
   result.optimized_weight_unit = String(raw.optimized_weight_unit || "");
@@ -46,9 +57,13 @@ const extractJSONObject = (text: string) => {
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
+    // Provide source data but tell AI to ignore the brand field
+    const sourceCopy = { ...cleanedData };
+    delete sourceCopy.brand;
+
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}`,
+      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA (STRICTLY NO BRAND)]\n${JSON.stringify(sourceCopy)}`,
       config: { responseMimeType: "application/json" }
     });
     const rawData = extractJSONObject(response.text || "{}");
@@ -64,8 +79,8 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     [STRICT RULES]: 
     1. KEEP ALL JSON KEYS UNCHANGED.
     2. RETURN ONLY JSON. 
-    3. KEEP Title under 200 chars. Keep each bullet under 250 chars.
-    4. NO Car or Motorcycle Brands.
+    3. KEEP Title under 200 chars. Keep each of the 5 bullets under 250 chars.
+    4. NO Car or Motorcycle Brands. Ensure search_keywords is translated and under 300 chars.
     5. Translate units to FULL words in "${targetLangName}".
     Data: ${JSON.stringify(sourceData)}
   `;
@@ -80,7 +95,6 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   } catch (error: any) { throw new Error(`Gemini Translation Failed: ${error.message}`); }
 };
 
-// Added editImageWithAI to handle AI-powered image editing tasks using gemini-2.5-flash-image
 export const editImageWithAI = async (base64Image: string, prompt: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
