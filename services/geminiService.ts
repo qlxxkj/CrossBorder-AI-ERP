@@ -6,15 +6,15 @@ const UNIFIED_OPTIMIZE_PROMPT = `
 Act as a Senior Amazon SEO Specialist. Your mission is to re-engineer the product data to maximize conversion and search visibility.
 
 [CRITICAL QUALITY RULES]
-1. BRAND REMOVAL: Delete ALL original brands. NO car/motorcycle brands (Toyota, Tesla, etc.).
+1. BRAND REMOVAL: No original brands. NO car/motorcycle brands (Toyota, Tesla, etc.).
 2. RADICAL TITLE REWRITE: Do NOT reuse the source title's word order. Use a completely fresh, high-CTR structure. Strictly MAX 150 characters.
 3. 5 UNIQUE BULLET POINTS: 
    - Generate exactly 5 points.
    - Each point MUST cover a different product dimension: [1. Construction/Material], [2. Core Feature], [3. User Benefit], [4. Compatibility], [5. Care/Guarantee].
    - Points MUST be distinct from each other.
    - Format: Each must start with a bold "KEYWORD: " in all caps.
-   - MAX 250 characters per point.
-4. DESCRIPTION: Professional HTML. 1000-1700 characters.
+   - MAX 350 characters per point.
+4. DESCRIPTION: Professional HTML. 1200-1700 characters.
 5. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total. Do not exceed 200.
 6. INNOVATION: Produce a version that sounds fresh and premium, avoiding generic phrases.
 
