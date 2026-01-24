@@ -294,7 +294,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           const handleSize = 12/zoom; const centerX = obj.x + obj.width/2;
           if (Math.sqrt((pos.x-centerX)**2 + (pos.y-(obj.y-30/zoom))**2) < handleSize) { setIsRotating(true); return; }
           if (pos.x >= obj.x+obj.width-handleSize && pos.y >= obj.y+obj.height-handleSize) { setIsResizing(true); return; }
-          if (pos.x >= obj.x && pos.x <= obj.x+obj.width && pos.y >= obj.y && pos.y <= obj.y+obj.height) { setIsDragging(true); setDragOffset({x: pos.x-obj.x, y: pos.y-obj.y}); return; }
+          if (pos.x >= obj.x && pos.x <= obj.x+obj.width && pos.y >= obj.y && pos.y <= obj.y+obj.height) { setIsDragging(true); setDragOffset({x: pos.x-obj.x, y: pos.y-dragOffset.y}); return; }
         }
       }
       if (hit) { setSelectedObjectId(hit.id); setIsDragging(true); setDragOffset({x: pos.x-hit.x, y: pos.y-hit.y}); }
@@ -461,10 +461,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const selectedObj = objects.find(o => o.id === selectedObjectId);
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter overflow-hidden">
-      <div className="fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between text-white shadow-xl z-50">
+    <div className="fixed inset-0 z-[100] bg-slate-700 flex flex-col font-inter overflow-hidden">
+      <div className="fixed top-0 left-0 right-0 h-16 bg-slate-800 border-b border-slate-600 px-6 flex items-center justify-between text-white shadow-xl z-50">
         <div className="flex items-center gap-6">
-          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors"><X size={20} /></button>
+          <button onClick={onClose} className="p-2 hover:bg-slate-600 rounded-full text-slate-300 hover:text-white transition-colors"><X size={20} /></button>
           <h2 className="font-black tracking-tighter text-xl bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent uppercase">AI Media Lab</h2>
         </div>
         <div className="flex items-center gap-4">
@@ -482,10 +482,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           }} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
             <Maximize2 size={14} className="text-blue-400" /> Standardize 1600px
           </button>
-          <div className="flex bg-slate-800 p-1 rounded-xl">
-            <button onClick={() => setZoom(z => Math.max(0.05, z-0.1))} className="p-2 text-slate-400"><ZoomOut size={16} /></button>
+          <div className="flex bg-slate-700 p-1 rounded-xl">
+            <button onClick={() => setZoom(z => Math.max(0.05, z-0.1))} className="p-2 text-slate-300"><ZoomOut size={16} /></button>
             <span className="px-3 flex items-center text-[10px] font-black w-16 justify-center">{(zoom*100).toFixed(0)}%</span>
-            <button onClick={() => setZoom(z => Math.min(10, z+0.1))} className="p-2 text-slate-400"><ZoomIn size={16} /></button>
+            <button onClick={() => setZoom(z => Math.min(10, z+0.1))} className="p-2 text-slate-300"><ZoomIn size={16} /></button>
           </div>
           <button onClick={() => {
             const hist = [...history]; hist.pop(); const prev = hist[hist.length-1];
@@ -493,7 +493,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               const img = new Image(); img.src = prev.canvasData;
               img.onload = () => { canvasRef.current!.getContext('2d')!.drawImage(img, 0, 0); setObjects(prev.objects); setHistory(hist); };
             }
-          }} disabled={history.length<=1} className="p-2.5 bg-slate-800 disabled:opacity-30 rounded-xl text-slate-300"><Undo size={18} /></button>
+          }} disabled={history.length<=1} className="p-2.5 bg-slate-700 disabled:opacity-30 rounded-xl text-slate-300"><Undo size={18} /></button>
           
           <button 
             onClick={handleFinalSave} 
@@ -508,7 +508,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       <div 
         ref={containerRef} 
         onWheel={e => { e.preventDefault(); setZoom(z => Math.min(10, Math.max(0.05, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }} 
-        className="flex-1 bg-slate-950 relative overflow-hidden"
+        className="flex-1 bg-slate-700 relative overflow-hidden"
         style={{ cursor: (currentTool === 'ai-erase' || currentTool === 'brush') ? 'none' : 'default' }}
       >
         <div 
@@ -518,7 +518,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           {isProcessing && canvasRef.current && (
             <div className="absolute -inset-[20px] z-[80] pointer-events-none">
               <svg width="calc(100% + 40px)" height="calc(100% + 40px)" className="absolute inset-0 drop-shadow-[0_0_15px_rgba(59,130,246,0.8)]">
-                <rect x="6" y="6" width="calc(100% - 12px)" height="calc(100% - 12px)" fill="none" stroke="#1e293b" strokeWidth="12" className="opacity-80" />
+                <rect x="6" y="6" width="calc(100% - 12px)" height="calc(100% - 12px)" fill="none" stroke="#334155" strokeWidth="12" className="opacity-80" />
                 <rect 
                   x="6" y="6" 
                   width="calc(100% - 12px)" height="calc(100% - 12px)" 
@@ -531,7 +531,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             </div>
           )}
 
-          <div className="relative shadow-[0_0_100px_rgba(0,0,0,0.8)] bg-white overflow-hidden rounded-sm">
+          <div className="relative shadow-[0_0_100px_rgba(0,0,0,0.4)] bg-white overflow-hidden rounded-sm">
             <canvas 
               ref={canvasRef} 
               onMouseDown={handleStart} 
@@ -573,18 +573,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               opacity: isProcessing ? 0 : 1
             }}
           >
-            {/* High-visibility Circular Cursor */}
+            {/* Spinning dashed cursor restored */}
             <div 
-              className="w-full h-full border-2 rounded-full shadow-[0_0_4px_rgba(0,0,0,1)]"
-              style={{ 
-                borderColor: currentTool === 'ai-erase' ? '#ef4444' : 'white',
-                mixBlendMode: 'difference'
-              }}
+              className="w-full h-full border-2 border-dashed rounded-full animate-[spin_8s_linear_infinite] shadow-[0_0_10px_rgba(0,0,0,0.5)]"
+              style={{ borderColor: currentTool === 'ai-erase' ? 'white' : strokeColor }}
             ></div>
           </div>
         )}
 
-        <div className="fixed left-6 top-1/2 -translate-y-1/2 w-16 bg-slate-900/90 backdrop-blur-xl border border-slate-800 flex flex-col items-center py-6 gap-6 rounded-3xl shadow-2xl z-50">
+        <div className="fixed left-6 top-1/2 -translate-y-1/2 w-16 bg-slate-800/90 backdrop-blur-xl border border-slate-600 flex flex-col items-center py-6 gap-6 rounded-3xl shadow-2xl z-50">
           <ToolIcon active={currentTool==='select'} onClick={()=>{setCurrentTool('select'); setShowShapeMenu(false);}} icon={<MousePointer2 size={18}/>} label="Select" />
           <ToolIcon active={currentTool==='pan'} onClick={()=>{setCurrentTool('pan'); setShowShapeMenu(false);}} icon={<Move size={18}/>} label="Pan" />
           <ToolIcon active={currentTool==='brush'} onClick={()=>{setCurrentTool('brush');setSelectedObjectId(null); setShowShapeMenu(false);}} icon={<Palette size={18}/>} label="Brush" />
@@ -602,10 +599,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <div className="relative">
             <ToolIcon active={['rect', 'circle', 'line'].includes(currentTool)} onClick={() => setShowShapeMenu(!showShapeMenu)} icon={<ShapeIcon size={18} type={lastUsedShape} />} label="Shapes" />
             {showShapeMenu && (
-              <div className="absolute left-20 top-0 bg-slate-800 border border-slate-700 p-2 rounded-xl shadow-2xl flex flex-col gap-2 z-[100] animate-in slide-in-from-left-2">
-                <button onClick={() => { setCurrentTool('rect'); setLastUsedShape('rect'); setShowShapeMenu(false); }} className={`p-3 rounded-lg ${currentTool === 'rect' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Square size={18} /></button>
-                <button onClick={() => { setCurrentTool('circle'); setLastUsedShape('circle'); setShowShapeMenu(false); }} className={`p-3 rounded-lg ${currentTool === 'circle' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Circle size={18} /></button>
-                <button onClick={() => { setCurrentTool('line'); setLastUsedShape('line'); setShowShapeMenu(false); }} className={`p-3 rounded-lg ${currentTool === 'line' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Minus size={18} /></button>
+              <div className="absolute left-20 top-0 bg-slate-700 border border-slate-600 p-2 rounded-xl shadow-2xl flex flex-col gap-2 z-[100] animate-in slide-in-from-left-2">
+                <button onClick={() => { setCurrentTool('rect'); setLastUsedShape('rect'); setShowShapeMenu(false); }} className={`p-3 rounded-lg ${currentTool === 'rect' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-600'}`}><Square size={18} /></button>
+                <button onClick={() => { setCurrentTool('circle'); setLastUsedShape('circle'); setShowShapeMenu(false); }} className={`p-3 rounded-lg ${currentTool === 'circle' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-600'}`}><Circle size={18} /></button>
+                <button onClick={() => { setCurrentTool('line'); setLastUsedShape('line'); setShowShapeMenu(false); }} className={`p-3 rounded-lg ${currentTool === 'line' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-600'}`}><Minus size={18} /></button>
               </div>
             )}
           </div>
@@ -614,20 +611,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <ToolIcon active={currentTool==='crop'} onClick={()=>{setCurrentTool('crop');setSelectedObjectId(null); setShowShapeMenu(false);}} icon={<Scissors size={18}/>} label="Crop" />
         </div>
 
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 rounded-[2.5rem] shadow-2xl min-w-[650px] z-50">
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-800/90 backdrop-blur-xl border border-slate-600 p-6 rounded-[2.5rem] shadow-2xl min-w-[650px] z-50">
           <div className="flex items-center gap-4">
             <div className="space-y-1">
-              <span className="text-[8px] font-black text-slate-500 uppercase text-center block">Stroke</span>
-              <input type="color" value={strokeColor} onChange={e => { setStrokeColor(e.target.value); updateSelectedProperty('stroke', e.target.value); }} className="w-8 h-8 rounded-lg cursor-pointer bg-slate-800 border-none" />
+              <span className="text-[8px] font-black text-slate-400 uppercase text-center block">Stroke</span>
+              <input type="color" value={strokeColor} onChange={e => { setStrokeColor(e.target.value); updateSelectedProperty('stroke', e.target.value); }} className="w-8 h-8 rounded-lg cursor-pointer bg-slate-700 border-none" />
             </div>
             <div className="space-y-1">
-              <span className="text-[8px] font-black text-slate-500 uppercase text-center block">Fill</span>
-              <input type="color" value={fillColor} onChange={e => { setFillColor(e.target.value); updateSelectedProperty('fill', e.target.value); }} className="w-8 h-8 rounded-lg cursor-pointer bg-slate-800 border-none" />
+              <span className="text-[8px] font-black text-slate-400 uppercase text-center block">Fill</span>
+              <input type="color" value={fillColor} onChange={e => { setFillColor(e.target.value); updateSelectedProperty('fill', e.target.value); }} className="w-8 h-8 rounded-lg cursor-pointer bg-slate-700 border-none" />
             </div>
           </div>
-          <div className="w-px h-8 bg-slate-800"></div>
+          <div className="w-px h-8 bg-slate-600"></div>
           <div className="flex flex-col gap-2 flex-1">
-            <div className="flex justify-between text-[8px] font-black text-slate-500 uppercase">
+            <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase">
               <span>{(selectedObj?.type === 'text' || currentTool === 'text') ? 'Font Size' : 'Size'}</span>
               <span>{(selectedObj?.type === 'text' || currentTool === 'text') ? (selectedObj?.fontSize || fontSize) : (selectedObj?.strokeWidth || strokeWidth)}px</span>
             </div>
@@ -646,12 +643,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                   else setStrokeWidth(v);
                 }
               }} 
-              className="w-full h-1 bg-slate-800 appearance-none cursor-pointer accent-indigo-500" 
+              className="w-full h-1 bg-slate-600 appearance-none cursor-pointer accent-indigo-500" 
             />
           </div>
           <div className="flex flex-col gap-2 flex-1">
             <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase"><span>Opacity</span><span>{Math.round((selectedObj?.opacity ?? opacity) * 100)}%</span></div>
-            <input type="range" min="0" max="1" step="0.01" value={selectedObj?.opacity ?? opacity} onChange={e=>{const v=parseFloat(e.target.value); setOpacity(v); updateSelectedProperty('opacity', v);}} className="w-full h-1 bg-slate-800 appearance-none cursor-pointer accent-blue-500" />
+            <input type="range" min="0" max="1" step="0.01" value={selectedObj?.opacity ?? opacity} onChange={e=>{const v=parseFloat(e.target.value); setOpacity(v); updateSelectedProperty('opacity', v);}} className="w-full h-1 bg-slate-600 appearance-none cursor-pointer accent-blue-500" />
           </div>
           
           {(currentTool === 'ai-erase') && (
@@ -678,8 +675,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 };
 
 const ToolIcon = ({ active, onClick, icon, label }: any) => (
-  <button onClick={onClick} className={`flex flex-col items-center gap-1 group transition-all shrink-0 ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-    <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/20 border border-indigo-500/50 shadow-lg' : 'hover:bg-slate-800'}`}>{icon}</div>
+  <button onClick={onClick} className={`flex flex-col items-center gap-1 group transition-all shrink-0 ${active ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'}`}>
+    <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/20 border border-indigo-500/50 shadow-lg' : 'hover:bg-slate-700'}`}>{icon}</div>
     <span className="text-[7px] font-black uppercase tracking-tighter opacity-60 group-hover:opacity-100">{label}</span>
   </button>
 );
