@@ -34,7 +34,14 @@ const formatExportVal = (val: any) => {
 const getLocalizedUnitName = (unit: string | undefined, marketplace: string) => {
   if (!unit) return "";
   const u = unit.toLowerCase().trim();
-  if (/[^\x00-\x7F]/.test(unit)) return unit;
+  
+  // 特殊站点拼写处理
+  if (['UK', 'AU', 'SG', 'IE'].includes(marketplace)) {
+    if (u === 'cm' || u.includes('centimeter')) return 'Centimetres';
+    if (u === 'mm' || u.includes('millimetre')) return 'Millimetres';
+    if (u === 'kg' || u.includes('kilogram')) return 'Kilograms';
+  }
+
   if (marketplace === 'JP') {
      const jpMap: Record<string, string> = {
        'kilograms': 'キログラム', 'kilogram': 'キログラム', 'kg': 'キログラム',
@@ -213,7 +220,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] ?? 3;
       const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
 
-      // Keep track of the range to update sheet['!ref'] later
+      // 初始化当前 sheet 的最大范围
       let maxRow = dataStartRowIdx;
       let maxCol = 0;
 
@@ -279,11 +286,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         });
       });
 
-      // IMPORTANT FIX: Update the range of the sheet so the Excel writer includes all the new rows
-      const existingRange = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
-      existingRange.e.r = Math.max(existingRange.e.r, maxRow);
-      existingRange.e.c = Math.max(existingRange.e.c, maxCol);
-      sheet['!ref'] = XLSX.utils.encode_range(existingRange);
+      // 强制更新 sheet 的有效引用范围
+      const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+      range.s.r = 0; // 确保从第一行开始
+      range.s.c = 0;
+      range.e.r = Math.max(range.e.r, maxRow);
+      range.e.c = Math.max(range.e.c, maxCol);
+      sheet['!ref'] = XLSX.utils.encode_range(range);
 
       const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm' });
       const blob = new Blob([outData], { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });

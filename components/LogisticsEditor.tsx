@@ -15,40 +15,67 @@ interface LogisticsEditorProps {
 export const getLocalizedUnit = (unit: string | undefined, market: string) => {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
+
+  // 1. 英国英语拼写站点 (UK, AU, SG, IE)
+  if (['UK', 'AU', 'SG', 'IE'].includes(market)) {
+    const uk: Record<string, string> = { 
+      'cm': 'Centimetres', 'centimeter': 'Centimetres', 'centimeters': 'Centimetres',
+      'mm': 'Millimetres', 'millimetre': 'Millimetres',
+      'kg': 'Kilograms', 'kilogram': 'Kilograms', 'g': 'Grams'
+    };
+    if (uk[u]) return uk[uk[u].toLowerCase()] || uk[u];
+  }
+
+  // 2. 日本站
   if (market === 'JP') {
     const jp: Record<string, string> = { 'kg': 'キログラム', 'kilogram': 'キログラム', 'cm': 'センチメートル', 'centimeter': 'センチメートル', 'lb': 'ポンド', 'in': 'インチ', 'oz': 'オンス', 'g': 'グラム' };
     return jp[u] || unit;
   }
+  
+  // 3. 德国站
   if (market === 'DE') {
     const de: Record<string, string> = { 'kg': 'Kilogramm', 'kilogram': 'Kilogramm', 'cm': 'Zentimeter', 'centimeter': 'Zentimeter', 'lb': 'Pfund', 'oz': 'Unze' };
     return de[u] || unit;
   }
+  
+  // 4. 法国、比利时站
   if (['FR', 'BE'].includes(market)) {
     const fr: Record<string, string> = { 'kg': 'Kilogrammes', 'kilogram': 'Kilogrammes', 'cm': 'Centimètres', 'centimeter': 'Centimètres', 'lb': 'Livres', 'oz': 'Onces' };
     return fr[u] || unit;
   }
+  
+  // 5. 意大利站
   if (market === 'IT') {
     const it: Record<string, string> = { 'kg': 'Chilogrammi', 'kilogram': 'Chilogrammi', 'cm': 'Centimetri', 'centimeter': 'Centimetri', 'lb': 'Libbre' };
     return it[u] || unit;
   }
+  
+  // 6. 波兰站
   if (market === 'PL') {
     const pl: Record<string, string> = { 'kg': 'Kilogramy', 'kilogram': 'Kilogramy', 'cm': 'Centymetry', 'centimeter': 'Centymetry' };
     return pl[u] || unit;
   }
+  
+  // 7. 墨西哥、西班牙站
   if (['MX', 'ES'].includes(market)) {
     const es: Record<string, string> = { 'kg': 'Kilogramos', 'cm': 'Centímetros', 'lb': 'Libras', 'in': 'Pulgadas' };
     return es[u] || unit;
   }
+  
+  // 8. 巴西站
   if (market === 'BR') {
     const pt: Record<string, string> = { 'kg': 'Quilogramas', 'cm': 'Centímetros', 'lb': 'Libras' };
     return pt[u] || unit;
   }
+  
+  // 9. 阿拉伯语站点
   if (['EG', 'SA', 'AE'].includes(market)) {
     const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية' };
     return ar[u] || unit;
   }
   if (market === 'NL') { return { 'kg': 'Kilogram', 'cm': 'Centimeter' }[u] || unit; }
   if (market === 'SE') { return { 'kg': 'Kilogram', 'cm': 'Centimeter' }[u] || unit; }
+  // 10. 标准美式英语及兜底
   const latin: Record<string, string> = { 'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms', 'cm': 'Centimeters', 'centimeter': 'Centimeters', 'centimeters': 'Centimeters', 'lb': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds', 'in': 'Inches', 'inch': 'Inches', 'inches': 'Inches', 'oz': 'Ounces', 'ounce': 'Ounces', 'ounces': 'Ounces', 'g': 'Grams', 'gram': 'Grams', 'grams': 'Grams' };
   if (latin[u]) return latin[u];
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
