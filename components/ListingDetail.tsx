@@ -45,7 +45,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [processingUrls, setProcessingUrls] = useState<Set<string>>(new Set());
   const [showImageEditor, setShowImageEditor] = useState(false);
-  const [editingImageUrl, setEditingImageUrl] = useState<string>(''); // Track which image is in editor
+  const [editingImageUrl, setEditingImageUrl] = useState<string>(''); 
   const [showSourcingModal, setShowSourcingModal] = useState(false);
   const [showSourcingForm, setShowSourcingForm] = useState(false);
   const [editingSourceRecord, setEditingSourceRecord] = useState<SourcingRecord | null>(null);
@@ -76,7 +76,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } finally { setIsSaving(false); }
   };
 
-  // Safe field update with batch support
   const updateFields = (updates: Record<string, any>, shouldSync: boolean = false) => {
     setLocalListing(prev => {
       const next = JSON.parse(JSON.stringify(prev));
@@ -102,34 +101,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const updateField = (field: string, value: any, shouldSync: boolean = false) => {
     updateFields({ [field]: value }, shouldSync);
-  };
-
-  const processAndUploadImage = async (imgUrl: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
-      img.onload = async () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1600; canvas.height = 1600;
-        const ctx = canvas.getContext('2d')!;
-        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0,0,1600,1600);
-        const scale = Math.min(1600/img.width, 1600/img.height);
-        ctx.drawImage(img, (1600-img.width*scale)/2, (1600-img.height*scale)/2, img.width*scale, img.height*scale);
-        canvas.toBlob(async (blob) => {
-          if (!blob) return reject("Blob creation failed");
-          const fd = new FormData();
-          fd.append('file', blob, `std_${Date.now()}.jpg`);
-          try {
-            const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
-            const data = await res.json();
-            const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
-            resolve(u || imgUrl);
-          } catch (e) { reject(e); }
-        }, 'image/jpeg', 0.9);
-      };
-      img.onerror = () => reject("Image load error");
-    });
   };
 
   const handleStandardizeOne = async (url: string) => {
@@ -174,13 +145,41 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
+  const processAndUploadImage = async (imgUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1600; canvas.height = 1600;
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0,0,1600,1600);
+        const scale = Math.min(1600/img.width, 1600/img.height);
+        ctx.drawImage(img, (1600-img.width*scale)/2, (1600-canvas.height*scale)/2, img.width*scale, img.height*scale);
+        canvas.toBlob(async (blob) => {
+          if (!blob) return reject("Blob creation failed");
+          const fd = new FormData();
+          fd.append('file', blob, `std_${Date.now()}.jpg`);
+          try {
+            const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
+            const data = await res.json();
+            const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+            resolve(u || imgUrl);
+          } catch (e) { reject(e); }
+        }, 'image/jpeg', 0.9);
+      };
+      img.onerror = () => reject("Image load error");
+    });
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     setIsProcessingImages(true);
     try {
       const uploadPromises = Array.from(files).map(async (file) => {
-        const fd = new FormData(); fd.append('file', file);
+        const fd = new FormData(); fd.append('file', file as File);
         const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
         const data = await res.json();
         return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
@@ -209,14 +208,49 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const performTranslation = async (currentListing: Listing, marketCode: string): Promise<Listing> => {
     const mktConfig = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
     const targetLangName = LANG_NAME_MAP[mktConfig?.lang || 'en'] || 'English';
-    const source = currentListing.optimized || { optimized_title: currentListing.cleaned.title, optimized_features: currentListing.cleaned.features || [], optimized_description: currentListing.cleaned.description || "", search_keywords: currentListing.cleaned.search_keywords || "" } as OptimizedData;
+    
+    // Check if it is an English variant market
+    const isEnglishMarket = ['UK', 'AU', 'SG', 'CA', 'IE'].includes(marketCode);
+
+    const masterOpt = currentListing.optimized || { 
+      optimized_title: currentListing.cleaned.title, 
+      optimized_features: currentListing.cleaned.features || [], 
+      optimized_description: currentListing.cleaned.description || "", 
+      search_keywords: currentListing.cleaned.search_keywords || "" 
+    } as OptimizedData;
+
     let transResult: any;
-    if (engine === 'openai') transResult = await translateListingWithOpenAI(source, targetLangName);
-    else if (engine === 'deepseek') transResult = await translateListingWithDeepSeek(source, targetLangName);
-    else transResult = await translateListingWithAI(source, targetLangName);
+    try {
+      if (engine === 'openai') transResult = await translateListingWithOpenAI(masterOpt, targetLangName);
+      else if (engine === 'deepseek') transResult = await translateListingWithDeepSeek(masterOpt, targetLangName);
+      else transResult = await translateListingWithAI(masterOpt, targetLangName);
+    } catch (e) {
+      console.warn(`AI Translation failed for ${marketCode}, using empty values.`);
+      transResult = {};
+    }
+
+    // DEFENSE LOGIC: 
+    // If it's an English market (UK/AU/SG), we fallback to Master data if AI failed.
+    // If it's a NON-English market (BR/JP/DE), we keep it EMPTY so users can see the issue.
+    const mergedResult: OptimizedData = {
+      ...transResult,
+      optimized_title: transResult.optimized_title || (isEnglishMarket ? masterOpt.optimized_title : ""),
+      optimized_description: transResult.optimized_description || (isEnglishMarket ? masterOpt.optimized_description : ""),
+      optimized_features: (transResult.optimized_features && transResult.optimized_features.length > 0) 
+        ? transResult.optimized_features 
+        : (isEnglishMarket ? masterOpt.optimized_features : []),
+      search_keywords: transResult.search_keywords || (isEnglishMarket ? masterOpt.search_keywords : "")
+    };
+
     const logistics = calculateMarketLogistics(currentListing, marketCode);
     const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
-    const finalData: OptimizedData = { ...transResult, ...logistics, optimized_price: parseFloat(((currentListing.cleaned.price || 0) * rate).toFixed(2)), optimized_shipping: parseFloat(((currentListing.cleaned.shipping || 0) * rate).toFixed(2)) };
+    const finalData: OptimizedData = { 
+      ...mergedResult, 
+      ...logistics, 
+      optimized_price: parseFloat(((currentListing.cleaned.price || 0) * rate).toFixed(2)), 
+      optimized_shipping: parseFloat(((currentListing.cleaned.shipping || 0) * rate).toFixed(2)) 
+    };
+
     return { ...currentListing, translations: { ...(currentListing.translations || {}), [marketCode]: finalData } };
   };
 
@@ -226,7 +260,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     try {
       const nextListing = await performTranslation(localListing, code);
       setLocalListing(nextListing); onUpdate(nextListing); await syncToSupabase(nextListing);
-    } finally { setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(code); return n; }); }
+    } catch (e: any) {
+      console.error(`Translation failed for ${code}:`, e);
+    } finally { 
+      setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(code); return n; }); 
+    }
   };
 
   const handleTranslateAll = async () => {
@@ -239,9 +277,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const m = targets[i];
         setTranslationProgress(prev => ({ ...prev, current: i + 1 }));
         setTranslatingMarkets(prev => new Set(prev).add(m.code));
-        try { workingListing = await performTranslation(workingListing, m.code); setLocalListing(workingListing); onUpdate(workingListing); } 
-        finally { setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(m.code); return n; }); }
-        await new Promise(r => setTimeout(r, 100));
+        try { 
+          workingListing = await performTranslation(workingListing, m.code); 
+          setLocalListing(workingListing); 
+          onUpdate(workingListing); 
+        } catch (itemErr) {
+          console.error(`Error in Translate All for ${m.code}:`, itemErr);
+        } finally { 
+          setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(m.code); return n; }); 
+        }
+        await new Promise(r => setTimeout(r, 200));
       }
       await syncToSupabase(workingListing);
     } finally { setIsTranslatingAll(false); }
@@ -265,7 +310,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               onStandardizeAll={handleStandardizeAll} 
               onStandardizeOne={handleStandardizeOne} 
               setShowEditor={(show) => {
-                if (show) setEditingImageUrl(previewImage); // Capture source URL when opening
+                if (show) setEditingImageUrl(previewImage); 
                 setShowImageEditor(show);
               }} 
               fileInputRef={fileInputRef} 
@@ -310,7 +355,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           imageUrl={editingImageUrl} 
           onClose={() => setShowImageEditor(false)} 
           onSave={(newUrl) => { 
-            // Precision logic to replace the correct image
             setLocalListing(prev => {
               const next = JSON.parse(JSON.stringify(prev));
               if (next.cleaned.main_image === editingImageUrl) {
@@ -320,7 +364,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 if (idx > -1) {
                   next.cleaned.other_images[idx] = newUrl;
                 } else {
-                  // Fallback: update main if source no longer found
                   next.cleaned.main_image = newUrl;
                 }
               }
