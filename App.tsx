@@ -44,7 +44,6 @@ const App: React.FC = () => {
       const { data, error } = await supabase
         .from('listings')
         .select('*')
-        .eq('org_id', orgId)
         .order('created_at', { ascending: false });
       
       if (error) throw error;
@@ -147,13 +146,62 @@ const App: React.FC = () => {
     setView(AppView.LISTING_DETAIL);
   };
 
+  const handleDeleteListingFromDetail = async (id: string) => {
+    if (!isSupabaseConfigured()) return;
+    
+    // Find next listing to navigate to before deletion
+    const currentIndex = listings.findIndex(l => l.id === id);
+    let nextListingToSelect: Listing | null = null;
+    
+    if (currentIndex > -1) {
+      if (currentIndex < listings.length - 1) {
+        nextListingToSelect = listings[currentIndex + 1];
+      } else if (currentIndex > 0) {
+        // If last one, maybe go to previous? Or just go back to list
+        // User asked for "next", but if no next, we fall back to list logic
+      }
+    }
+
+    try {
+      const { error } = await supabase.from('listings').delete().eq('id', id);
+      if (error) throw error;
+
+      // Update local state
+      const newListings = listings.filter(l => l.id !== id);
+      setListings(newListings);
+
+      if (nextListingToSelect) {
+        handleSelectListing(nextListingToSelect);
+      } else {
+        // No next listing, go back to list
+        setView(AppView.LISTINGS);
+        setSelectedListing(null);
+      }
+    } catch (e) {
+      console.error("Detail delete error:", e);
+      throw e;
+    }
+  };
+
   const renderContent = () => {
     try {
       switch(view) {
         case AppView.LISTINGS:
           return <ListingsManager key="list-view-fixed" onSelectListing={handleSelectListing} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} isInitialLoading={isSyncing} />;
         case AppView.LISTING_DETAIL:
-          return selectedListing ? <ListingDetail listing={selectedListing} onBack={() => setView(AppView.LISTINGS)} onUpdate={(u) => { setListings(prev => prev.map(l => l.id === u.id ? u : l)); setSelectedListing(u); }} onNext={() => { const idx = listings.findIndex(l => l.id === selectedListing.id); if (idx < listings.length - 1) handleSelectListing(listings[idx + 1]); }} uiLang={lang} /> : <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
+          return selectedListing ? (
+            <ListingDetail 
+              listing={selectedListing} 
+              onBack={() => setView(AppView.LISTINGS)} 
+              onUpdate={(u) => { setListings(prev => prev.map(l => l.id === u.id ? u : l)); setSelectedListing(u); }} 
+              onDelete={handleDeleteListingFromDetail}
+              onNext={() => { 
+                const idx = listings.findIndex(l => l.id === selectedListing.id); 
+                if (idx < listings.length - 1) handleSelectListing(listings[idx + 1]); 
+              }} 
+              uiLang={lang} 
+            />
+          ) : <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;

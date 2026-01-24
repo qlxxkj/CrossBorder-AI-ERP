@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { ArrowLeft, Sparkles, Loader2, Save, ChevronRight, Zap, Brain, Cpu } from 'lucide-react';
+import { ArrowLeft, Sparkles, Loader2, Save, ChevronRight, Zap, Brain, Cpu, Trash2 } from 'lucide-react';
 import { UILanguage } from '../types';
 import { useTranslation } from '../lib/i18n';
 
@@ -11,13 +11,15 @@ interface ListingTopBarProps {
   onOptimize: () => void;
   isOptimizing: boolean;
   onSave: () => void;
+  onDelete: () => void;
   isSaving: boolean;
+  isDeleting?: boolean;
   onNext: () => void;
   uiLang: UILanguage;
 }
 
 export const ListingTopBar: React.FC<ListingTopBarProps> = ({
-  onBack, engine, setEngine, onOptimize, isOptimizing, onSave, isSaving, onNext, uiLang
+  onBack, engine, setEngine, onOptimize, isOptimizing, onSave, onDelete, isSaving, isDeleting, onNext, uiLang
 }) => {
   const t = useTranslation(uiLang);
   return (
@@ -40,8 +42,12 @@ export const ListingTopBar: React.FC<ListingTopBarProps> = ({
           {isOptimizing ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} AI Optimize Master
         </button>
         <div className="flex items-center bg-slate-900 rounded-2xl p-0.5 shadow-xl">
-           <button onClick={onSave} disabled={isSaving} className="flex items-center gap-2 px-10 py-2.5 rounded-2xl font-black text-xs text-white hover:bg-black transition-all uppercase tracking-widest">
+           <button onClick={onSave} disabled={isSaving || isDeleting} className="flex items-center gap-2 px-8 py-2.5 rounded-2xl font-black text-xs text-white hover:bg-black transition-all uppercase tracking-widest">
              {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} {t('save')}
+           </button>
+           <div className="w-px h-6 bg-white/10 mx-1"></div>
+           <button onClick={onDelete} disabled={isDeleting} className="p-2.5 text-slate-400 hover:text-red-400 rounded-2xl transition-all" title="Delete Listing">
+              {isDeleting ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
            </button>
            <div className="w-px h-6 bg-white/10 mx-1"></div>
            <button onClick={onNext} className="p-2.5 text-white hover:bg-white/10 rounded-2xl transition-all" title="Next Listing">

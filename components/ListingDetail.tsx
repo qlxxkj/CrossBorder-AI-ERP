@@ -20,6 +20,7 @@ interface ListingDetailProps {
   listing: Listing;
   onBack: () => void;
   onUpdate: (updatedListing: Listing) => void;
+  onDelete: (id: string) => Promise<void>;
   onNext: () => void;
   uiLang: UILanguage;
 }
@@ -33,7 +34,7 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
-export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
+export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onDelete, onNext, uiLang }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMarket, setActiveMarket] = useState('US');
   const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
@@ -42,6 +43,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [translationProgress, setTranslationProgress] = useState({ current: 0, total: 0 });
   const [translatingMarkets, setTranslatingMarkets] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [processingUrls, setProcessingUrls] = useState<Set<string>>(new Set());
   const [showImageEditor, setShowImageEditor] = useState(false);
@@ -209,7 +211,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const mktConfig = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
     const targetLangName = LANG_NAME_MAP[mktConfig?.lang || 'en'] || 'English';
     
-    // Check if it is an English variant market
     const isEnglishMarket = ['UK', 'AU', 'SG', 'CA', 'IE'].includes(marketCode);
 
     const masterOpt = currentListing.optimized || { 
@@ -229,9 +230,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       transResult = {};
     }
 
-    // DEFENSE LOGIC: 
-    // If it's an English market (UK/AU/SG), we fallback to Master data if AI failed.
-    // If it's a NON-English market (BR/JP/DE), we keep it EMPTY so users can see the issue.
     const mergedResult: OptimizedData = {
       ...transResult,
       optimized_title: transResult.optimized_title || (isEnglishMarket ? masterOpt.optimized_title : ""),
@@ -292,9 +290,32 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } finally { setIsTranslatingAll(false); }
   };
 
+  const handleDetailDelete = async () => {
+    if (!window.confirm(uiLang === 'zh' ? "确定要删除这条产品吗？删除后将自动为您跳转到下一条。" : "Are you sure you want to delete this listing? It will automatically switch to the next one.")) return;
+    setIsDeleting(true);
+    try {
+      await onDelete(localListing.id);
+    } catch (e) {
+      alert("Delete failed.");
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-inter text-slate-900">
-      <ListingTopBar onBack={onBack} engine={engine} setEngine={(e) => { setEngine(e); localStorage.setItem('amzbot_preferred_engine', e); }} onOptimize={handleOptimizeMaster} isOptimizing={isOptimizing} onSave={() => syncToSupabase(localListing)} isSaving={isSaving} onNext={onNext} uiLang={uiLang} />
+      <ListingTopBar 
+        onBack={onBack} 
+        engine={engine} 
+        setEngine={(e) => { setEngine(e); localStorage.setItem('amzbot_preferred_engine', e); }} 
+        onOptimize={handleOptimizeMaster} 
+        isOptimizing={isOptimizing} 
+        onSave={() => syncToSupabase(localListing)} 
+        onDelete={handleDetailDelete}
+        isSaving={isSaving} 
+        isDeleting={isDeleting}
+        onNext={onNext} 
+        uiLang={uiLang} 
+      />
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
