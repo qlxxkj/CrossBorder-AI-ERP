@@ -87,6 +87,9 @@ export interface OptimizedData {
   optimized_size_unit?: string;
   optimized_price?: number;
   optimized_shipping?: number;
+  // Image Optimization Fields
+  optimized_main_image?: string;
+  optimized_other_images?: string[];
 }
 
 export interface SourcingRecord {

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, Maximize2, Wand2, Star, Trash2, Plus } from 'lucide-react';
+import { Loader2, Maximize2, Wand2, Star, Trash2, Plus, RefreshCcw } from 'lucide-react';
 import { Listing } from '../types';
 
 interface ListingImageSectionProps {
@@ -14,15 +14,20 @@ interface ListingImageSectionProps {
   processingUrls: Set<string>;
   onStandardizeAll: () => void;
   onStandardizeOne: (url: string) => void;
+  onRestoreAll: () => void;
   setShowEditor: (show: boolean) => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
 }
 
 export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
-  listing, previewImage, setPreviewImage, updateField, updateFields, isSaving, isProcessing, processingUrls, onStandardizeAll, onStandardizeOne, setShowEditor, fileInputRef
+  listing, previewImage, setPreviewImage, updateField, updateFields, isSaving, isProcessing, processingUrls, onStandardizeAll, onStandardizeOne, onRestoreAll, setShowEditor, fileInputRef
 }) => {
   const [hoverImage, setHoverImage] = useState<string | null>(null);
-  const allImages = [listing.cleaned?.main_image, ...(listing.cleaned?.other_images || [])].filter(Boolean) as string[];
+  
+  // Calculate effective images: Priority to Optimized, fallback to Cleaned
+  const effectiveMain = listing.optimized?.optimized_main_image || listing.cleaned?.main_image || '';
+  const effectiveOthers = listing.optimized?.optimized_other_images || listing.cleaned?.other_images || [];
+  const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   useEffect(() => {
     setHoverImage(null);
@@ -31,15 +36,13 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const activeDisplayImage = hoverImage || previewImage;
 
   const handleSetMain = (url: string) => {
-    const currentMain = listing.cleaned.main_image;
-    if (url === currentMain) return;
+    if (url === effectiveMain) return;
     
-    const others = [...(listing.cleaned.other_images || [])];
+    const others = [...effectiveOthers];
     const targetIdx = others.indexOf(url);
     
     if (targetIdx > -1) {
-      // Swapping values in one go
-      others[targetIdx] = currentMain || '';
+      others[targetIdx] = effectiveMain;
       updateFields({
         main_image: url,
         other_images: others
@@ -49,8 +52,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   };
 
   const handleRemoveImage = (url: string) => {
-    if (listing.cleaned.main_image === url) {
-      const others = [...(listing.cleaned.other_images || [])];
+    if (effectiveMain === url) {
+      const others = [...effectiveOthers];
       if (others.length > 0) {
         const newMain = others[0];
         updateFields({
@@ -63,7 +66,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         setPreviewImage('');
       }
     } else {
-      const others = (listing.cleaned.other_images || []).filter(u => u !== url);
+      const others = effectiveOthers.filter(u => u !== url);
       updateField('other_images', others);
     }
   };
@@ -80,6 +83,14 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
          />
          
          <div className="absolute bottom-4 right-4 flex gap-2">
+            <button 
+              onClick={onRestoreAll} 
+              disabled={isProcessing || (!listing.optimized?.optimized_main_image && !listing.optimized?.optimized_other_images)}
+              className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center gap-2 hover:bg-slate-200 transition-all border border-slate-200 disabled:opacity-30"
+              title="Restore to original scraped images"
+            >
+              <RefreshCcw size={12} /> Restore Original
+            </button>
             <button onClick={onStandardizeAll} disabled={isProcessing} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-indigo-200"><Maximize2 size={12} /> Standardize All</button>
             <button onClick={() => setShowEditor(true)} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all"><Wand2 size={12} /> AI Editor</button>
          </div>
@@ -88,7 +99,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       <div className="flex flex-wrap gap-2">
          {allImages.map((img, i) => {
            const isSelfProcessing = processingUrls.has(img);
-           const isMain = img === listing.cleaned.main_image;
+           const isMain = img === effectiveMain;
            
            return (
              <div 

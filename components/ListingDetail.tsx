@@ -52,12 +52,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [showSourcingForm, setShowSourcingForm] = useState(false);
   const [editingSourceRecord, setEditingSourceRecord] = useState<SourcingRecord | null>(null);
   const [localListing, setLocalListing] = useState<Listing>(listing);
-  const [previewImage, setPreviewImage] = useState<string>(listing.cleaned?.main_image || '');
+  const [previewImage, setPreviewImage] = useState<string>('');
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
 
   useEffect(() => { 
     setLocalListing(listing); 
-    setPreviewImage(listing.cleaned?.main_image || ''); 
+    // Effect: Always show the optimized image if it exists, otherwise fall back to cleaned
+    const effectiveMain = listing.optimized?.optimized_main_image || listing.cleaned?.main_image || '';
+    setPreviewImage(effectiveMain); 
     fetchPricingData(); 
   }, [listing.id]);
 
@@ -87,9 +89,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const next = JSON.parse(JSON.stringify(prev));
       Object.entries(updates).forEach(([field, value]) => {
         if (activeMarket === 'US') {
-          if (['main_image', 'other_images', 'sourcing_data'].includes(field)) {
-            if (field === 'sourcing_data') next.sourcing_data = value;
-            else next.cleaned = { ...next.cleaned, [field]: value };
+          // INTERCEPT IMAGE FIELDS: Redirect to optimized instead of cleaned
+          if (['main_image', 'other_images'].includes(field)) {
+            const optKey = field === 'main_image' ? 'optimized_main_image' : 'optimized_other_images';
+            next.optimized = { ...(next.optimized || {}), [optKey]: value };
+          } else if (field === 'sourcing_data') {
+            next.sourcing_data = value;
           } else {
             next.optimized = { ...(next.optimized || {}), [field]: value } as OptimizedData;
           }
@@ -119,23 +124,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         canvas.width = 1600; 
         canvas.height = 1600;
         const ctx = canvas.getContext('2d')!;
-        
-        // Background: White
         ctx.fillStyle = '#FFFFFF'; 
         ctx.fillRect(0, 0, 1600, 1600);
-        
-        // Calculate scale to fit 1500px (leaving 50px padding on all sides)
         const maxDim = 1500;
         const scale = Math.min(maxDim / img.width, maxDim / img.height);
         const drawW = img.width * scale;
         const drawH = img.height * scale;
-        
-        // Correct centering math: (CanvasDim - DrawDim) / 2
         const offsetX = (1600 - drawW) / 2;
         const offsetY = (1600 - drawH) / 2;
-        
         ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
-        
         canvas.toBlob(async (blob) => {
           if (!blob) return reject("Blob creation failed");
           const fd = new FormData();
@@ -144,7 +141,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
             const data = await res.json();
             const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-            // Robust URL joining
             const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
             resolve(u || imgUrl);
           } catch (e) { 
@@ -167,13 +163,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const newUrl = await processAndUploadImage(url);
       setLocalListing(prev => {
         const next = JSON.parse(JSON.stringify(prev));
-        if (next.cleaned.main_image === url) {
-          next.cleaned.main_image = newUrl;
+        const currentMain = next.optimized?.optimized_main_image || next.cleaned.main_image;
+        
+        if (currentMain === url) {
+          next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
           if (previewImage === url) setPreviewImage(newUrl);
         } else {
-          next.cleaned.other_images = (next.cleaned.other_images || []).map((u: string) => u === url ? newUrl : u);
+          const currentOthers = next.optimized?.optimized_other_images || next.cleaned.other_images || [];
+          const updatedOthers = currentOthers.map((u: string) => u === url ? newUrl : u);
+          next.optimized = { ...(next.optimized || {}), optimized_other_images: updatedOthers };
           if (previewImage === url) setPreviewImage(newUrl);
         }
+        
         onUpdate(next);
         syncToSupabase(next);
         return next;
@@ -189,46 +190,57 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (isProcessingImages) return;
     setIsProcessingImages(true);
     
-    // Get all valid image URLs
-    const originalMain = localListing.cleaned.main_image;
-    const originalOthers = localListing.cleaned.other_images || [];
-    const all = [originalMain, ...originalOthers].filter(Boolean) as string[];
+    // Calculate current effective images (optimized if exists, else cleaned)
+    const effectiveMain = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image;
+    const effectiveOthers = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
+    const all = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
     
-    // Mark all as processing
     all.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
     
     try {
-      // Process sequentially or in parallel? Parallel is faster but might trigger rate limits.
-      // We use parallel here as they are separate images.
       const results = await Promise.all(all.map(u => processAndUploadImage(u)));
       
       setLocalListing(prev => {
         const next = JSON.parse(JSON.stringify(prev));
-        // The first result is always the main image if it existed
-        if (originalMain) {
-          next.cleaned.main_image = results[0];
-          next.cleaned.other_images = results.slice(1);
-          // Only reset preview to main if we are not actively looking at a sub-image
-          // Or update the preview if it was one of the standardized ones
-          if (previewImage === originalMain) setPreviewImage(results[0]);
+        if (effectiveMain) {
+          next.optimized = { 
+            ...(next.optimized || {}), 
+            optimized_main_image: results[0],
+            optimized_other_images: results.slice(1)
+          };
+          if (previewImage === effectiveMain) setPreviewImage(results[0]);
           else {
-            const oldIdx = originalOthers.indexOf(previewImage);
+            const oldIdx = effectiveOthers.indexOf(previewImage);
             if (oldIdx > -1) setPreviewImage(results[oldIdx + 1]);
           }
         } else {
-          next.cleaned.other_images = results;
+          next.optimized = { ...(next.optimized || {}), optimized_other_images: results };
         }
-        
         onUpdate(next);
         syncToSupabase(next);
         return next;
       });
     } catch (e) { 
-      alert("Batch standardization failed. Please try again.");
+      alert("Batch standardization failed.");
     } finally { 
       setIsProcessingImages(false); 
       setProcessingUrls(new Set()); 
     }
+  };
+
+  const handleRestoreAllImages = async () => {
+    if (!window.confirm(uiLang === 'zh' ? "确定要恢复所有原始图片吗？您之前的修改将被清空。" : "Are you sure you want to restore all original images? Your modifications will be cleared.")) return;
+    setLocalListing(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      if (next.optimized) {
+        delete next.optimized.optimized_main_image;
+        delete next.optimized.optimized_other_images;
+      }
+      setPreviewImage(next.cleaned.main_image || '');
+      onUpdate(next);
+      syncToSupabase(next);
+      return next;
+    });
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -245,7 +257,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       });
       const results = await Promise.all(uploadPromises);
       const newUrls = results.filter(Boolean) as string[];
-      updateField('other_images', [...(localListing.cleaned.other_images || []), ...newUrls], true);
+      
+      const currentOthers = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
+      updateField('other_images', [...currentOthers, ...newUrls], true);
     } catch (e) { alert("Upload failed."); }
     finally { setIsProcessingImages(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
@@ -258,7 +272,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       if (engine === 'openai') opt = await optimizeListingWithOpenAI(source);
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(source);
       else opt = await optimizeListingWithAI(source);
-      const next = { ...localListing, optimized: opt, status: 'optimized' as const };
+      
+      // Preserve existing optimized images if present
+      const finalOpt = { 
+        ...opt, 
+        optimized_main_image: localListing.optimized?.optimized_main_image,
+        optimized_other_images: localListing.optimized?.optimized_other_images
+      };
+      
+      const next = { ...localListing, optimized: finalOpt, status: 'optimized' as const };
       setLocalListing(next); onUpdate(next); await syncToSupabase(next);
     } catch (error: any) { alert(`Optimization failed: ${error.message}`); } 
     finally { setIsOptimizing(false); }
@@ -382,6 +404,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               processingUrls={processingUrls}
               onStandardizeAll={handleStandardizeAll} 
               onStandardizeOne={handleStandardizeOne} 
+              onRestoreAll={handleRestoreAllImages}
               setShowEditor={(show) => {
                 if (show) setEditingImageUrl(previewImage); 
                 setShowImageEditor(show);
@@ -430,14 +453,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           onSave={(newUrl) => { 
             setLocalListing(prev => {
               const next = JSON.parse(JSON.stringify(prev));
-              if (next.cleaned.main_image === editingImageUrl) {
-                next.cleaned.main_image = newUrl;
+              const currentMain = next.optimized?.optimized_main_image || next.cleaned.main_image;
+              
+              if (currentMain === editingImageUrl) {
+                next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
               } else {
-                const idx = (next.cleaned.other_images || []).indexOf(editingImageUrl);
+                const currentOthers = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
+                const idx = currentOthers.indexOf(editingImageUrl);
                 if (idx > -1) {
-                  next.cleaned.other_images[idx] = newUrl;
+                  currentOthers[idx] = newUrl;
+                  next.optimized = { ...(next.optimized || {}), optimized_other_images: currentOthers };
                 } else {
-                  next.cleaned.main_image = newUrl;
+                   // Fallback: If for some reason we can't find it, treat it as main
+                  next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
                 }
               }
               setPreviewImage(newUrl);
