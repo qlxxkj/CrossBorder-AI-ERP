@@ -3,22 +3,22 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are a professional Amazon Copywriter. 
+Optimize Amazon Listing. 
 
 [STRICT CONSTRAINTS]
-1. REMOVE ALL BRAND NAMES: Delete original brand names. NO Car or Motorcycle brands.
-2. TITLE: Under 200 characters.
-3. 5 BULLET POINTS: Exactly 5 points. Every point MUST have content. Start each with a Keyword. Max 250 characters each.
-4. DESCRIPTION: 1000 - 1700 characters. Use basic HTML.
-5. SEARCH KEYWORDS: High traffic keywords. Max 300 characters.
-6. NO AD WORDS.
+1. REMOVE BRANDS: No original brand or automotive brands.
+2. TITLE: Max 150 characters.
+3. BULLETS: 5 points starting with KEYWORD. Max 250 chars each.
+4. DESCRIPTION: 1000 - 1700 characters. HTML format.
+5. SEARCH KEYWORDS: Max 300 characters.
+6. NO ad words.
 
 Return ONLY a flat JSON object.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
-  result.optimized_title = String(raw.optimized_title || "").slice(0, 200);
+  result.optimized_title = String(raw.optimized_title || "").slice(0, 150);
   result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
   result.search_keywords = String(raw.search_keywords || "").slice(0, 300);
   
@@ -30,7 +30,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .map((f: any) => String(f).slice(0, 250));
     
   while (result.optimized_features.length < 5) {
-    result.optimized_features.push("Reliable performance and high quality construction.");
+    result.optimized_features.push("Built with high-quality components for long-lasting use.");
   }
   
   result.optimized_weight_value = String(raw.optimized_weight_value || "");
@@ -59,7 +59,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
-        { role: "system", content: "Amazon Listing Optimizer. JSON only. No brands. Title<200, 5 Bullets<250, Keywords<300." },
+        { role: "system", content: "Amazon SEO Expert. JSON only. No brands. Title<150, Bullets<250, Keywords<300." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
       ],
       response_format: { type: "json_object" }
@@ -75,7 +75,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DeepSeek API Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
-  const prompt = `Translate to "${targetLangName}". Title<200, 5 Bullets<250 each. Keywords<300. Data: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate to "${targetLangName}". Title<150, 5 Bullets<250 each. Keywords<300. Data: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 

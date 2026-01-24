@@ -24,7 +24,6 @@ interface ListingDetailProps {
   uiLang: UILanguage;
 }
 
-const CORS_PROXY = 'https://corsproxy.io/?';
 const LANG_NAME_MAP: Record<string, string> = {
   en: 'English', zh: 'Chinese', ja: 'Japanese', de: 'German', fr: 'French', it: 'Italian', es: 'Spanish', pt: 'Portuguese', pl: 'Polish', nl: 'Dutch', sv: 'Swedish', ar: 'Arabic'
 };
@@ -101,12 +100,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     else if (engine === 'deepseek') transResult = await translateListingWithDeepSeek(source, targetLangName);
     else transResult = await translateListingWithAI(source, targetLangName);
 
-    // 核心要求：自动触发物流转换
+    // Rule: Trigger forced logistics conversion for non-US sites
     const logistics = calculateMarketLogistics(currentListing, marketCode);
     const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
     
     const finalData: OptimizedData = {
-      ...transResult, ...logistics,
+      ...transResult, 
+      ...logistics, // Merge converted logistics fields
       optimized_price: parseFloat(((currentListing.cleaned.price || 0) * rate).toFixed(2)),
       optimized_shipping: parseFloat(((currentListing.cleaned.shipping || 0) * rate).toFixed(2))
     };
@@ -121,7 +121,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const nextListing = await performTranslation(localListing, code);
       setLocalListing(nextListing);
       onUpdate(nextListing);
-      await syncToSupabase(nextListing); // 核心要求：自动同步
+      await syncToSupabase(nextListing); // Rule: Auto-sync to DB
     } finally {
       setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(code); return n; });
     }
@@ -144,9 +144,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         } finally {
           setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(m.code); return n; });
         }
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 200));
       }
-      await syncToSupabase(workingListing); // 核心要求：翻译完自动全量同步
+      await syncToSupabase(workingListing); // Rule: Auto-sync to DB
     } finally { setIsTranslatingAll(false); }
   };
 
@@ -158,7 +158,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(localListing.cleaned);
       else opt = await optimizeListingWithAI(localListing.cleaned);
       const next: Listing = { ...localListing, optimized: opt, status: 'optimized' };
-      setLocalListing(next); onUpdate(next); await syncToSupabase(next); // 核心要求：优化完自动同步
+      setLocalListing(next); 
+      onUpdate(next); 
+      await syncToSupabase(next); // Rule: Auto-sync to DB
     } finally { setIsOptimizing(false); }
   };
 
@@ -198,7 +200,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
       </div>
       {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(n); updateField('sourcing_data', n.sourcing_data, true); setShowSourcingModal(false); }} />}
-      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={() => {}} uiLang={uiLang} />}
+      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={(url) => { setPreviewImage(url); updateField('main_image', url, true); setShowImageEditor(false); }} uiLang={uiLang} />}
     </div>
   );
 };
