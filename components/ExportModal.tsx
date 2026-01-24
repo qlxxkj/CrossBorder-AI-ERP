@@ -31,15 +31,10 @@ const formatExportVal = (val: any) => {
   return parseFloat(num.toFixed(2));
 };
 
-// 核心修复：增强本地化单位转换，支持日语和其他语言映射
 const getLocalizedUnitName = (unit: string | undefined, marketplace: string) => {
   if (!unit) return "";
   const u = unit.toLowerCase().trim();
-  
-  // 1. 如果单位已经包含非 ASCII 字符（说明 AI 已经翻译成功），则直接返回，不要强制转换回英文
   if (/[^\x00-\x7F]/.test(unit)) return unit;
-
-  // 2. 日本站特定映射 (符合 Amazon JP 模板的 Valid Values)
   if (marketplace === 'JP') {
      const jpMap: Record<string, string> = {
        'kilograms': 'キログラム', 'kilogram': 'キログラム', 'kg': 'キログラム',
@@ -52,8 +47,6 @@ const getLocalizedUnitName = (unit: string | undefined, marketplace: string) => 
      };
      if (jpMap[u]) return jpMap[u];
   }
-
-  // 3. 基础英文/公制全称映射 (用于其他欧美站点)
   const baseMap: Record<string, string> = {
     'lb': 'Pounds', 'lbs': 'Pounds', 'pound': 'Pounds', 'pounds': 'Pounds',
     'kg': 'Kilograms', 'kilogram': 'Kilograms', 'kilograms': 'Kilograms',
@@ -64,10 +57,7 @@ const getLocalizedUnitName = (unit: string | undefined, marketplace: string) => 
     'mm': 'Millimeters', 'millimeter': 'Millimeters', 'millimeters': 'Millimeters',
     'ft': 'Feet', 'foot': 'Feet', 'feet': 'Feet'
   };
-  
   if (baseMap[u]) return baseMap[u];
-  
-  // 兜底：首字母大写 (Title Case)
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
 };
 
@@ -223,8 +213,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] ?? 3;
       const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
 
+      // Keep track of the range to update sheet['!ref'] later
+      let maxRow = dataStartRowIdx;
+      let maxCol = 0;
+
       selectedListings.forEach((listing, rowOffset) => {
         const rowIdx = dataStartRowIdx + rowOffset;
+        if (rowIdx > maxRow) maxRow = rowIdx;
+
         const cleaned = listing.cleaned;
         const localOpt: OptimizedData | any = (targetMarket !== 'US' && listing.translations?.[targetMarket]) 
           ? listing.translations[targetMarket] 
@@ -232,6 +228,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
         mappingKeys.forEach(mappingKey => {
           const colIdx = parseInt(mappingKey.replace('col_', ''));
+          if (colIdx > maxCol) maxCol = colIdx;
+
           const mapping = selectedTemplate.mappings?.[mappingKey] as FieldMapping | undefined;
           if (!mapping || isNaN(colIdx)) return;
 
@@ -280,6 +278,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           sheet[cellRef] = { v: val, t: (typeof val === 'number') ? 'n' : 's' };
         });
       });
+
+      // IMPORTANT FIX: Update the range of the sheet so the Excel writer includes all the new rows
+      const existingRange = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+      existingRange.e.r = Math.max(existingRange.e.r, maxRow);
+      existingRange.e.c = Math.max(existingRange.e.c, maxCol);
+      sheet['!ref'] = XLSX.utils.encode_range(existingRange);
 
       const outData = XLSX.write(workbook, { type: 'array', bookType: 'xlsm' });
       const blob = new Blob([outData], { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
