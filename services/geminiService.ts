@@ -3,26 +3,31 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are a professional Amazon Listing Optimization Expert. 
-[STRICT CONSTRAINTS]
-1. REMOVE ALL BRAND NAMES: No original brand names. NO Car/Motorcycle brands (Toyota, Honda, BMW, Ford, etc.).
-2. TITLE: Compelling title, strictly MAX 150 characters.
-3. BULLETS: Exactly 5 points. Every point MUST start with a bolded capitalized KEYWORD followed by a colon. MAX 250 characters per bullet point.
-4. DESCRIPTION: Professional HTML (p, br, b tags), length between 1000 and 1700 characters.
-5. SEARCH KEYWORDS: Highly relevant backend keywords, strictly MAX 300 characters.
-6. NO-GO: No "Best", "#1", "Sale", or other extreme marketing words.
-7. MEASUREMENTS: Use FULL words for units.
+You are an Amazon Listing SEO Expert. Your task is to re-write and optimize the product data for maximum conversion.
 
-Return ONLY a flat JSON object. No Markdown blocks.
+[STRICT CONSTRAINTS]
+1. REMOVE ALL BRAND NAMES: Delete original brands and NO automotive brands (BMW, Audi, etc.).
+2. TITLE: Create a fresh, compelling title. Strictly MAX 150 characters.
+3. 5 BULLET POINTS: Exactly 5 points. Each MUST start with a capitalized "KEYWORD:". MAX 250 characters per point.
+4. DESCRIPTION: Length between 1000 and 1700 characters. Use valid HTML (<p>, <br>, <b>).
+5. SEARCH KEYWORDS: Highly relevant terms. Strictly MAX 300 characters.
+6. NO AD WORDS: No "Best", "#1", "New", "Sale".
+7. VARIATION: Do not just copy-paste. Use professional synonyms to create a unique version every time.
+
+Return ONLY a flat JSON object.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
+  // Rule 1: Title < 150
   result.optimized_title = String(raw.optimized_title || "").slice(0, 150);
+  // Rule 3: Description 1000-1700
   result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
+  // Rule 4: Keywords < 300
   result.search_keywords = String(raw.search_keywords || "").slice(0, 300);
   
   let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
+  // Rule 2: 5 Bullets < 250
   result.optimized_features = feats
     .map((f: any) => String(f || "").trim())
     .filter((f: string) => f.length > 0)
@@ -30,7 +35,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .map((f: string) => f.slice(0, 250));
 
   while (result.optimized_features.length < 5) {
-    result.optimized_features.push("High-quality construction designed for long-term durability and performance.");
+    result.optimized_features.push("Reliable performance: Engineered for durability and consistent quality results.");
   }
 
   result.optimized_weight_value = String(raw.optimized_weight_value || "");
@@ -59,25 +64,27 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}`,
-      config: { responseMimeType: "application/json" }
+      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}\n\n[INSTRUCTION] Generate a NEW unique version different from standard descriptions.`,
+      config: { 
+        responseMimeType: "application/json",
+        temperature: 0.9 // Higher temperature to ensure variation on re-clicks
+      }
     });
     const rawData = extractJSONObject(response.text || "{}");
-    if (!rawData) throw new Error("Invalid AI Response.");
+    if (!rawData) throw new Error("Invalid Response.");
     return normalizeOptimizedData(rawData);
-  } catch (error: any) { throw new Error(`Gemini Optimization Failed: ${error.message}`); }
+  } catch (error: any) { throw new Error(`Gemini Error: ${error.message}`); }
 };
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `
-    Task: Translate this Amazon listing to "${targetLangName}". 
-    [STRICT RULES]: 
-    1. KEEP ALL JSON KEYS UNCHANGED.
-    2. RETURN ONLY FLAT JSON. 
-    3. Title < 150 chars. 5 Bullets < 250 chars. Keywords < 300 chars.
-    4. NO Brands or Car/Moto names.
-    5. Translate units to FULL words in "${targetLangName}".
+    Translate to "${targetLangName}". 
+    [RULES]: 
+    1. FLAT JSON. 
+    2. Title < 150 chars. 5 Bullets < 250 chars. Keywords < 300 chars.
+    3. NO Brands. NO Car brands.
+    4. Units to FULL words in "${targetLangName}".
     Data: ${JSON.stringify(sourceData)}
   `;
   try {
@@ -88,7 +95,7 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     });
     const rawData = extractJSONObject(response.text || "{}");
     return normalizeOptimizedData(rawData || {});
-  } catch (error: any) { throw new Error(`Gemini Translation Failed: ${error.message}`); }
+  } catch (error: any) { throw new Error(`Gemini Translation Error: ${error.message}`); }
 };
 
 export const editImageWithAI = async (base64Image: string, prompt: string): Promise<string> => {
@@ -104,10 +111,10 @@ export const editImageWithAI = async (base64Image: string, prompt: string): Prom
       }
     });
     const candidate = response.candidates?.[0];
-    if (!candidate) throw new Error("No candidates returned.");
+    if (!candidate) throw new Error("No candidates.");
     for (const part of candidate.content.parts) {
       if (part.inlineData) return part.inlineData.data;
     }
-    throw new Error("No image part found.");
-  } catch (error: any) { throw new Error(`Image Editing Failed: ${error.message}`); }
+    throw new Error("No image part.");
+  } catch (error: any) { throw new Error(`Image Edit Error: ${error.message}`); }
 };

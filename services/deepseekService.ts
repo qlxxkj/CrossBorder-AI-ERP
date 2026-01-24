@@ -5,12 +5,12 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 const UNIFIED_OPTIMIZE_PROMPT = `
 Optimize Amazon Listing. 
 [STRICT CONSTRAINTS]
-1. NO BRANDS: Remove all original and automotive brands.
-2. TITLE: MAX 150 characters.
-3. BULLETS: Exactly 5 points, each starting with a Keyword. MAX 250 characters each.
+1. NO BRANDS: Delete source and car brands.
+2. TITLE: Fresh version, MAX 150 characters.
+3. BULLETS: 5 points with Keywords. MAX 250 characters each.
 4. DESCRIPTION: 1000 - 1700 characters. HTML.
 5. SEARCH KEYWORDS: MAX 300 characters.
-6. NO AD WORDS.
+6. VARIATION: Produce a unique, fresh take on the product benefits.
 
 Return ONLY flat JSON.
 `;
@@ -29,7 +29,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .map((f: any) => String(f).slice(0, 250));
     
   while (result.optimized_features.length < 5) {
-    result.optimized_features.push("Precision-engineered product built for reliability and ease of use.");
+    result.optimized_features.push("Premium Performance: Constructed with quality materials to ensure lasting reliability.");
   }
   
   result.optimized_weight_value = String(raw.optimized_weight_value || "");
@@ -58,9 +58,10 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
-        { role: "system", content: "Amazon SEO expert. JSON output. No brands. Title<150, 5 Bullets<250, Keywords<300." },
+        { role: "system", content: "Amazon SEO expert. JSON output. No brands. Title<150, 5 Bullets<250, Keywords<300. Use fresh wording." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
       ],
+      temperature: 1.0,
       response_format: { type: "json_object" }
     })
   });
@@ -74,7 +75,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DeepSeek Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
-  const prompt = `Translate to "${targetLangName}". FLAT JSON. Title<150, 5 Bullets<250, Keywords<300. Data: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate to "${targetLangName}". FLAT JSON. Title<150, 5 Bullets<250, Keywords < 300. Data: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
