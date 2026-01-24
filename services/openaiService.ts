@@ -3,17 +3,17 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = (brand: string, seed: number) => `
-Expert Amazon SEO Copywriter. Optimize this listing. 
+Act as a Senior Amazon Listing Expert. Optimize this listing. 
 [SEED: ${seed}]
 
 [STRICT BRAND PURGE]
 - REMOVE BRAND: "${brand}" (including variants like "${brand.toUpperCase()}") MUST be deleted.
-- REMOVE AUTOMOTIVE: No Toyota, BMW, etc.
+- REMOVE AUTOMOTIVE: NO car/motorcycle brands (Toyota, Tesla, etc.).
 
 [CONTENT SPECIFICATIONS]
-1. UNIQUE TITLE: Change the word sequence completely. Be creative. MAX 150 characters.
-2. 5 DISTINCT BULLETS: 5 unique points as a plain string array. Format: "KEYWORD: Description". MAX 300 characters each.
-3. SEARCH KEYWORDS: Mandatory field. STRICTLY MAX 200 characters.
+1. UNIQUE TITLE: Change the word sequence completely.Use high-converting synonyms. Be creative. MAX 150 characters.
+2. 5 DISTINCT BULLETS: 5 unique points as a plain string array. Format: "KEYWORD: Description".Points must cover: [Material], [Design], [Usage], [Compatibility], [Guarantee].MAX 300 characters each.
+3. SEARCH KEYWORDS: Mandatory field.Highly relevant. STRICTLY MAX 200 characters.
 4. DESCRIPTION: 1200-1700 chars HTML.
 
 Output ONLY a flat JSON object with keys: "optimized_title", "optimized_features", "optimized_description", "search_keywords".

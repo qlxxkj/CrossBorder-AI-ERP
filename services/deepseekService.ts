@@ -3,14 +3,14 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = (Brand: string, seed: number) => `
-Optimize this Amazon Listing. [SEED: ${seed}]
+Act as a Senior Amazon Listing Expert.Optimize this Amazon Listing. [SEED: ${seed}]
 
 [STRICT RULES]
 1. REMOVE BRAND: "${Brand}" and variants.
-2. REMOVE AUTOMOTIVE: No car brands.
-3. UNIQUE TITLE: New structure. MAX 150 chars.
-4. 5 BULLETS: Start with "KEYWORD: ". MAX 300 chars each.
-5. KEYWORDS: STRICTLY MAX 200 characters.
+2. REMOVE AUTOMOTIVE: NO car/motorcycle brands (Toyota, Tesla, etc.).
+3. UNIQUE TITLE: New structure. Use high-converting synonyms. MAX 150 chars.
+4. 5 BULLETS: Start with "KEYWORD: ".Points must cover: [Material], [Design], [Usage], [Compatibility], [Guarantee]. MAX 300 chars each.
+5. SEARCH KEYWORDS: Highly relevant. STRICTLY MAX 200 characters.
 6. DESCRIPTION: 1200-1700 chars HTML.
 
 Return ONLY flat JSON with keys: "optimized_title", "optimized_features", "optimized_description", "search_keywords".
