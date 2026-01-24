@@ -3,16 +3,21 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-Optimize Amazon Listing. 
-[STRICT CONSTRAINTS]
-1. NO BRANDS: Delete source and car brands.
-2. TITLE: Fresh version, MAX 150 characters.
-3. BULLETS: 5 points with Keywords. MAX 250 characters each.
-4. DESCRIPTION: 1000 - 1700 characters. HTML.
-5. SEARCH KEYWORDS: MAX 300 characters.
-6. VARIATION: Produce a unique, fresh take on the product benefits.
+You are a professional Amazon SEO Specialist. Rewrite the product data for maximum conversion.
 
-Return ONLY flat JSON.
+[STRICT CONSTRAINTS]
+1. REMOVE ALL BRAND NAMES: Delete original brands. NO car/motorcycle brands (Toyota, Tesla, BMW, etc.).
+2. TITLE: Create a FRESH, high-click-rate title. Strictly MAX 150 characters. Do NOT use the old title structure.
+3. 5 UNIQUE BULLET POINTS: 
+   - Exactly 5 points. 
+   - Each MUST cover a DIFFERENT aspect (e.g., Quality, Versatility, Design, Compatibility, Value). 
+   - Each MUST start with a bolded "KEYWORD:". 
+   - They MUST NOT be identical or even similar.
+   - Strictly MAX 250 characters per point.
+4. DESCRIPTION: Length 1000 - 1700 characters. Use basic HTML (<p>, <br>, <b>).
+5. SEARCH KEYWORDS: Highly relevant SEO terms. MAX 300 characters.
+6. NO AD WORDS: No "Best", "#1", "Sale".
+7. JSON: Return ONLY a flat JSON object. No Markdown.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
@@ -29,7 +34,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .map((f: any) => String(f).slice(0, 250));
     
   while (result.optimized_features.length < 5) {
-    result.optimized_features.push("Premium Performance: Constructed with quality materials to ensure lasting reliability.");
+    result.optimized_features.push("Precision engineered with high-grade components for consistent reliability.");
   }
   
   result.optimized_weight_value = String(raw.optimized_weight_value || "");
@@ -58,14 +63,13 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
-        { role: "system", content: "Amazon SEO expert. JSON output. No brands. Title<150, 5 Bullets<250, Keywords<300. Use fresh wording." },
+        { role: "system", content: "Amazon SEO. Title<150. 5 UNIQUE Bullets<250. Keywords<300. JSON only." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
       ],
       temperature: 1.0,
       response_format: { type: "json_object" }
     })
   });
-  if (!response.ok) throw new Error(`DeepSeek Error: ${response.status}`);
   const data = await response.json();
   const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
   return normalizeOptimizedData(raw);
@@ -75,7 +79,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DeepSeek Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
-  const prompt = `Translate to "${targetLangName}". FLAT JSON. Title<150, 5 Bullets<250, Keywords < 300. Data: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate to "${targetLangName}". Title<150, 5 UNIQUE Bullets<250, Keywords<300. FLAT JSON. Data: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 

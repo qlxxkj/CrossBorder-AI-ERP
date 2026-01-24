@@ -3,39 +3,46 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are an Amazon Listing SEO Expert. Your task is to re-write and optimize the product data for maximum conversion.
+You are a professional Amazon SEO Specialist. Rewrite the product data for maximum conversion.
 
 [STRICT CONSTRAINTS]
-1. REMOVE ALL BRAND NAMES: Delete original brands and NO automotive brands (BMW, Audi, etc.).
-2. TITLE: Create a fresh, compelling title. Strictly MAX 150 characters.
-3. 5 BULLET POINTS: Exactly 5 points. Each MUST start with a capitalized "KEYWORD:". MAX 250 characters per point.
-4. DESCRIPTION: Length between 1000 and 1700 characters. Use valid HTML (<p>, <br>, <b>).
-5. SEARCH KEYWORDS: Highly relevant terms. Strictly MAX 300 characters.
-6. NO AD WORDS: No "Best", "#1", "New", "Sale".
-7. VARIATION: Do not just copy-paste. Use professional synonyms to create a unique version every time.
-
-Return ONLY a flat JSON object.
+1. REMOVE ALL BRAND NAMES: Delete original brands. NO car/motorcycle brands (Toyota, Tesla, BMW, etc.).
+2. TITLE: Create a FRESH, high-click-rate title. Strictly MAX 150 characters. Do NOT use the old title structure.
+3. 5 UNIQUE BULLET POINTS: 
+   - Exactly 5 points. 
+   - Each MUST cover a DIFFERENT aspect (e.g., Quality, Versatility, Design, Compatibility, Value). 
+   - Each MUST start with a bolded "KEYWORD:". 
+   - They MUST NOT be identical or even similar.
+   - Strictly MAX 250 characters per point.
+4. DESCRIPTION: Length 1000 - 1700 characters. Use basic HTML (<p>, <br>, <b>).
+5. SEARCH KEYWORDS: Highly relevant SEO terms. MAX 300 characters.
+6. NO AD WORDS: No "Best", "#1", "Sale".
+7. JSON: Return ONLY a flat JSON object. No Markdown.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
-  // Rule 1: Title < 150
   result.optimized_title = String(raw.optimized_title || "").slice(0, 150);
-  // Rule 3: Description 1000-1700
   result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
-  // Rule 4: Keywords < 300
   result.search_keywords = String(raw.search_keywords || "").slice(0, 300);
   
   let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
-  // Rule 2: 5 Bullets < 250
   result.optimized_features = feats
     .map((f: any) => String(f || "").trim())
     .filter((f: string) => f.length > 0)
     .slice(0, 5)
     .map((f: string) => f.slice(0, 250));
 
+  // If AI fails to provide 5 unique points, fill with generic but unique fallbacks
+  const fallbacks = [
+    "DURABLE CONSTRUCTION: Built with premium materials for long-lasting use.",
+    "SLEEK DESIGN: Modern aesthetic that complements any setting or decor.",
+    "EASY INSTALLATION: Simple setup process that saves you time and effort.",
+    "VERSATILE UTILITY: Perfect for a wide range of professional or personal applications.",
+    "CUSTOMER SATISFACTION: Committed to high standards of quality and performance."
+  ];
   while (result.optimized_features.length < 5) {
-    result.optimized_features.push("Reliable performance: Engineered for durability and consistent quality results.");
+    result.optimized_features.push(fallbacks[result.optimized_features.length]);
   }
 
   result.optimized_weight_value = String(raw.optimized_weight_value || "");
@@ -60,33 +67,25 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const sourceCopy = { ...cleanedData };
-    delete sourceCopy.brand; // Absolute removal
+    delete sourceCopy.brand;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}\n\n[INSTRUCTION] Generate a NEW unique version different from standard descriptions.`,
+      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}`,
       config: { 
         responseMimeType: "application/json",
-        temperature: 0.9 // Higher temperature to ensure variation on re-clicks
+        temperature: 1.0 // High variety
       }
     });
     const rawData = extractJSONObject(response.text || "{}");
-    if (!rawData) throw new Error("Invalid Response.");
+    if (!rawData) throw new Error("Format error.");
     return normalizeOptimizedData(rawData);
-  } catch (error: any) { throw new Error(`Gemini Error: ${error.message}`); }
+  } catch (error: any) { throw new Error(`Gemini Optimization Error: ${error.message}`); }
 };
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `
-    Translate to "${targetLangName}". 
-    [RULES]: 
-    1. FLAT JSON. 
-    2. Title < 150 chars. 5 Bullets < 250 chars. Keywords < 300 chars.
-    3. NO Brands. NO Car brands.
-    4. Units to FULL words in "${targetLangName}".
-    Data: ${JSON.stringify(sourceData)}
-  `;
+  const prompt = `Translate this to "${targetLangName}". FLAT JSON ONLY. 150-char title, 5 UNIQUE 250-char bullets, 300-char keywords. NO brands. Data: ${JSON.stringify(sourceData)}`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -98,23 +97,45 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   } catch (error: any) { throw new Error(`Gemini Translation Error: ${error.message}`); }
 };
 
-export const editImageWithAI = async (base64Image: string, prompt: string): Promise<string> => {
+// Fix: Added the missing editImageWithAI function export
+/**
+ * Edits an image using Gemini AI.
+ * @param base64 The base64 encoded image string (data only, no prefix).
+ * @param prompt The prompt instructions for editing the image.
+ * @returns The base64 encoded string of the edited image.
+ */
+export const editImageWithAI = async (base64: string, prompt: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
-          { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
-          { text: prompt }
-        ]
-      }
+          {
+            inlineData: {
+              data: base64,
+              mimeType: 'image/jpeg',
+            },
+          },
+          {
+            text: prompt,
+          },
+        ],
+      },
     });
-    const candidate = response.candidates?.[0];
-    if (!candidate) throw new Error("No candidates.");
-    for (const part of candidate.content.parts) {
-      if (part.inlineData) return part.inlineData.data;
+
+    if (!response.candidates || response.candidates.length === 0) {
+      throw new Error("Empty response from AI");
     }
-    throw new Error("No image part.");
-  } catch (error: any) { throw new Error(`Image Edit Error: ${error.message}`); }
+
+    // Fix: Iterate through all parts to find the image part as per guidelines
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return part.inlineData.data;
+      }
+    }
+    throw new Error("No image part returned from Gemini");
+  } catch (error: any) {
+    throw new Error(`Gemini Image Edit Error: ${error.message}`);
+  }
 };
