@@ -2,43 +2,46 @@
 import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
-const UNIFIED_OPTIMIZE_PROMPT = (Brand: string) => `
-Act as a Senior Amazon SEO Specialist. Your goal is to REWRITE the product data to maximize conversion and search visibility.
+const UNIFIED_OPTIMIZE_PROMPT = (brand: string) => `
+Optimize this Amazon Listing.
 
-[CRITICAL REMOVAL RULES]
-1. REMOVE SPECIFIC BRAND: Completely delete the brand name "${Brand}" (and its uppercase/lowercase variants) from all fields.
-2. REMOVE TRADEMARKS: Delete ALL automotive/motorcycle brand names (e.g., Toyota, BMW, Tesla, Honda, etc.) and generic trademarked terms.
+[CRITICAL BRAND REMOVAL]
+1. DELETE BRAND: Completely remove "${Brand}" and all its variants (e.g., "${Brand.toUpperCase()}", "${Brand.toLowerCase()}") from all fields.
+2. DELETE TRADEMARKS: No automotive brand names (Toyota, BMW, Tesla, Ford, etc.) or generic manufacturer marks.
 3. NO AD WORDS: No "Best", "Top-rated", "Sale".
 
 [CONTENT STRUCTURE]
-1. RADICAL TITLE REWRITE: Do NOT follow the source title's word order. Use a completely fresh, high-CTR structure with synonyms. Strictly MAX 150 characters.
+1. RADICAL TITLE REWRITE: Do NOT reuse the source title's word order. Use a COMPLETELY FRESH structure. Create a compelling, high-CTR version. MAX 150 characters.
 2. 5 UNIQUE BULLET POINTS: 
    - Generate exactly 5 points.
-   - Each point MUST cover a different product dimension: [1. Construction/Material], [2. Core Feature], [3. User Benefit], [4. Compatibility], [5. Care/Guarantee].
+   - Each MUST cover a different dimension: [Material/Quality], [Core Design], [Key Benefit], [Usage/Compatibility], [Service/Guarantee].
    - Points MUST be distinct. Each must start with a bold "KEYWORD: " in all caps.
-   - MAX 350 characters per point.
+   - MAX 300 characters per point.
 3. DESCRIPTION: Professional HTML. 1200-1700 characters.
-4. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters. DO NOT EXCEED.
+4. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total.
 
-[VARIATION]
-Even if the source looks optimized, generate a DRATICALLY DIFFERENT version using a new vocabulary.
-
-Return ONLY a flat JSON object. No Markdown.
+Return ONLY flat JSON.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
-  result.optimized_title = String(raw.optimized_title || "").slice(0, 150);
-  result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
-  result.search_keywords = String(raw.search_keywords || "").slice(0, 200);
+  const extractText = (val: any): string => {
+    if (typeof val === 'string') return val;
+    if (val && typeof val === 'object') return val.text || val.content || val.value || JSON.stringify(val);
+    return String(val || "");
+  };
+
+  result.optimized_title = extractText(raw.optimized_title).slice(0, 150);
+  result.optimized_description = extractText(raw.optimized_description).slice(0, 1700);
+  result.search_keywords = extractText(raw.search_keywords || raw.keywords).slice(0, 200);
   
   let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
   result.optimized_features = feats
-    .map((f: any) => String(f || "").trim())
+    .map((f: any) => extractText(f).trim())
     .filter((f: string) => f.length > 0)
     .slice(0, 5)
     .map((f: any) => {
-      let s = String(f).slice(0, 250);
+      let s = String(f).slice(0, 300);
       if (!s.includes(":")) return "OUTSTANDING FEATURE: " + s;
       return s;
     });
@@ -47,12 +50,12 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     result.optimized_features.push("DURABLE CONSTRUCTION: Crafted from heavy-duty materials for exceptional longevity.");
   }
   
-  result.optimized_weight_value = String(raw.optimized_weight_value || "");
-  result.optimized_weight_unit = String(raw.optimized_weight_unit || "");
-  result.optimized_length = String(raw.optimized_length || "");
-  result.optimized_width = String(raw.optimized_width || "");
-  result.optimized_height = String(raw.optimized_height || "");
-  result.optimized_size_unit = String(raw.optimized_size_unit || "");
+  result.optimized_weight_value = extractText(raw.optimized_weight_value);
+  result.optimized_weight_unit = extractText(raw.optimized_weight_unit);
+  result.optimized_length = extractText(raw.optimized_length);
+  result.optimized_width = extractText(raw.optimized_width);
+  result.optimized_height = extractText(raw.optimized_height);
+  result.optimized_size_unit = extractText(raw.optimized_size_unit);
   
   return result as OptimizedData;
 };
@@ -73,7 +76,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
-        { role: "system", content: "Amazon SEO Specialist. Creative Titles. Remove all brands. Search Keywords limit 200. JSON only." },
+        { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
       ],
       temperature: 1.0,
@@ -90,7 +93,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DeepSeek Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
-  const prompt = `Translate to "${targetLangName}". Title<150, 5 UNIQUE Bullets<250, Keywords<200. FLAT JSON. Data: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate to "${targetLangName}". Title<150, 5 UNIQUE Bullets<300, Keywords<200. FLAT JSON. Data: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
