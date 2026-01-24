@@ -57,7 +57,14 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         uiLang={uiLang}
       />
 
-      <EditBlock label="Product Title" value={getVal('optimized_title', 'title')} onChange={v => updateField('optimized_title', v)} onBlur={onSync} limit={200} className="text-xl font-black" />
+      <EditBlock 
+        label="Product Title" 
+        value={getVal('optimized_title', 'title')} 
+        onChange={v => updateField('optimized_title', v)} 
+        onBlur={onSync} 
+        limit={200} 
+        className="text-xl font-black" 
+      />
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -67,33 +74,76 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
           </button>
         </div>
         <div className="space-y-4">
-           {(getVal('optimized_features', 'features') as string[]).map((f, i) => (
-             <div key={i} className="flex gap-4 items-start group">
-                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0 mt-3 border border-slate-200 group-hover:bg-indigo-600 group-hover:text-white transition-all">{i+1}</div>
-                <div className="flex-1 space-y-1.5">
-                  <textarea value={f || ''} onChange={e => { const cur = [...(getVal('optimized_features', 'features') as string[])]; cur[i] = e.target.value; updateField('optimized_features', cur); }} onBlur={onSync} className={`w-full p-4 bg-slate-50 border ${f.length > 500 ? 'border-red-400' : 'border-slate-200'} rounded-2xl text-sm font-bold leading-relaxed outline-none focus:bg-white transition-all`} rows={2} />
-                  <div className="flex justify-between items-center px-1">
-                    <span className={`text-[8px] font-black uppercase ${f.length > 480 ? 'text-red-500' : 'text-slate-400'}`}>{f.length} / 500</span>
-                    {i >= 5 && <button onClick={() => { const cur = (getVal('optimized_features', 'features') as string[]).filter((_, idx) => idx !== i); updateField('optimized_features', cur); }} className="text-[8px] font-black text-red-400 uppercase hover:text-red-600">Remove</button>}
+           {(getVal('optimized_features', 'features') as string[]).map((f, i) => {
+             const isOverBulletLimit = f.length > 500;
+             return (
+               <div key={i} className="flex gap-4 items-start group">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-3 border transition-all ${isOverBulletLimit ? 'bg-red-600 border-red-700 text-white animate-pulse' : 'bg-slate-100 border-slate-200 text-slate-400 group-hover:bg-indigo-600 group-hover:text-white'}`}>{i+1}</div>
+                  <div className="flex-1 space-y-1.5">
+                    <textarea 
+                      value={f || ''} 
+                      onChange={e => { const cur = [...(getVal('optimized_features', 'features') as string[])]; cur[i] = e.target.value; updateField('optimized_features', cur); }} 
+                      onBlur={onSync} 
+                      className={`w-full p-4 bg-slate-50 border rounded-2xl text-sm font-bold leading-relaxed outline-none focus:bg-white transition-all ${isOverBulletLimit ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200'}`} 
+                      rows={2} 
+                    />
+                    <div className="flex justify-between items-center px-1">
+                      <span className={`text-[8px] font-black uppercase ${isOverBulletLimit ? 'text-red-500' : 'text-slate-400'}`}>{f.length} / 500</span>
+                      {i >= 5 && <button onClick={() => { const cur = (getVal('optimized_features', 'features') as string[]).filter((_, idx) => idx !== i); updateField('optimized_features', cur); }} className="text-[8px] font-black text-red-400 uppercase hover:text-red-600">Remove</button>}
+                    </div>
                   </div>
-                </div>
-             </div>
-           ))}
+               </div>
+             );
+           })}
         </div>
       </div>
 
-      <EditBlock label="Description (HTML)" value={getVal('optimized_description', 'description')} onChange={v => updateField('optimized_description', v)} onBlur={onSync} limit={2000} isMono className="min-h-[200px] text-xs" />
-      <EditBlock label="Search Keywords" value={getVal('search_keywords', 'search_keywords')} onChange={v => updateField('search_keywords', v)} onBlur={onSync} limit={250} className="bg-amber-50/20 border-amber-100" />
+      <EditBlock 
+        label="Description (HTML)" 
+        value={getVal('optimized_description', 'description')} 
+        onChange={v => updateField('optimized_description', v)} 
+        onBlur={onSync} 
+        limit={2000} 
+        isMono 
+        className="min-h-[200px] text-xs" 
+      />
+      
+      <EditBlock 
+        label="Search Keywords" 
+        value={getVal('search_keywords', 'search_keywords')} 
+        onChange={v => updateField('search_keywords', v)} 
+        onBlur={onSync} 
+        limit={250} 
+        className="bg-amber-50/20 border-amber-100" 
+      />
     </div>
   );
 };
 
-const EditBlock = ({ label, value, onChange, onBlur, limit, isMono, className }: any) => (
-  <div className="space-y-3">
-    <div className="flex items-center justify-between">
-      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</label>
-      {limit && <span className={`text-[9px] font-black ${(value || '').length > limit ? 'text-red-500' : 'text-slate-400'}`}>{(value || '').length} / {limit}</span>}
+const EditBlock = ({ label, value, onChange, onBlur, limit, isMono, className }: any) => {
+  const content = value || '';
+  const isOverLimit = limit && content.length > limit;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</label>
+        {limit && (
+          <span className={`text-[9px] font-black ${isOverLimit ? 'text-red-500' : 'text-slate-400'}`}>
+            {content.length} / {limit}
+          </span>
+        )}
+      </div>
+      <textarea 
+        value={content} 
+        onChange={e => onChange(e.target.value)} 
+        onBlur={onBlur} 
+        className={`w-full p-6 rounded-[2rem] font-bold outline-none transition-all ${isMono ? 'font-mono' : ''} ${
+          isOverLimit 
+            ? 'border-red-500 ring-4 ring-red-500/10 bg-white' 
+            : 'bg-slate-50 border border-slate-200 focus:bg-white'
+        } ${className}`} 
+      />
     </div>
-    <textarea value={value || ''} onChange={e => onChange(e.target.value)} onBlur={onBlur} className={`w-full p-6 bg-slate-50 border border-slate-200 rounded-[2rem] font-bold outline-none focus:bg-white transition-all ${isMono ? 'font-mono' : ''} ${className}`} />
-  </div>
-);
+  );
+};
