@@ -57,7 +57,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   useEffect(() => { 
     setLocalListing(listing); 
-    setPreviewImage(listing.cleaned?.main_image || ''); // Critical fix: reset preview image when ID changes
+    setPreviewImage(listing.cleaned?.main_image || ''); 
     fetchPricingData(); 
   }, [listing.id]);
 
@@ -109,48 +109,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     updateFields({ [field]: value }, shouldSync);
   };
 
-  const handleStandardizeOne = async (url: string) => {
-    setProcessingUrls(prev => new Set(prev).add(url));
-    try {
-      const newUrl = await processAndUploadImage(url);
-      setLocalListing(prev => {
-        const next = JSON.parse(JSON.stringify(prev));
-        if (next.cleaned.main_image === url) {
-          next.cleaned.main_image = newUrl;
-          setPreviewImage(newUrl);
-        } else {
-          next.cleaned.other_images = (next.cleaned.other_images || []).map((u: string) => u === url ? newUrl : u);
-        }
-        onUpdate(next);
-        syncToSupabase(next);
-        return next;
-      });
-    } catch (e) { alert("Failed to standardize image."); }
-    finally { setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; }); }
-  };
-
-  const handleStandardizeAll = async () => {
-    setIsProcessingImages(true);
-    const all = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].filter(Boolean) as string[];
-    all.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
-    try {
-      const results = await Promise.all(all.map(u => processAndUploadImage(u)));
-      setLocalListing(prev => {
-        const next = JSON.parse(JSON.stringify(prev));
-        next.cleaned.main_image = results[0];
-        next.cleaned.other_images = results.slice(1);
-        setPreviewImage(results[0]);
-        onUpdate(next);
-        syncToSupabase(next);
-        return next;
-      });
-    } catch (e) { alert("Batch standardization failed."); }
-    finally { 
-      setIsProcessingImages(false); 
-      setProcessingUrls(new Set()); 
-    }
-  };
-
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -158,11 +116,26 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       img.src = `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
       img.onload = async () => {
         const canvas = document.createElement('canvas');
-        canvas.width = 1600; canvas.height = 1600;
+        canvas.width = 1600; 
+        canvas.height = 1600;
         const ctx = canvas.getContext('2d')!;
-        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0,0,1600,1600);
-        const scale = Math.min(1600/img.width, 1600/img.height);
-        ctx.drawImage(img, (1600-img.width*scale)/2, (1600-canvas.height*scale)/2, img.width*scale, img.height*scale);
+        
+        // Background: White
+        ctx.fillStyle = '#FFFFFF'; 
+        ctx.fillRect(0, 0, 1600, 1600);
+        
+        // Calculate scale to fit 1500px (leaving 50px padding on all sides)
+        const maxDim = 1500;
+        const scale = Math.min(maxDim / img.width, maxDim / img.height);
+        const drawW = img.width * scale;
+        const drawH = img.height * scale;
+        
+        // Correct centering math: (CanvasDim - DrawDim) / 2
+        const offsetX = (1600 - drawW) / 2;
+        const offsetY = (1600 - drawH) / 2;
+        
+        ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+        
         canvas.toBlob(async (blob) => {
           if (!blob) return reject("Blob creation failed");
           const fd = new FormData();
@@ -170,13 +143,92 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           try {
             const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
             const data = await res.json();
-            const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+            const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+            // Robust URL joining
+            const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
             resolve(u || imgUrl);
-          } catch (e) { reject(e); }
+          } catch (e) { 
+            console.error("Upload error in standardization:", e);
+            resolve(imgUrl); 
+          }
         }, 'image/jpeg', 0.9);
       };
-      img.onerror = () => reject("Image load error");
+      img.onerror = () => {
+        console.warn("Failed to load image for standardization, skipping:", imgUrl);
+        resolve(imgUrl);
+      };
     });
+  };
+
+  const handleStandardizeOne = async (url: string) => {
+    if (processingUrls.has(url)) return;
+    setProcessingUrls(prev => new Set(prev).add(url));
+    try {
+      const newUrl = await processAndUploadImage(url);
+      setLocalListing(prev => {
+        const next = JSON.parse(JSON.stringify(prev));
+        if (next.cleaned.main_image === url) {
+          next.cleaned.main_image = newUrl;
+          if (previewImage === url) setPreviewImage(newUrl);
+        } else {
+          next.cleaned.other_images = (next.cleaned.other_images || []).map((u: string) => u === url ? newUrl : u);
+          if (previewImage === url) setPreviewImage(newUrl);
+        }
+        onUpdate(next);
+        syncToSupabase(next);
+        return next;
+      });
+    } catch (e) { 
+      console.error("Standardize one failed:", e);
+    } finally { 
+      setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; }); 
+    }
+  };
+
+  const handleStandardizeAll = async () => {
+    if (isProcessingImages) return;
+    setIsProcessingImages(true);
+    
+    // Get all valid image URLs
+    const originalMain = localListing.cleaned.main_image;
+    const originalOthers = localListing.cleaned.other_images || [];
+    const all = [originalMain, ...originalOthers].filter(Boolean) as string[];
+    
+    // Mark all as processing
+    all.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
+    
+    try {
+      // Process sequentially or in parallel? Parallel is faster but might trigger rate limits.
+      // We use parallel here as they are separate images.
+      const results = await Promise.all(all.map(u => processAndUploadImage(u)));
+      
+      setLocalListing(prev => {
+        const next = JSON.parse(JSON.stringify(prev));
+        // The first result is always the main image if it existed
+        if (originalMain) {
+          next.cleaned.main_image = results[0];
+          next.cleaned.other_images = results.slice(1);
+          // Only reset preview to main if we are not actively looking at a sub-image
+          // Or update the preview if it was one of the standardized ones
+          if (previewImage === originalMain) setPreviewImage(results[0]);
+          else {
+            const oldIdx = originalOthers.indexOf(previewImage);
+            if (oldIdx > -1) setPreviewImage(results[oldIdx + 1]);
+          }
+        } else {
+          next.cleaned.other_images = results;
+        }
+        
+        onUpdate(next);
+        syncToSupabase(next);
+        return next;
+      });
+    } catch (e) { 
+      alert("Batch standardization failed. Please try again.");
+    } finally { 
+      setIsProcessingImages(false); 
+      setProcessingUrls(new Set()); 
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -188,10 +240,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const fd = new FormData(); fd.append('file', file as File);
         const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
         const data = await res.json();
-        return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+        const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+        return rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
       });
       const results = await Promise.all(uploadPromises);
-      const newUrls = results.filter(Boolean);
+      const newUrls = results.filter(Boolean) as string[];
       updateField('other_images', [...(localListing.cleaned.other_images || []), ...newUrls], true);
     } catch (e) { alert("Upload failed."); }
     finally { setIsProcessingImages(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
@@ -214,9 +267,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const performTranslation = async (currentListing: Listing, marketCode: string): Promise<Listing> => {
     const mktConfig = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
     const targetLangName = LANG_NAME_MAP[mktConfig?.lang || 'en'] || 'English';
-    
     const isEnglishMarket = ['UK', 'AU', 'SG', 'CA', 'IE'].includes(marketCode);
-
     const masterOpt = currentListing.optimized || { 
       optimized_title: currentListing.cleaned.title, 
       optimized_features: currentListing.cleaned.features || [], 
@@ -229,10 +280,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       if (engine === 'openai') transResult = await translateListingWithOpenAI(masterOpt, targetLangName);
       else if (engine === 'deepseek') transResult = await translateListingWithDeepSeek(masterOpt, targetLangName);
       else transResult = await translateListingWithAI(masterOpt, targetLangName);
-    } catch (e) {
-      console.warn(`AI Translation failed for ${marketCode}, using empty values.`);
-      transResult = {};
-    }
+    } catch (e) { transResult = {}; }
 
     const mergedResult: OptimizedData = {
       ...transResult,

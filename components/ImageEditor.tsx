@@ -45,7 +45,6 @@ const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 /**
  * Advanced Poisson Synthesis Inpainting
- * Uses iterative relaxation to solve the Laplace equation for seamless texture fusion.
  */
 const performSeamlessInpaint = async (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingContext2D, width: number, height: number) => {
   const imgData = ctx.getImageData(0, 0, width, height);
@@ -53,7 +52,6 @@ const performSeamlessInpaint = async (ctx: CanvasRenderingContext2D, maskCtx: Ca
   const data = imgData.data;
   const mData = maskData.data;
   
-  // Build a fast binary mask
   const mask = new Uint8Array(width * height);
   const region: number[] = [];
   for (let i = 0; i < mData.length; i += 4) {
@@ -65,8 +63,6 @@ const performSeamlessInpaint = async (ctx: CanvasRenderingContext2D, maskCtx: Ca
 
   if (region.length === 0) return;
 
-  // Poisson-Laplacian Smoothing iterations
-  // This propagates boundary colors into the masked area maintaining a 0-gradient field
   const iterations = 150; 
   for (let iter = 0; iter < iterations; iter++) {
     const currentPass = new Uint8ClampedArray(data);
@@ -77,7 +73,6 @@ const performSeamlessInpaint = async (ctx: CanvasRenderingContext2D, maskCtx: Ca
       if (x <= 0 || x >= width - 1 || y <= 0 || y >= height - 1) continue;
 
       let r=0, g=0, b=0, count=0;
-      // 4-neighbor connectivity
       const neighbors = [idx - 1, idx + 1, idx - width, idx + width];
       
       for (const nIdx of neighbors) {
@@ -132,7 +127,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const stripePatternRef = useRef<CanvasPattern | null>(null);
   const patternOffsetRef = useRef(0);
 
-  // Auto-detect WebGPU Support
   useEffect(() => {
     if ((navigator as any).gpu) {
        (navigator as any).gpu.requestAdapter().then((adapter: any) => {
@@ -250,9 +244,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   };
 
-  /**
-   * Handle Smart Erase using Poisson Synthesis & Neural Reconstruct logic
-   */
   const handleSmartErase = async () => {
     const canvas = canvasRef.current;
     const mCanvas = maskCanvasRef.current;
@@ -260,10 +251,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
     const mCtx = mCanvas.getContext('2d')!;
     setIsProcessing(true);
-    
-    // Clear visual overlay
     overlayCanvasRef.current?.getContext('2d')?.clearRect(0, 0, mCanvas.width, mCanvas.height);
-    
     const img = new Image();
     img.src = history[history.length - 1].canvasData;
     img.onload = async () => {
@@ -273,8 +261,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
       ctx.restore();
-
-      // Priority 1: Cloud Neural Rendering (if API Key available)
       if (process.env.API_KEY && process.env.API_KEY !== 'undefined') {
         try {
           const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
@@ -288,9 +274,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           return;
         } catch (e) { }
       }
-
-      // Priority 2: Local WebGPU/High-Iter Poisson Synthesis
-      // Simulate real-time calculation progress
       setTimeout(async () => {
         await performSeamlessInpaint(ctx, mCtx, canvas.width, canvas.height);
         mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
@@ -336,19 +319,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const clientY = 'touches' in e ? (e as React.TouchEvent).touches[0].clientY : (e as React.MouseEvent).clientY;
     const pos = getMousePos(e);
     setMousePos({ ...pos, clientX, clientY });
-    
-    // Exact collision detection with the Canvas element for cursor hiding
     if (canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
-      const isInside = (
-        clientX >= rect.left && 
-        clientX <= rect.right && 
-        clientY >= rect.top && 
-        clientY <= rect.bottom
-      );
+      const isInside = (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom);
       setIsMouseOverCanvas(isInside);
     }
-
     if (isPanning) { setPan(p => ({ x: p.x + (clientX - lastPanPos.x), y: p.y + (clientY - lastPanPos.y) })); setLastPanPos({ x: clientX, y: clientY }); return; }
     if (currentTool === 'select' && selectedObjectId) {
       if (isDragging) setObjects(prev => prev.map(o => o.id === selectedObjectId ? {...o, x: pos.x-dragOffset.x, y: pos.y-dragOffset.y} : o));
@@ -376,12 +351,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (currentTool === 'select') { if (isDragging || isResizing || isRotating) saveToHistory(objects); setIsDragging(false); setIsResizing(false); setIsRotating(false); return; }
     if (!isDrawing) return;
     setIsDrawing(false);
-    
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
         const target = currentTool === 'brush' ? canvasRef.current!.getContext('2d')! : maskCanvasRef.current!.getContext('2d')!;
         target.restore();
     }
-
     if (currentTool === 'ai-erase') { handleSmartErase(); setSelection(null); return; }
     if (currentTool === 'select-fill' && selection) {
       const x = Math.min(selection.x1, selection.x2); const y = Math.min(selection.y1, selection.y2);
@@ -420,7 +393,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     finalCanvas.width = sourceCanvas.width; finalCanvas.height = sourceCanvas.height;
     const fCtx = finalCanvas.getContext('2d')!;
     fCtx.drawImage(sourceCanvas, 0, 0);
-
     objects.forEach(obj => {
       fCtx.save();
       fCtx.globalAlpha = obj.opacity;
@@ -441,7 +413,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       }
       fCtx.restore();
     });
-
     let exportCanvas = finalCanvas;
     if (selection) {
       const cropX = Math.max(0, Math.min(selection.x1, selection.x2)), cropY = Math.max(0, Math.min(selection.y1, selection.y2));
@@ -452,7 +423,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         exportCanvas = cropCanvas;
       }
     }
-
     exportCanvas.toBlob(async (blob) => {
       if (!blob) { setIsProcessing(false); return; }
       const fd = new FormData();
@@ -460,11 +430,45 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       try {
         const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
         const data = await res.json();
-        const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+        const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+        const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
         if (u) onSave(u);
         else throw new Error("Empty URL");
       } catch (e) { alert("Failed to sync final image."); setIsProcessing(false); }
     }, 'image/jpeg', 0.92);
+  };
+
+  const handleStandardizeAction = () => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const temp = document.createElement('canvas'); 
+    temp.width = 1600; 
+    temp.height = 1600;
+    const tCtx = temp.getContext('2d')!; 
+    tCtx.fillStyle = '#FFFFFF'; 
+    tCtx.fillRect(0, 0, 1600, 1600);
+    
+    // Scale to max 1500px to maintain margin
+    const maxDim = 1500;
+    const scale = Math.min(maxDim / canvas.width, maxDim / canvas.height);
+    const drawW = canvas.width * scale;
+    const drawH = canvas.height * scale;
+    
+    // Centering
+    const x = (1600 - drawW) / 2;
+    const y = (1600 - drawH) / 2;
+    
+    tCtx.drawImage(canvas, x, y, drawW, drawH);
+    
+    // Re-init canvas sizes
+    canvas.width = 1600; 
+    canvas.height = 1600; 
+    canvas.getContext('2d')!.drawImage(temp, 0, 0);
+    
+    maskCanvasRef.current!.width = overlayCanvasRef.current!.width = 1600;
+    maskCanvasRef.current!.height = overlayCanvasRef.current!.height = 1600;
+    
+    setZoom(Math.min((containerRef.current!.clientWidth - 100) / 1600, (containerRef.current!.clientHeight - 100) / 1600, 1));
+    saveToHistory([]);
   };
 
   const perimeter = canvasRef.current ? (canvasRef.current.width + canvasRef.current.height) * 2 : 0;
@@ -484,18 +488,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button onClick={() => {
-            const canvas = canvasRef.current; if (!canvas) return;
-            const temp = document.createElement('canvas'); temp.width = 1600; temp.height = 1600;
-            const tCtx = temp.getContext('2d')!; tCtx.fillStyle = '#FFFFFF'; tCtx.fillRect(0,0,1600,1600);
-            const scale = Math.min(1500/canvas.width, 1500/canvas.height);
-            tCtx.drawImage(canvas, (1600-canvas.width*scale)/2, (1600-canvas.height*scale)/2, canvas.width*scale, canvas.height*scale);
-            canvas.width = 1600; canvas.height = 1600; canvas.getContext('2d')!.drawImage(temp, 0, 0);
-            maskCanvasRef.current!.width = overlayCanvasRef.current!.width = 1600;
-            maskCanvasRef.current!.height = overlayCanvasRef.current!.height = 1600;
-            setZoom(Math.min((containerRef.current!.clientWidth-100)/1600, (containerRef.current!.clientHeight-100)/1600, 1));
-            saveToHistory([]);
-          }} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
+          <button onClick={handleStandardizeAction} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
             <Maximize2 size={14} className="text-blue-400" /> Standardize 1600px
           </button>
           <div className="flex bg-slate-700 p-1 rounded-xl">
@@ -510,14 +503,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               img.onload = () => { canvasRef.current!.getContext('2d')!.drawImage(img, 0, 0); setObjects(prev.objects); setHistory(hist); };
             }
           }} disabled={history.length<=1} className="p-2.5 bg-slate-700 disabled:opacity-30 rounded-xl text-slate-300"><Undo size={18} /></button>
-          
           <button onClick={handleFinalSave} disabled={isProcessing} className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transition-all disabled:opacity-50">
             {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save & Apply
           </button>
         </div>
       </div>
 
-      <div ref={containerRef} onWheel={e => { e.preventDefault(); setZoom(z => Math.min(10, Math.max(0.05, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }} className="flex-1 bg-slate-700 relative overflow-hidden" style={{ cursor: 'default' }}>
+      <div ref={containerRef} onWheel={e => { e.preventDefault(); setZoom(z => Math.min(10, Math.max(0.05, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }} className="flex-1 bg-slate-700 relative overflow-hidden">
         <div className="absolute origin-center" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, top: '50%', left: '50%', marginTop: canvasRef.current ? -canvasRef.current.height/2 : 0, marginLeft: canvasRef.current ? -canvasRef.current.width/2 : 0 }}>
           {isProcessing && canvasRef.current && (
             <div className="absolute -inset-[20px] z-[80] pointer-events-none">
@@ -531,21 +523,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                   strokeLinecap="round"
                 />
               </svg>
-              {currentTool === 'ai-erase' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-indigo-400 gap-4">
-                   <div className="relative">
-                      <Cpu size={48} className="animate-pulse" />
-                      <Activity size={24} className="absolute -top-2 -right-2 text-emerald-400 animate-bounce" />
-                   </div>
-                   <div className="flex flex-col items-center">
-                     <span className="text-[12px] font-black uppercase tracking-[0.3em] bg-slate-900/90 px-6 py-2 rounded-full border border-indigo-500/50 shadow-2xl">Texture Synthesis</span>
-                     <span className="text-[8px] font-bold uppercase text-slate-400 mt-2 tracking-widest">Applying Poisson Blending...</span>
-                   </div>
-                </div>
-              )}
             </div>
           )}
-
           <div className="relative shadow-[0_0_100px_rgba(0,0,0,0.4)] bg-white overflow-hidden rounded-sm">
             <canvas 
               ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd}
@@ -555,7 +534,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             />
             <canvas ref={maskCanvasRef} className="hidden" />
             <canvas ref={overlayCanvasRef} className="absolute inset-0 pointer-events-none z-10" />
-            
             <svg className="absolute inset-0 pointer-events-none w-full h-full z-20" viewBox={`0 0 ${canvasRef.current?.width||0} ${canvasRef.current?.height||0}`}>
               {selection && <rect x={Math.min(selection.x1, selection.x2)} y={Math.min(selection.y1, selection.y2)} width={Math.abs(selection.x1-selection.x2)} height={Math.abs(selection.y1-selection.y2)} fill={currentTool==='select-fill'?fillColor:'none'} fillOpacity={currentTool==='select-fill'?0.5:0} stroke="#60a5fa" strokeWidth={3/zoom} strokeDasharray="6,6" className="animate-[marching-ants_0.8s_linear_infinite]" />}
               {objects.map(obj => (
@@ -570,13 +548,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             </svg>
           </div>
         </div>
-
         {isMouseOverCanvas && (currentTool === 'ai-erase' || currentTool === 'brush') && (
           <div className="fixed pointer-events-none z-[200] flex items-center justify-center transition-opacity duration-200" style={{ left: mousePos.clientX, top: mousePos.clientY, width: strokeWidth * zoom, height: strokeWidth * zoom, transform: 'translate(-50%, -50%)', opacity: isProcessing ? 0 : 1 }}>
             <div className="w-full h-full border-2 border-dashed rounded-full animate-[spin_8s_linear_infinite] shadow-[0_0_10px_rgba(0,0,0,0.5)]" style={{ borderColor: currentTool === 'ai-erase' ? 'white' : strokeColor }}></div>
           </div>
         )}
-
         <div className="fixed left-6 top-1/2 -translate-y-1/2 w-16 bg-slate-800/90 backdrop-blur-xl border border-slate-600 flex flex-col items-center py-6 gap-6 rounded-3xl shadow-2xl z-50">
           <ToolIcon active={currentTool==='select'} onClick={()=>{setCurrentTool('select'); setShowShapeMenu(false);}} icon={<MousePointer2 size={18}/>} label="Select" />
           <ToolIcon active={currentTool==='pan'} onClick={()=>{setCurrentTool('pan'); setShowShapeMenu(false);}} icon={<Move size={18}/>} label="Pan" />
@@ -596,7 +572,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <ToolIcon active={currentTool==='select-fill'} onClick={()=>{setCurrentTool('select-fill'); setSelectedObjectId(null); setShowShapeMenu(false);}} icon={<PaintBucket size={18}/>} label="Fill" />
           <ToolIcon active={currentTool==='crop'} onClick={()=>{setCurrentTool('crop'); setSelectedObjectId(null); setShowShapeMenu(false);}} icon={<Scissors size={18}/>} label="Crop" />
         </div>
-
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-800/90 backdrop-blur-xl border border-slate-600 p-6 rounded-[2.5rem] shadow-2xl min-w-[650px] z-50">
           <div className="flex items-center gap-4">
             <div className="space-y-1">
@@ -614,27 +589,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               <span>{(selectedObj?.type === 'text' || currentTool === 'text') ? 'Font Size' : 'Size'}</span>
               <span>{(selectedObj?.type === 'text' || currentTool === 'text') ? (selectedObj?.fontSize || fontSize) : (selectedObj?.strokeWidth || strokeWidth)}px</span>
             </div>
-            <input 
-              type="range" min="1" max="200" 
-              value={(selectedObj?.type === 'text' || currentTool === 'text') ? (selectedObj?.fontSize || fontSize) : (selectedObj?.strokeWidth || strokeWidth)} 
-              onChange={e => {
-                const v = parseInt(e.target.value);
-                if (selectedObj) {
-                  if (selectedObj.type === 'text') updateSelectedProperty('fontSize', v);
-                  else updateSelectedProperty('strokeWidth', v);
-                } else {
-                  if (currentTool === 'text') setFontSize(v);
-                  else setStrokeWidth(v);
-                }
-              }} 
-              className="w-full h-1 bg-slate-600 appearance-none cursor-pointer accent-indigo-500" 
-            />
+            <input type="range" min="1" max="200" value={(selectedObj?.type === 'text' || currentTool === 'text') ? (selectedObj?.fontSize || fontSize) : (selectedObj?.strokeWidth || strokeWidth)} onChange={e => { const v = parseInt(e.target.value); if (selectedObj) { if (selectedObj.type === 'text') updateSelectedProperty('fontSize', v); else updateSelectedProperty('strokeWidth', v); } else { if (currentTool === 'text') setFontSize(v); else setStrokeWidth(v); } }} className="w-full h-1 bg-slate-600 appearance-none cursor-pointer accent-indigo-500" />
           </div>
           <div className="flex flex-col gap-2 flex-1">
             <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase"><span>Opacity</span><span>{Math.round((selectedObj?.opacity ?? opacity) * 100)}%</span></div>
             <input type="range" min="0" max="1" step="0.01" value={selectedObj?.opacity ?? opacity} onChange={e=>{const v=parseFloat(e.target.value); setOpacity(v); updateSelectedProperty('opacity', v);}} className="w-full h-1 bg-slate-600 appearance-none cursor-pointer accent-blue-500" />
           </div>
-          
           {(currentTool === 'ai-erase') && (
             <div className="flex items-center gap-2 px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 rounded-xl">
                <Sparkles size={14} className="text-indigo-400 animate-pulse" />
@@ -643,7 +603,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           )}
         </div>
       </div>
-
       <style>{`
         @keyframes snake {
           from { stroke-dashoffset: ${perimeter}; }
