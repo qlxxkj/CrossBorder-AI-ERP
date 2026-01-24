@@ -3,27 +3,28 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-Act as a Senior Amazon Listing Expert. Your goal is to rewrite the provided data to maximize CTR and conversion.
+You are an expert Amazon SEO Copywriter. Rewrite this listing for peak conversion.
 
-[STRICT QUALITY CONSTRAINTS]
-1. REMOVE ALL BRAND NAMES: Delete original brands. NO car/motorcycle brands (Toyota, Tesla, BMW, etc.).
-2. TITLE REWRITE: Do NOT follow the source title's structure. Use a completely fresh word order. MAX 150 characters.
-3. 5 DIMENSIONAL BULLETS:
-   - Provide exactly 5 points.
-   - Each point MUST focus on a DIFFERENT dimension: [Point 1: Material/Durability], [Point 2: Key Feature/Design], [Point 3: Main Benefit/Usage], [Point 4: Compatibility/Specs], [Point 5: Service/Guarantee].
-   - Format: Start with "BOLD_KEYWORD: " (e.g., PREMIUM QUALITY: ...).
-   - MAX 250 characters per point.
-4. DESCRIPTION: Professional HTML format. 1000-1700 characters.
-5. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total. Do not exceed 200.
-6. VARIATION: Produce a version that is significantly different in wording from the source.
+[STRICT INSTRUCTIONS]
+1. NO BRANDS: Delete all brand names and automotive trademarks.
+2. REWRITE TITLE: Completely change the word order and structure. Create a compelling, fresh version. MAX 150 characters.
+3. 5 DISTINCT BULLETS:
+   - Every bullet MUST cover a DIFFERENT aspect (e.g., Build Quality, Smart Tech, Versatility, User Safety, Customer Service).
+   - Points MUST NOT be similar or repetitive.
+   - FORMAT: Each point MUST start with "UPPERCASE_KEYWORD: " (e.g., RUGGED BUILD: ...).
+   - MAX 250 characters each.
+4. BACKEND KEYWORDS: STRICTLY MAX 200 characters total.
+5. DESCRIPTION: 1000-1700 characters HTML.
 
-Return ONLY a flat JSON object. No Markdown.
+Output ONLY a flat JSON object.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
   result.optimized_title = String(raw.optimized_title || "").slice(0, 150);
   result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
+  
+  // Rule: Search Keywords < 200 (Strict enforcement)
   result.search_keywords = String(raw.search_keywords || "").slice(0, 200);
   
   let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
@@ -33,12 +34,22 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .slice(0, 5)
     .map((f: any) => {
       let s = String(f).slice(0, 250);
-      if (!s.includes(":")) return "EXCEPTIONAL FEATURE: " + s; // Force format if AI forgets
+      // Force "KEYWORD:" format if GPT fails
+      if (!s.includes(":") || s.indexOf(":") > 30) {
+        return "EXCEPTIONAL FEATURE: " + s;
+      }
       return s;
     });
     
   while(result.optimized_features.length < 5) {
-    result.optimized_features.push("RELIABLE QUALITY: Precision engineered to ensure high performance and user satisfaction.");
+    const fallbacks = [
+      "RELIABLE QUALITY: Precision engineered to ensure high performance and satisfaction.",
+      "INNOVATIVE DESIGN: Crafted to blend seamlessly with your lifestyle and needs.",
+      "SUPERIOR MATERIALS: Using only heavy-duty components for maximum durability.",
+      "ENHANCED SAFETY: Rigorously tested to meet the highest industry standards.",
+      "UNMATCHED VALUE: Premium performance delivered at a competitive price point."
+    ];
+    result.optimized_features.push(fallbacks[result.optimized_features.length]);
   }
   
   result.optimized_weight_value = String(raw.optimized_weight_value || "");
@@ -67,10 +78,10 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "Expert SEO Copywriter. Always use UNIQUE titles. Bullets must start with 'KEYWORD:'. Keywords limit 200. JSON only." },
+        { role: "system", content: "Amazon SEO Master. Rewrite titles completely. 5 UNIQUE bullets starting with 'KEYWORD:'. Keywords limit 200. JSON only." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
       ],
-      temperature: 1.0,
+      temperature: 1.0, // Forced high temperature for variation
       response_format: { type: "json_object" }
     })
   });

@@ -3,21 +3,16 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-Act as a Senior Amazon Listing Expert. Your goal is to rewrite the provided data to maximize CTR and conversion.
+Optimize this Amazon Listing for maximum conversion.
 
-[STRICT QUALITY CONSTRAINTS]
-1. REMOVE ALL BRAND NAMES: Delete original brands. NO car/motorcycle brands (Toyota, Tesla, BMW, etc.).
-2. TITLE REWRITE: Do NOT follow the source title's structure. Use a completely fresh word order. MAX 150 characters.
-3. 5 DIMENSIONAL BULLETS:
-   - Provide exactly 5 points.
-   - Each point MUST focus on a DIFFERENT dimension: [Point 1: Material/Durability], [Point 2: Key Feature/Design], [Point 3: Main Benefit/Usage], [Point 4: Compatibility/Specs], [Point 5: Service/Guarantee].
-   - Format: Start with "BOLD_KEYWORD: " (e.g., PREMIUM QUALITY: ...).
-   - MAX 250 characters per point.
-4. DESCRIPTION: Professional HTML format. 1000-1700 characters.
-5. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total. Do not exceed 200.
-6. VARIATION: Produce a version that is significantly different in wording from the source.
+[STRICT RULES]
+1. NO BRANDS: Delete all brand names.
+2. FRESH TITLE: Completely new structure. MAX 150 characters.
+3. 5 DIMENSIONAL BULLETS: 5 UNIQUE points. Do NOT repeat. Format: "KEYWORD: Description". MAX 250 chars.
+4. KEYWORDS: STRICTLY MAX 200 characters total.
+5. DESCRIPTION: 1000-1700 chars HTML.
 
-Return ONLY a flat JSON object. No Markdown.
+Return ONLY flat JSON.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
@@ -31,10 +26,14 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .map((f: any) => String(f || "").trim())
     .filter((f: string) => f.length > 0)
     .slice(0, 5)
-    .map((f: any) => String(f).slice(0, 250));
+    .map((f: any) => {
+      let s = String(f).slice(0, 250);
+      if (!s.includes(":")) return "OUTSTANDING FEATURE: " + s;
+      return s;
+    });
     
   while (result.optimized_features.length < 5) {
-    result.optimized_features.push("OUTSTANDING DURABILITY: Crafted from heavy-duty materials for exceptional longevity.");
+    result.optimized_features.push("DURABLE CONSTRUCTION: Crafted from heavy-duty materials for exceptional longevity.");
   }
   
   result.optimized_weight_value = String(raw.optimized_weight_value || "");

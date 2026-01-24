@@ -3,21 +3,22 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-Act as a Senior Amazon Listing Expert. Your goal is to rewrite the provided data to maximize CTR and conversion.
+Act as a Senior Amazon SEO Specialist. Your mission is to re-engineer the product data to maximize conversion and search visibility.
 
-[STRICT QUALITY CONSTRAINTS]
-1. REMOVE ALL BRAND NAMES: Delete original brands. NO car/motorcycle brands (Toyota, Tesla, BMW, etc.).
-2. TITLE REWRITE: Do NOT follow the source title's structure. Use a completely fresh word order. MAX 150 characters.
-3. 5 DIMENSIONAL BULLETS:
-   - Provide exactly 5 points.
-   - Each point MUST focus on a DIFFERENT dimension: [Point 1: Material/Durability], [Point 2: Key Feature/Design], [Point 3: Main Benefit/Usage], [Point 4: Compatibility/Specs], [Point 5: Service/Guarantee].
-   - Format: Start with "BOLD_KEYWORD: " (e.g., PREMIUM QUALITY: ...).
+[CRITICAL QUALITY RULES]
+1. BRAND REMOVAL: Delete ALL original brands. NO car/motorcycle brands (Toyota, Tesla, etc.).
+2. RADICAL TITLE REWRITE: Do NOT reuse the source title's word order. Use a completely fresh, high-CTR structure. Strictly MAX 150 characters.
+3. 5 UNIQUE BULLET POINTS: 
+   - Generate exactly 5 points.
+   - Each point MUST cover a different product dimension: [1. Construction/Material], [2. Core Feature], [3. User Benefit], [4. Compatibility], [5. Care/Guarantee].
+   - Points MUST be distinct from each other.
+   - Format: Each must start with a bold "KEYWORD: " in all caps.
    - MAX 250 characters per point.
-4. DESCRIPTION: Professional HTML format. 1000-1700 characters.
+4. DESCRIPTION: Professional HTML. 1000-1700 characters.
 5. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total. Do not exceed 200.
-6. VARIATION: Produce a version that is significantly different in wording from the source.
+6. INNOVATION: Produce a version that sounds fresh and premium, avoiding generic phrases.
 
-Return ONLY a flat JSON object. No Markdown.
+Return ONLY a flat JSON object.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
@@ -25,7 +26,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   result.optimized_title = String(raw.optimized_title || "").slice(0, 150);
   result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
   
-  // Rule: Search Keywords < 200
+  // Rule: Search Keywords < 200 (Reduced from 250/300)
   result.search_keywords = String(raw.search_keywords || "").slice(0, 200);
   
   let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
@@ -33,14 +34,18 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .map((f: any) => String(f || "").trim())
     .filter((f: string) => f.length > 0)
     .slice(0, 5)
-    .map((f: string) => f.slice(0, 250));
+    .map((f: string) => {
+      let s = f.slice(0, 250);
+      if (!s.includes(":")) return "PREMIUM FEATURE: " + s;
+      return s;
+    });
 
   const fallbacks = [
-    "PREMIUM MATERIAL: Engineered with high-grade components for long-term reliability.",
-    "ADVANCED DESIGN: Ergonomically optimized to provide superior user experience.",
-    "VERSATILE USAGE: Perfect for a wide range of professional and home environments.",
-    "PERFECT COMPATIBILITY: Designed to meet or exceed original equipment standards.",
-    "SATISFACTION GUARANTEED: Our commitment to quality ensures a risk-free purchase."
+    "DURABLE MATERIALS: Engineered with high-grade components for long-term reliability.",
+    "ADVANCED DESIGN: Ergonomically optimized to provide a superior user experience.",
+    "VERSATILE UTILITY: Perfect for a wide range of professional and home environments.",
+    "EXCELLENT COMPATIBILITY: Designed to meet or exceed original equipment standards.",
+    "SATISFACTION COMMITMENT: Our quality assurance ensures a risk-free purchase."
   ];
   while (result.optimized_features.length < 5) {
     result.optimized_features.push(fallbacks[result.optimized_features.length]);
@@ -72,10 +77,10 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}\n\n[INSTRUCTION] Generate a NEW and creative variation. Change the title words sequence.`,
+      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}\n\n[INSTRUCTION] Be creative. Ensure the title is drastically different from the source.`,
       config: { 
         responseMimeType: "application/json",
-        temperature: 1.0
+        temperature: 1.0 // Increased for higher variety
       }
     });
     const rawData = extractJSONObject(response.text || "{}");
