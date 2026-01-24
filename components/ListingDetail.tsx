@@ -29,13 +29,24 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
+// 辅助函数：归一化 URL 用于准确比对，剔除代理和特殊编码干扰
+const normalizeUrl = (url: string): string => {
+  if (!url) return "";
+  let clean = url;
+  if (url.includes('corsproxy.io/?')) {
+    const parts = url.split('corsproxy.io/?');
+    clean = decodeURIComponent(parts[parts.length - 1]);
+  }
+  return clean.split('?')[0].split('#')[0].trim();
+};
+
 const standardizeImage = async (imageUrl: string): Promise<string> => {
   if (!imageUrl) return "";
   
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.src = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
+    img.src = imageUrl.startsWith('http') ? `${CORS_PROXY}${encodeURIComponent(imageUrl)}` : imageUrl;
     
     img.onload = async () => {
       const canvas = document.createElement('canvas');
@@ -45,10 +56,7 @@ const standardizeImage = async (imageUrl: string): Promise<string> => {
       canvas.height = targetSize;
       
       const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve(imageUrl);
-        return;
-      }
+      if (!ctx) { resolve(imageUrl); return; }
       
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, targetSize, targetSize);
@@ -62,10 +70,7 @@ const standardizeImage = async (imageUrl: string): Promise<string> => {
       ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
       
       canvas.toBlob(async (blob) => {
-        if (!blob) {
-          resolve(imageUrl);
-          return;
-        }
+        if (!blob) { resolve(imageUrl); return; }
         
         try {
           const file = new File([blob], `std_${Date.now()}.jpg`, { type: 'image/jpeg' });
@@ -77,16 +82,12 @@ const standardizeImage = async (imageUrl: string): Promise<string> => {
           const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
           resolve(u || imageUrl);
         } catch (e) {
-          console.error("Standardize upload failed", e);
           resolve(imageUrl);
         }
       }, 'image/jpeg', 0.9);
     };
     
-    img.onerror = () => {
-      console.error("Failed to load image for standardization", imageUrl);
-      resolve(imageUrl);
-    };
+    img.onerror = () => resolve(imageUrl);
   });
 };
 
@@ -209,15 +210,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const handleRecalculateCurrent = async () => {
     if (activeMarket === 'US') return;
     const results = calculateMarketLogistics(localListing, activeMarket);
-    setLocalListing(prev => {
-      const next = { ...prev };
-      const trans = { ...(next.translations || {}) };
-      trans[activeMarket] = { ...(trans[activeMarket] || {}), ...results } as OptimizedData;
-      next.translations = trans;
-      onUpdate(next);
-      syncToSupabase(next);
-      return next;
-    });
+    const next = { ...localListing };
+    const trans = { ...(next.translations || {}) };
+    trans[activeMarket] = { ...(trans[activeMarket] || {}), ...results } as OptimizedData;
+    next.translations = trans;
+    setLocalListing(next);
+    onUpdate(next);
+    await syncToSupabase(next);
   };
 
   const handleOptimizeMaster = async () => {
@@ -232,32 +231,41 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } catch (e) {} finally { setIsOptimizing(false); }
   };
 
-  // 处理图片编辑器保存
+  // 处理图片编辑器保存 - 修复版本
   const handleImageEditorSave = async (newUrl: string) => {
-    // 1. 克隆当前最新的 listing 对象
-    const next = { ...localListing };
+    setIsSaving(true);
+    // 1. 克隆最新的 listing
+    const next = { ...localListing, cleaned: { ...localListing.cleaned } };
     
-    // 2. 检查是主图还是附图并更新
-    if (previewImage === next.cleaned.main_image) {
-      next.cleaned = { ...next.cleaned, main_image: newUrl };
+    // 2. 归一化预览图 URL 进行比对
+    const targetUrlNorm = normalizeUrl(previewImage);
+    const mainUrlNorm = normalizeUrl(next.cleaned.main_image || "");
+
+    let changed = false;
+    if (targetUrlNorm === mainUrlNorm) {
+      next.cleaned.main_image = newUrl;
+      changed = true;
     } else {
       const others = [...(next.cleaned.other_images || [])];
-      const idx = others.indexOf(previewImage);
+      // 遍历比对归一化后的地址
+      const idx = others.findIndex(u => normalizeUrl(u) === targetUrlNorm);
       if (idx !== -1) {
         others[idx] = newUrl;
-        next.cleaned = { ...next.cleaned, other_images: others };
+        next.cleaned.other_images = others;
+        changed = true;
       }
     }
 
-    // 3. 更新所有状态
-    setPreviewImage(newUrl);
-    setLocalListing(next);
-    onUpdate(next);
-    
-    // 4. 执行数据库同步 (异步)
-    await syncToSupabase(next);
-    
-    // 5. 关闭编辑器
+    if (changed) {
+      // 3. 同时更新预览图和对象状态，触发 UI 刷新
+      setPreviewImage(newUrl);
+      setLocalListing(next);
+      onUpdate(next);
+      // 4. 真正持久化到数据库
+      await syncToSupabase(next);
+    }
+
+    setIsSaving(false);
     setShowImageEditor(false);
   };
 
@@ -279,20 +287,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 const newMain = await standardizeImage(localListing.cleaned.main_image || ''); 
                 const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImage(u))); 
                 const next = { ...localListing, cleaned: { ...localListing.cleaned, main_image: newMain, other_images: newOthers } };
-                setLocalListing(next); onUpdate(next); syncToSupabase(next);
+                setLocalListing(next); onUpdate(next); await syncToSupabase(next);
                 setPreviewImage(newMain); setIsProcessingImages(false); 
               }} 
               onStandardizeOne={async (u) => {
                 setIsProcessingImages(true);
                 const n = await standardizeImage(u);
-                const next = { ...localListing };
-                if(u === next.cleaned.main_image) { 
-                  next.cleaned = { ...next.cleaned, main_image: n }; 
+                const next = { ...localListing, cleaned: { ...localListing.cleaned } };
+                const uNorm = normalizeUrl(u);
+                if(uNorm === normalizeUrl(next.cleaned.main_image || "")) { 
+                  next.cleaned.main_image = n; 
                   setPreviewImage(n); 
                 } else { 
-                  next.cleaned = { ...next.cleaned, other_images: next.cleaned.other_images?.map(x => x === u ? n : x) }; 
+                  next.cleaned.other_images = (next.cleaned.other_images || []).map(x => normalizeUrl(x) === uNorm ? n : x); 
                 }
-                setLocalListing(next); onUpdate(next); syncToSupabase(next);
+                setLocalListing(next); onUpdate(next); await syncToSupabase(next);
                 setIsProcessingImages(false);
               }} 
               setShowEditor={setShowImageEditor} 
@@ -358,7 +367,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url; 
           if (u) {
             const next = { ...localListing, cleaned: { ...localListing.cleaned, other_images: [...(localListing.cleaned.other_images || []), u] } };
-            setLocalListing(next); setPreviewImage(u); onUpdate(next); syncToSupabase(next);
+            setLocalListing(next); setPreviewImage(u); onUpdate(next); await syncToSupabase(next);
           }
         } catch(err) {} finally { setIsSaving(false); }
       }} />
