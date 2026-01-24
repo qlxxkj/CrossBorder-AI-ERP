@@ -25,7 +25,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200];
 
 export const ListingsManager: React.FC<ListingsManagerProps> = ({ 
   onSelectListing, 
-  listings = [], 
+  listings = [], // 确保默认值为数组
   setListings, 
   lang, 
   refreshListings,
@@ -56,7 +56,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     try {
       const { data } = await supabase.from('categories').select('*');
       if (data) setCategories(data);
-    } catch (e) {}
+    } catch (e) {
+      console.warn("Failed to fetch categories");
+    }
   };
 
   useEffect(() => {
@@ -75,7 +77,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     setIsBatchUpdating(true);
     const { error } = await supabase.from('listings').update({ category_id: catId === 'NONE' ? null : catId }).in('id', Array.from(selectedIds));
     if (!error) {
-      alert(lang === 'zh' ? "分类修改成功！" : "Category updated!");
       setSelectedIds(new Set());
       setBatchCategoryId(''); 
       refreshListings();
@@ -96,20 +97,26 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   };
 
   const filteredListings = useMemo(() => {
-    if (!listings) return [];
+    if (!Array.isArray(listings)) return [];
     return listings.filter(l => {
-      const displayTitle = (l?.status === 'optimized' && l?.optimized?.optimized_title) 
+      if (!l) return false;
+      const displayTitle = (l.status === 'optimized' && l.optimized?.optimized_title) 
         ? l.optimized.optimized_title 
-        : l?.cleaned?.title;
-      const matchesSearch = (displayTitle || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
-                             (l?.asin || "").toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesMarketplace = filterMarketplace === 'ALL' || l?.marketplace === filterMarketplace;
-      const matchesCategory = filterCategory === 'ALL' || l?.category_id === (filterCategory === 'NONE' ? null : filterCategory);
+        : l.cleaned?.title;
+      
+      const safeTitle = (displayTitle || "").toLowerCase();
+      const safeAsin = (l.asin || "").toLowerCase();
+      const safeSearch = searchTerm.toLowerCase();
+
+      const matchesSearch = safeTitle.includes(safeSearch) || safeAsin.includes(safeSearch);
+      const matchesMarketplace = filterMarketplace === 'ALL' || l.marketplace === filterMarketplace;
+      const matchesCategory = filterCategory === 'ALL' || l.category_id === (filterCategory === 'NONE' ? null : filterCategory);
+      
       return matchesSearch && matchesMarketplace && matchesCategory;
     });
   }, [listings, searchTerm, filterMarketplace, filterCategory]);
 
-  const totalPages = Math.ceil(filteredListings.length / (itemsPerPage || 20)) || 1;
+  const totalPages = Math.max(1, Math.ceil(filteredListings.length / itemsPerPage));
   const paginatedListings = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredListings.slice(start, start + itemsPerPage);
@@ -119,7 +126,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     if (selectedIds.size === paginatedListings.length && paginatedListings.length > 0) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(paginatedListings.map(l => l.id)));
+      setSelectedIds(new Set(paginatedListings.filter(l => l && l.id).map(l => l.id)));
     }
   };
 
@@ -138,8 +145,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   };
 
   const renderDistributionStatus = (listing: Listing) => {
-    const translations = listing?.translations ? Object.keys(listing.translations) : [];
-    const exports = listing?.exported_marketplaces || [];
+    if (!listing) return null;
+    const translations = listing.translations ? Object.keys(listing.translations) : [];
+    const exports = listing.exported_marketplaces || [];
     return (
       <div className="flex flex-col gap-2">
         {translations.length > 0 && (
@@ -242,7 +250,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                   <input 
                     type="checkbox" 
                     className="w-5 h-5 rounded-lg border-slate-300 text-indigo-600 cursor-pointer" 
-                    checked={paginatedListings.length > 0 && paginatedListings.every(l => selectedIds.has(l.id))} 
+                    checked={paginatedListings.length > 0 && paginatedListings.every(l => l && selectedIds.has(l.id))} 
                     onChange={toggleSelectAll} 
                   />
                 </th>
@@ -269,12 +277,13 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                   </tr>
                 ))
               ) : paginatedListings.map((listing, index) => {
-                   if (!listing) return null;
-                   const title = (listing?.status === 'optimized' && listing?.optimized?.optimized_title) ? listing.optimized.optimized_title : (listing?.cleaned?.title || "Untitled");
-                   const catName = categories.find(c => c.id === listing?.category_id)?.name || '-';
-                   const mkt = AMAZON_MARKETPLACES.find(m => m.code === listing?.marketplace);
+                   if (!listing) return null; // 极度防御性编程
+                   const title = (listing.status === 'optimized' && listing.optimized?.optimized_title) ? listing.optimized.optimized_title : (listing.cleaned?.title || "Untitled");
+                   const catName = categories.find(c => c.id === listing.category_id)?.name || '-';
+                   const mkt = AMAZON_MARKETPLACES.find(m => m.code === listing.marketplace);
                    const sequenceNum = (currentPage - 1) * itemsPerPage + index + 1;
-                   const price = listing?.cleaned?.price || 0;
+                   const price = listing.cleaned?.price || 0;
+                   
                    return (
                     <tr key={listing.id} className={`hover:bg-slate-50/50 transition-all group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/20' : ''}`} onClick={() => onSelectListing(listing)}>
                       <td className="p-8 text-center" onClick={(e) => e.stopPropagation()}>
@@ -285,12 +294,12 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                       </td>
                       <td className="p-8">
                         <div className="w-14 h-14 rounded-xl bg-white border border-slate-100 overflow-hidden flex items-center justify-center p-1">
-                          <img src={listing?.cleaned?.main_image} className="max-w-full max-h-full object-contain" />
+                          <img src={listing.cleaned?.main_image || ''} className="max-w-full max-h-full object-contain" onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/100?text=No+Img')} />
                         </div>
                       </td>
                       <td className="p-8">
                         <div className="space-y-2">
-                          {listing?.status === 'optimized' ? (
+                          {listing.status === 'optimized' ? (
                             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-green-50 text-green-600 rounded-md text-[8px] font-black uppercase border border-green-100">Optimized</span>
                           ) : (
                             <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 text-slate-400 rounded-md text-[8px] font-black uppercase border border-slate-100">Collected</span>
@@ -299,23 +308,23 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                         </div>
                       </td>
                       <td className="p-8">
-                        <span className={`text-[10px] font-black uppercase ${listing?.category_id ? 'text-indigo-600' : 'text-slate-300 italic'}`}>
+                        <span className={`text-[10px] font-black uppercase ${listing.category_id ? 'text-indigo-600' : 'text-slate-300 italic'}`}>
                           {catName}
                         </span>
                       </td>
                       <td className="p-8">
                         <div className="flex flex-col gap-1">
                           <a 
-                            href={getAmazonUrl(listing?.asin, listing?.marketplace)}
+                            href={getAmazonUrl(listing.asin || '', listing.marketplace || 'US')}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
                             className="flex items-center gap-1 group/asin"
                           >
-                            <span className="font-mono text-[11px] font-black text-slate-400 group-hover/asin:text-blue-600 transition-colors underline decoration-dotted decoration-slate-300">{listing?.asin}</span>
+                            <span className="font-mono text-[11px] font-black text-slate-400 group-hover/asin:text-blue-600 transition-colors underline decoration-dotted decoration-slate-300">{listing.asin || 'N/A'}</span>
                             <ExternalLink size={10} className="text-slate-200 group-hover/asin:text-blue-500" />
                           </a>
-                          <span className="block mt-1 text-[8px] font-black text-slate-300 uppercase">{mkt?.flag} {listing?.marketplace}</span>
+                          <span className="block mt-1 text-[8px] font-black text-slate-300 uppercase">{mkt?.flag} {listing.marketplace}</span>
                         </div>
                       </td>
                       <td className="p-8">
