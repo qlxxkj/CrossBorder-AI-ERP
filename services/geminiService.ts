@@ -3,28 +3,30 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are a professional Amazon SEO Specialist. Rewrite the product data for maximum conversion.
+Act as a Senior Amazon Listing Expert. Your goal is to rewrite the provided data to maximize CTR and conversion.
 
-[STRICT CONSTRAINTS]
+[STRICT QUALITY CONSTRAINTS]
 1. REMOVE ALL BRAND NAMES: Delete original brands. NO car/motorcycle brands (Toyota, Tesla, BMW, etc.).
-2. TITLE: Create a FRESH, high-click-rate title. Strictly MAX 150 characters. Do NOT use the old title structure.
-3. 5 UNIQUE BULLET POINTS: 
-   - Exactly 5 points. 
-   - Each MUST cover a DIFFERENT aspect (e.g., Quality, Versatility, Design, Compatibility, Value). 
-   - Each MUST start with a bolded "KEYWORD:". 
-   - They MUST NOT be identical or even similar.
-   - Strictly MAX 250 characters per point.
-4. DESCRIPTION: Length 1000 - 1700 characters. Use basic HTML (<p>, <br>, <b>).
-5. SEARCH KEYWORDS: Highly relevant SEO terms. MAX 300 characters.
-6. NO AD WORDS: No "Best", "#1", "Sale".
-7. JSON: Return ONLY a flat JSON object. No Markdown.
+2. TITLE REWRITE: Do NOT follow the source title's structure. Use a completely fresh word order. MAX 150 characters.
+3. 5 DIMENSIONAL BULLETS:
+   - Provide exactly 5 points.
+   - Each point MUST focus on a DIFFERENT dimension: [Point 1: Material/Durability], [Point 2: Key Feature/Design], [Point 3: Main Benefit/Usage], [Point 4: Compatibility/Specs], [Point 5: Service/Guarantee].
+   - Format: Start with "BOLD_KEYWORD: " (e.g., PREMIUM QUALITY: ...).
+   - MAX 250 characters per point.
+4. DESCRIPTION: Professional HTML format. 1000-1700 characters.
+5. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total. Do not exceed 200.
+6. VARIATION: Produce a version that is significantly different in wording from the source.
+
+Return ONLY a flat JSON object. No Markdown.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
   result.optimized_title = String(raw.optimized_title || "").slice(0, 150);
   result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
-  result.search_keywords = String(raw.search_keywords || "").slice(0, 300);
+  
+  // Rule: Search Keywords < 200
+  result.search_keywords = String(raw.search_keywords || "").slice(0, 200);
   
   let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
   result.optimized_features = feats
@@ -33,13 +35,12 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .slice(0, 5)
     .map((f: string) => f.slice(0, 250));
 
-  // If AI fails to provide 5 unique points, fill with generic but unique fallbacks
   const fallbacks = [
-    "DURABLE CONSTRUCTION: Built with premium materials for long-lasting use.",
-    "SLEEK DESIGN: Modern aesthetic that complements any setting or decor.",
-    "EASY INSTALLATION: Simple setup process that saves you time and effort.",
-    "VERSATILE UTILITY: Perfect for a wide range of professional or personal applications.",
-    "CUSTOMER SATISFACTION: Committed to high standards of quality and performance."
+    "PREMIUM MATERIAL: Engineered with high-grade components for long-term reliability.",
+    "ADVANCED DESIGN: Ergonomically optimized to provide superior user experience.",
+    "VERSATILE USAGE: Perfect for a wide range of professional and home environments.",
+    "PERFECT COMPATIBILITY: Designed to meet or exceed original equipment standards.",
+    "SATISFACTION GUARANTEED: Our commitment to quality ensures a risk-free purchase."
   ];
   while (result.optimized_features.length < 5) {
     result.optimized_features.push(fallbacks[result.optimized_features.length]);
@@ -71,21 +72,21 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}`,
+      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}\n\n[INSTRUCTION] Generate a NEW and creative variation. Change the title words sequence.`,
       config: { 
         responseMimeType: "application/json",
-        temperature: 1.0 // High variety
+        temperature: 1.0
       }
     });
     const rawData = extractJSONObject(response.text || "{}");
     if (!rawData) throw new Error("Format error.");
     return normalizeOptimizedData(rawData);
-  } catch (error: any) { throw new Error(`Gemini Optimization Error: ${error.message}`); }
+  } catch (error: any) { throw new Error(`Gemini Error: ${error.message}`); }
 };
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Translate this to "${targetLangName}". FLAT JSON ONLY. 150-char title, 5 UNIQUE 250-char bullets, 300-char keywords. NO brands. Data: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate this to "${targetLangName}". JSON ONLY. Title<150, 5 UNIQUE Bullets<250, Keywords<200. NO brands. Data: ${JSON.stringify(sourceData)}`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -97,13 +98,6 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
   } catch (error: any) { throw new Error(`Gemini Translation Error: ${error.message}`); }
 };
 
-// Fix: Added the missing editImageWithAI function export
-/**
- * Edits an image using Gemini AI.
- * @param base64 The base64 encoded image string (data only, no prefix).
- * @param prompt The prompt instructions for editing the image.
- * @returns The base64 encoded string of the edited image.
- */
 export const editImageWithAI = async (base64: string, prompt: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
@@ -111,31 +105,15 @@ export const editImageWithAI = async (base64: string, prompt: string): Promise<s
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
-          {
-            inlineData: {
-              data: base64,
-              mimeType: 'image/jpeg',
-            },
-          },
-          {
-            text: prompt,
-          },
-        ],
-      },
-    });
-
-    if (!response.candidates || response.candidates.length === 0) {
-      throw new Error("Empty response from AI");
-    }
-
-    // Fix: Iterate through all parts to find the image part as per guidelines
-    for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) {
-        return part.inlineData.data;
+          { inlineData: { data: base64, mimeType: 'image/jpeg' } },
+          { text: prompt }
+        ]
       }
+    });
+    if (!response.candidates) throw new Error("No response");
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) return part.inlineData.data;
     }
-    throw new Error("No image part returned from Gemini");
-  } catch (error: any) {
-    throw new Error(`Gemini Image Edit Error: ${error.message}`);
-  }
+    throw new Error("No image returned");
+  } catch (error: any) { throw new Error(`Gemini Image Edit Error: ${error.message}`); }
 };

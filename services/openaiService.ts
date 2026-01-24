@@ -3,38 +3,42 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are a professional Amazon SEO Specialist. Rewrite the product data for maximum conversion.
+Act as a Senior Amazon Listing Expert. Your goal is to rewrite the provided data to maximize CTR and conversion.
 
-[STRICT CONSTRAINTS]
+[STRICT QUALITY CONSTRAINTS]
 1. REMOVE ALL BRAND NAMES: Delete original brands. NO car/motorcycle brands (Toyota, Tesla, BMW, etc.).
-2. TITLE: Create a FRESH, high-click-rate title. Strictly MAX 150 characters. Do NOT use the old title structure.
-3. 5 UNIQUE BULLET POINTS: 
-   - Exactly 5 points. 
-   - Each MUST cover a DIFFERENT aspect (e.g., Quality, Versatility, Design, Compatibility, Value). 
-   - Each MUST start with a bolded "KEYWORD:". 
-   - They MUST NOT be identical or even similar.
-   - Strictly MAX 250 characters per point.
-4. DESCRIPTION: Length 1000 - 1700 characters. Use basic HTML (<p>, <br>, <b>).
-5. SEARCH KEYWORDS: Highly relevant SEO terms. MAX 300 characters.
-6. NO AD WORDS: No "Best", "#1", "Sale".
-7. JSON: Return ONLY a flat JSON object. No Markdown.
+2. TITLE REWRITE: Do NOT follow the source title's structure. Use a completely fresh word order. MAX 150 characters.
+3. 5 DIMENSIONAL BULLETS:
+   - Provide exactly 5 points.
+   - Each point MUST focus on a DIFFERENT dimension: [Point 1: Material/Durability], [Point 2: Key Feature/Design], [Point 3: Main Benefit/Usage], [Point 4: Compatibility/Specs], [Point 5: Service/Guarantee].
+   - Format: Start with "BOLD_KEYWORD: " (e.g., PREMIUM QUALITY: ...).
+   - MAX 250 characters per point.
+4. DESCRIPTION: Professional HTML format. 1000-1700 characters.
+5. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total. Do not exceed 200.
+6. VARIATION: Produce a version that is significantly different in wording from the source.
+
+Return ONLY a flat JSON object. No Markdown.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
   result.optimized_title = String(raw.optimized_title || "").slice(0, 150);
   result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
-  result.search_keywords = String(raw.search_keywords || "").slice(0, 300);
+  result.search_keywords = String(raw.search_keywords || "").slice(0, 200);
   
   let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
   result.optimized_features = feats
     .map((f: any) => String(f || "").trim())
     .filter((f: string) => f.length > 0)
     .slice(0, 5)
-    .map((f: any) => String(f).slice(0, 250));
+    .map((f: any) => {
+      let s = String(f).slice(0, 250);
+      if (!s.includes(":")) return "EXCEPTIONAL FEATURE: " + s; // Force format if AI forgets
+      return s;
+    });
     
   while(result.optimized_features.length < 5) {
-    result.optimized_features.push("Reliable performance designed to meet all your project requirements with efficiency.");
+    result.optimized_features.push("RELIABLE QUALITY: Precision engineered to ensure high performance and user satisfaction.");
   }
   
   result.optimized_weight_value = String(raw.optimized_weight_value || "");
@@ -63,13 +67,14 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "Amazon SEO Expert. Unique Title<150. 5 DISTINCT Bullets<250. Keywords<300. JSON only." },
+        { role: "system", content: "Expert SEO Copywriter. Always use UNIQUE titles. Bullets must start with 'KEYWORD:'. Keywords limit 200. JSON only." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
       ],
       temperature: 1.0,
       response_format: { type: "json_object" }
     })
   });
+  if (!response.ok) throw new Error(`OpenAI Status: ${response.status}`);
   const data = await response.json();
   const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
   return normalizeOptimizedData(raw);
@@ -79,7 +84,7 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OpenAI Key missing.");
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const prompt = `Translate to "${targetLangName}". Title<150, 5 UNIQUE Bullets<250, Keywords<300. FLAT JSON. Data: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate to "${targetLangName}". UNIQUE Title<150, 5 DISTINCT Bullets<250 (KEYWORD: format), Keywords < 200. FLAT JSON. Data: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
