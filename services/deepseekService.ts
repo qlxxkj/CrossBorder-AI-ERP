@@ -72,6 +72,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const prompt = `
     Translate listing to "${targetLangName}". 
+    STRICT: If the target is already "${targetLangName}", keep language consistent and just optimize the style. DO NOT use Japanese or other languages.
     STRICT: Use FULL unit names in "${targetLangName}" language.
     STRICT: NO car/motorcycle brands.
     Data: ${JSON.stringify(sourceData)}

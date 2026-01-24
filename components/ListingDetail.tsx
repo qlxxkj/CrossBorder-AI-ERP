@@ -80,6 +80,22 @@ const standardizeImage = async (imageUrl: string): Promise<string> => {
   });
 };
 
+// 语种映射表，确保发送给 AI 的是标准的语言名称
+const LANG_NAME_MAP: Record<string, string> = {
+  en: 'English',
+  zh: 'Chinese',
+  ja: 'Japanese',
+  de: 'German',
+  fr: 'French',
+  it: 'Italian',
+  es: 'Spanish',
+  pt: 'Portuguese',
+  pl: 'Polish',
+  nl: 'Dutch',
+  sv: 'Swedish',
+  ar: 'Arabic'
+};
+
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMarket, setActiveMarket] = useState('US');
@@ -154,20 +170,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  /**
-   * 核心翻译逻辑封装：输入一个 Listing 对象和目标市场，返回一个包含新翻译的 Listing 对象
-   */
   const performTranslation = async (currentListing: Listing, marketCode: string): Promise<Listing> => {
-    const targetLang = AMAZON_MARKETPLACES.find(m => m.code === marketCode)?.name || 'English';
+    const mktConfig = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
+    const targetLangName = LANG_NAME_MAP[mktConfig?.lang || 'en'] || 'English';
+    
     const source = currentListing.optimized || { 
       optimized_title: currentListing.cleaned.title, 
       optimized_features: currentListing.cleaned.features || [] 
     } as OptimizedData;
 
     let transResult: any;
-    if (engine === 'openai') transResult = await translateListingWithOpenAI(source, targetLang);
-    else if (engine === 'deepseek') transResult = await translateListingWithDeepSeek(source, targetLang);
-    else transResult = await translateListingWithAI(source, targetLang);
+    if (engine === 'openai') transResult = await translateListingWithOpenAI(source, targetLangName);
+    else if (engine === 'deepseek') transResult = await translateListingWithDeepSeek(source, targetLangName);
+    else transResult = await translateListingWithAI(source, targetLangName);
 
     const logistics = calculateMarketLogistics(currentListing, marketCode);
     const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
@@ -208,7 +223,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsTranslatingAll(true);
     setTranslationProgress({ current: 0, total: targets.length });
     
-    // 使用局部变量累积更新，避免 React 异步状态陷阱
     let workingListing = { ...localListing };
     
     try {
@@ -219,7 +233,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         
         try {
           workingListing = await performTranslation(workingListing, m.code);
-          // 逐个更新 UI 预览
           setLocalListing(workingListing);
           onUpdate(workingListing);
         } catch (err) {
@@ -230,8 +243,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         
         await new Promise(r => setTimeout(r, 400));
       }
-      
-      // 翻译全部完成后，立即执行最终同步
       await syncToSupabase(workingListing);
     } finally {
       setIsTranslatingAll(false);

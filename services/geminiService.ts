@@ -77,7 +77,8 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     1. KEEP ALL JSON KEYS UNCHANGED.
     2. RETURN ONLY JSON. 
     3. NO Car or Motorcycle Brands.
-    4. [UNIT RULE]: Use the FULL NAME of the unit in the "${targetLangName}" language.
+    4. [LANGUAGE SAFETY]: If "${targetLangName}" is the same as the source language, just refine the selling points and output in standard "${targetLangName}". DO NOT translate into other unrelated languages like Japanese.
+    5. [UNIT RULE]: Use the FULL NAME of the unit in the "${targetLangName}" language.
        - Japanese: "キログラム", "センチメートル".
        - Arabic: "كيلوجرام", "سنتيمتر".
        - Latin (ES/PT/MX): "Kilogramos", "Centímetros".

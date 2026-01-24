@@ -83,8 +83,9 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
     [STRICT]: 
     1. KEEP JSON KEYS UNCHANGED.
     2. RETURN ONLY JSON. 
-    3. Use FULL unit names in "${targetLangName}" script. (e.g. キログラム, Kilogramos, Kilograms).
-    4. NO car/motorcycle brands.
+    3. If the target language "${targetLangName}" matches the source, just refine the copy for the target market. DO NOT flip to other languages.
+    4. Use FULL unit names in "${targetLangName}" script. (e.g. キログラム, Kilogramos, Kilograms).
+    5. NO car/motorcycle brands.
     Data: ${JSON.stringify(sourceData)}
   `;
   const endpoint = `${baseUrl}/chat/completions`;
