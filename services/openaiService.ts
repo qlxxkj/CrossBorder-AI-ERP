@@ -7,9 +7,9 @@ Act as a Senior Amazon Listing Expert. Optimize this listing.
 [SEED: ${seed}]
 
 [STRICT BRAND PURGE]
-- REMOVE BRAND: "${brand}" (including variants like "${brand.toUpperCase()}") MUST be deleted.
-- REMOVE AUTOMOTIVE: NO car/motorcycle brands (Toyota, Tesla, etc.).
-- Retain：Vehicle model numbers/ codes (XV50,E90),years,OEM/part numbers
+1. REMOVE BRAND: "${brand}" (including variants like "${brand.toUpperCase()}") MUST be deleted.
+2. REMOVE AUTOMOTIVE: All car/motorcycle brands (Toyota, Tesla, etc.).
+3. Retain：Model names like Q7,5 Series,Camry, model codes,years,OEM/part numbers.
 
 [CONTENT SPECIFICATIONS]
 1. UNIQUE TITLE: Change the word sequence completely.Use high-converting synonyms. Be creative. MAX 150 characters.
