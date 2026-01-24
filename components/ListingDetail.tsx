@@ -109,6 +109,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isTranslatingAll, setIsTranslatingAll] = useState(false);
+  const [translationProgress, setTranslationProgress] = useState({ current: 0, total: 0 });
   const [translatingMarkets, setTranslatingMarkets] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [isProcessingImages, setIsProcessingImages] = useState(false);
@@ -215,12 +216,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const handleTranslateAll = async () => {
-    setIsTranslatingAll(true);
     const targets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
-    for (const m of targets) {
+    setIsTranslatingAll(true);
+    setTranslationProgress({ current: 0, total: targets.length });
+    
+    for (let i = 0; i < targets.length; i++) {
+      const m = targets[i];
+      setTranslationProgress(prev => ({ ...prev, current: i + 1 }));
       await translateMarket(m.code);
-      await new Promise(r => setTimeout(r, 600));
+      // 给 API 留一点喘息时间，防止限流
+      await new Promise(r => setTimeout(r, 400));
     }
+    
     setIsTranslatingAll(false);
     await syncToSupabase(localListing);
   };
@@ -360,8 +367,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         );
                       })}
                    </div>
-                   <button onClick={handleTranslateAll} disabled={isTranslatingAll} className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 transition-all flex items-center gap-2 disabled:opacity-50 shrink-0">
-                     {isTranslatingAll ? <Loader2 size={14} className="animate-spin" /> : <Languages size={14} />} AI Translate All
+                   <button 
+                    onClick={handleTranslateAll} 
+                    disabled={isTranslatingAll} 
+                    className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 transition-all flex items-center gap-2 disabled:opacity-50 shrink-0"
+                   >
+                     {isTranslatingAll ? (
+                       <>
+                         <Loader2 size={14} className="animate-spin" />
+                         ({translationProgress.current}/{translationProgress.total}) Translating...
+                       </>
+                     ) : (
+                       <>
+                         <Languages size={14} /> AI Translate All
+                       </>
+                     )}
                    </button>
                 </div>
                 <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={updateField} onSync={() => syncToSupabase(localListing)} onRecalculate={handleRecalculateCurrent} uiLang={uiLang} />

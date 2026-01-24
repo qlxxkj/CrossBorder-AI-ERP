@@ -153,21 +153,25 @@ export const calculateMarketLogistics = (listing: Listing, targetMkt: string) =>
   let finalW = String(sourceValW), finalL = String(sourceL), finalWd = String(sourceW), finalH = String(sourceH);
 
   if (isMetric) {
-    // 换算至公制 (KG / CM)
+    // 换算至公制 (KG / CM) - 统一强制保留 2 位小数
     if (sourceUnitW.includes('lb') || sourceUnitW.includes('pound')) {
       finalW = nW > 0 ? (nW * 0.453592).toFixed(2) : "";
     } else if (sourceUnitW.includes('oz') || sourceUnitW.includes('ounce')) {
-      finalW = nW > 0 ? (nW * 0.0283495).toFixed(3) : ""; 
+      finalW = nW > 0 ? (nW * 0.0283495).toFixed(2) : ""; 
     } else if (sourceUnitW.includes('g') && !sourceUnitW.includes('k')) {
-      finalW = nW > 0 ? (nW / 1000).toFixed(3) : "";
+      finalW = nW > 0 ? (nW / 1000).toFixed(2) : "";
     } else {
-      finalW = nW > 0 ? nW.toString() : "";
+      finalW = nW > 0 ? nW.toFixed(2) : "";
     }
     
     if (sourceUnitS.includes('in') || sourceUnitS.includes('inch')) {
       finalL = nL > 0 ? (nL * 2.54).toFixed(2) : "";
       finalWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : "";
       finalH = nH > 0 ? (nH * 2.54).toFixed(2) : "";
+    } else {
+      finalL = nL > 0 ? nL.toFixed(2) : "";
+      finalWd = nWd > 0 ? nWd.toFixed(2) : "";
+      finalH = nH > 0 ? nH.toFixed(2) : "";
     }
   } else {
     // 换算至英制 (针对 US 站点)
