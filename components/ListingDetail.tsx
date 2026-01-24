@@ -123,7 +123,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!isSupabaseConfigured()) return;
     setIsSaving(true);
     try {
-      await supabase.from('listings').update({
+      const { error } = await supabase.from('listings').update({
         cleaned: targetListing.cleaned,
         optimized: targetListing.optimized || null,
         translations: targetListing.translations || null,
@@ -131,10 +131,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         sourcing_data: targetListing.sourcing_data || [],
         updated_at: new Date().toISOString()
       }).eq('id', targetListing.id);
-    } catch (e) {} finally { setIsSaving(false); }
+      
+      if (error) console.error("Database sync failed:", error.message);
+    } catch (e) {
+      console.error("Critical sync error:", e);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // 增强版 updateField，支持即时同步
   const updateField = (field: string, value: any, shouldSync: boolean = false) => {
     setLocalListing(prev => {
       const next = { ...prev };
@@ -227,6 +232,35 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } catch (e) {} finally { setIsOptimizing(false); }
   };
 
+  // 处理图片编辑器保存
+  const handleImageEditorSave = async (newUrl: string) => {
+    // 1. 克隆当前最新的 listing 对象
+    const next = { ...localListing };
+    
+    // 2. 检查是主图还是附图并更新
+    if (previewImage === next.cleaned.main_image) {
+      next.cleaned = { ...next.cleaned, main_image: newUrl };
+    } else {
+      const others = [...(next.cleaned.other_images || [])];
+      const idx = others.indexOf(previewImage);
+      if (idx !== -1) {
+        others[idx] = newUrl;
+        next.cleaned = { ...next.cleaned, other_images: others };
+      }
+    }
+
+    // 3. 更新所有状态
+    setPreviewImage(newUrl);
+    setLocalListing(next);
+    onUpdate(next);
+    
+    // 4. 执行数据库同步 (异步)
+    await syncToSupabase(next);
+    
+    // 5. 关闭编辑器
+    setShowImageEditor(false);
+  };
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-inter text-slate-900">
       <ListingTopBar onBack={onBack} engine={engine} setEngine={(e) => { setEngine(e); localStorage.setItem('amzbot_preferred_engine', e); }} onOptimize={handleOptimizeMaster} isOptimizing={isOptimizing} onSave={() => syncToSupabase(localListing)} isSaving={isSaving} onNext={onNext} uiLang={uiLang} />
@@ -237,28 +271,28 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               listing={localListing} 
               previewImage={previewImage} 
               setPreviewImage={setPreviewImage} 
-              updateField={(f, v) => updateField(f, v, true)} // 图片相关改动始终触发同步
+              updateField={(f, v) => updateField(f, v, true)} 
               isSaving={isSaving} 
               isProcessing={isProcessingImages} 
               onStandardizeAll={async () => { 
                 setIsProcessingImages(true); 
                 const newMain = await standardizeImage(localListing.cleaned.main_image || ''); 
                 const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImage(u))); 
-                setLocalListing(prev => {
-                  const next = { ...prev, cleaned: { ...prev.cleaned, main_image: newMain, other_images: newOthers } };
-                  onUpdate(next); syncToSupabase(next); return next;
-                });
+                const next = { ...localListing, cleaned: { ...localListing.cleaned, main_image: newMain, other_images: newOthers } };
+                setLocalListing(next); onUpdate(next); syncToSupabase(next);
                 setPreviewImage(newMain); setIsProcessingImages(false); 
               }} 
               onStandardizeOne={async (u) => {
                 setIsProcessingImages(true);
                 const n = await standardizeImage(u);
-                setLocalListing(prev => {
-                  const next = { ...prev };
-                  if(u === prev.cleaned.main_image) { next.cleaned = { ...next.cleaned, main_image: n }; setPreviewImage(n); }
-                  else { next.cleaned = { ...next.cleaned, other_images: prev.cleaned.other_images?.map(x => x === u ? n : x) }; }
-                  onUpdate(next); syncToSupabase(next); return next;
-                });
+                const next = { ...localListing };
+                if(u === next.cleaned.main_image) { 
+                  next.cleaned = { ...next.cleaned, main_image: n }; 
+                  setPreviewImage(n); 
+                } else { 
+                  next.cleaned = { ...next.cleaned, other_images: next.cleaned.other_images?.map(x => x === u ? n : x) }; 
+                }
+                setLocalListing(next); onUpdate(next); syncToSupabase(next);
                 setIsProcessingImages(false);
               }} 
               setShowEditor={setShowImageEditor} 
@@ -310,19 +344,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         <ImageEditor 
           imageUrl={previewImage} 
           onClose={() => setShowImageEditor(false)} 
-          onSave={u => { 
-            setLocalListing(prev => {
-              const next = { ...prev };
-              if (previewImage === prev.cleaned.main_image) { next.cleaned = { ...next.cleaned, main_image: u }; } 
-              else {
-                const others = [...(prev.cleaned.other_images || [])];
-                const idx = others.indexOf(previewImage);
-                if (idx !== -1) { others[idx] = u; next.cleaned = { ...next.cleaned, other_images: others }; }
-              }
-              setPreviewImage(u); onUpdate(next); syncToSupabase(next); return next;
-            });
-            setShowImageEditor(false); 
-          }} 
+          onSave={handleImageEditorSave} 
           uiLang={uiLang} 
         />
       )}
@@ -335,10 +357,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           const data = await res.json(); 
           const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url; 
           if (u) {
-            setLocalListing(prev => {
-              const next = { ...prev, cleaned: { ...prev.cleaned, other_images: [...(prev.cleaned.other_images || []), u] } };
-              setPreviewImage(u); onUpdate(next); syncToSupabase(next); return next;
-            });
+            const next = { ...localListing, cleaned: { ...localListing.cleaned, other_images: [...(localListing.cleaned.other_images || []), u] } };
+            setLocalListing(next); setPreviewImage(u); onUpdate(next); syncToSupabase(next);
           }
         } catch(err) {} finally { setIsSaving(false); }
       }} />
