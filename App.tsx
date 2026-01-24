@@ -35,10 +35,16 @@ const App: React.FC = () => {
   useEffect(() => { viewRef.current = view; }, [view]);
 
   const fetchListings = useCallback(async (orgId: string) => {
-    if (!isSupabaseConfigured()) return;
+    if (!isSupabaseConfigured() || !orgId) return;
     setIsSyncing(true);
     try {
-      const { data } = await supabase.from('listings').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('listings')
+        .select('*')
+        .eq('org_id', orgId)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
       if (data) setListings(data);
     } catch (e) {
       console.error("Fetch listings error:", e);
@@ -90,7 +96,8 @@ const App: React.FC = () => {
       if (profile?.org_id) {
         const { data: orgData } = await supabase.from('organizations').select('*').eq('id', profile.org_id).maybeSingle();
         setOrg(orgData);
-        await fetchListings(profile.org_id);
+        // 重要：不要 await 这里的 fetchListings，让 UI 优先显示
+        fetchListings(profile.org_id);
       }
 
       setUserProfile(profile);
@@ -103,6 +110,7 @@ const App: React.FC = () => {
       console.error("Identity error:", err);
       setView(AppView.AUTH);
     } finally {
+      // 这里的 setLoading(false) 将在 profile 获取后立即执行，不再等待 listing 列表下载
       setLoading(false);
     }
   }, [fetchListings]);
@@ -207,9 +215,24 @@ const App: React.FC = () => {
         ) : null;
       default:
         if (activeTab === 'listings') {
-          return <ListingsManager onSelectListing={handleSelectListing} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} isInitialLoading={isSyncing} />;
+          return <ListingsManager 
+            onSelectListing={handleSelectListing} 
+            listings={listings} 
+            setListings={setListings} 
+            lang={lang} 
+            refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} 
+            isInitialLoading={isSyncing} 
+          />;
         }
-        return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} onSelectListing={handleSelectListing} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
+        return <Dashboard 
+          listings={listings} 
+          lang={lang} 
+          userProfile={userProfile} 
+          onNavigate={handleTabChange} 
+          onSelectListing={handleSelectListing} 
+          isSyncing={isSyncing} 
+          onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} 
+        />;
     }
   };
 
