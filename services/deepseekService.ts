@@ -3,43 +3,31 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are an expert Amazon Listing Optimizer. Return ONLY flat JSON.
-Keys: optimized_title, optimized_features (array), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
-[UNIT RULE]: Always use FULL names for units in the TARGET language.
-PROHIBITED: Strictly NO Car or Motorcycle Brand Names (Honda, BMW, Yamaha, Kawasaki, etc.).
+Optimize Amazon Listing. 
+1. TITLE < 200 chars.
+2. 5 BULLETS < 250 chars each, starting with Keyword.
+3. DESCRIPTION 1000 - 1700 chars.
+4. NO brands, ads, extreme words, or car/moto brands.
+Return ONLY flat JSON.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
-  result.optimized_title = raw.optimized_title || raw.title || "";
-  result.optimized_description = raw.optimized_description || raw.description || raw.desc || "";
-  result.search_keywords = raw.search_keywords || raw.keywords || "";
-  let feats = raw.optimized_features || raw.features || raw.bullet_points || [];
-  if (typeof feats === 'string') feats = feats.split('\n').filter(Boolean);
-  if (!Array.isArray(feats)) feats = [];
-  const finalFeats = ["", "", "", "", ""];
-  feats.forEach((f, i) => { if(i < 10) finalFeats[i] = String(f); });
-  result.optimized_features = finalFeats.filter(Boolean);
-  if (result.optimized_features.length < 5) {
-    while(result.optimized_features.length < 5) result.optimized_features.push("");
-  }
+  result.optimized_title = String(raw.optimized_title || "").slice(0, 200);
+  result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
+  result.search_keywords = String(raw.search_keywords || "").slice(0, 250);
+  let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
+  result.optimized_features = feats.slice(0, 5).map((f: any) => String(f).slice(0, 250));
+  while (result.optimized_features.length < 5) result.optimized_features.push("");
   
-  result.optimized_weight_value = String(raw.optimized_weight_value || raw.weight_value || "");
-  result.optimized_weight_unit = String(raw.optimized_weight_unit || raw.weight_unit || "");
-  result.optimized_length = String(raw.optimized_length || raw.length || "");
-  result.optimized_width = String(raw.optimized_width || raw.width || "");
-  result.optimized_height = String(raw.optimized_height || raw.height || "");
-  result.optimized_size_unit = String(raw.optimized_size_unit || raw.size_unit || "");
+  result.optimized_weight_value = String(raw.optimized_weight_value || "");
+  result.optimized_weight_unit = String(raw.optimized_weight_unit || "");
+  result.optimized_length = String(raw.optimized_length || "");
+  result.optimized_width = String(raw.optimized_width || "");
+  result.optimized_height = String(raw.optimized_height || "");
+  result.optimized_size_unit = String(raw.optimized_size_unit || "");
   
   return result as OptimizedData;
-};
-
-const extractJSONObject = (text: string) => {
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    return JSON.parse(match[0]);
-  } catch (e) { return null; }
 };
 
 export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Promise<OptimizedData> => {
@@ -54,29 +42,23 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
-        { role: "system", content: "Amazon copywriter. Output JSON. Use FULL unit names. Strictly No car/motorcycle brands." },
+        { role: "system", content: "Amazon copywriter. JSON only. No brands." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       response_format: { type: "json_object" }
     })
   });
-  if (!response.ok) throw new Error(`DeepSeek API Error: ${response.status}`);
+  if (!response.ok) throw new Error(`DeepSeek Error: ${response.status}`);
   const data = await response.json();
-  const raw = extractJSONObject(data.choices?.[0]?.message?.content || "{}");
-  return normalizeOptimizedData(raw || {});
+  const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
+  return normalizeOptimizedData(raw);
 };
 
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DeepSeek API Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
-  const prompt = `
-    Translate listing to "${targetLangName}". 
-    STRICT: If the target is already "${targetLangName}", keep language consistent and just optimize the style. DO NOT use Japanese or other languages.
-    STRICT: Use FULL unit names in "${targetLangName}" language.
-    STRICT: NO car/motorcycle brands.
-    Data: ${JSON.stringify(sourceData)}
-  `;
+  const prompt = `Translate to "${targetLangName}". Title<200, Bullets<250. Data: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
@@ -89,8 +71,7 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
       response_format: { type: "json_object" }
     })
   });
-  if (!response.ok) throw new Error(`DeepSeek Translate API Error: ${response.status}`);
   const data = await response.json();
-  const raw = extractJSONObject(data.choices?.[0]?.message?.content || "{}");
-  return normalizeOptimizedData(raw || {});
+  const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
+  return normalizeOptimizedData(raw);
 };

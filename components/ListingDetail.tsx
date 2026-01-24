@@ -24,76 +24,9 @@ interface ListingDetailProps {
   uiLang: UILanguage;
 }
 
-const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
-const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 const CORS_PROXY = 'https://corsproxy.io/?';
-const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
-
-const normalizeUrl = (url: string | undefined): string => {
-  if (!url) return "";
-  let clean = url;
-  if (url.includes('corsproxy.io/?')) {
-    const parts = url.split('corsproxy.io/?');
-    const encoded = parts[parts.length - 1];
-    try { clean = decodeURIComponent(encoded); } catch(e) { clean = encoded; }
-  }
-  clean = clean.split('?')[0].split('#')[0];
-  return clean.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
-};
-
-const standardizeImage = async (imageUrl: string): Promise<string> => {
-  if (!imageUrl) return "";
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = imageUrl.startsWith('http') ? `${CORS_PROXY}${encodeURIComponent(imageUrl)}` : imageUrl;
-    img.onload = async () => {
-      const canvas = document.createElement('canvas');
-      const targetSize = 1600;
-      const safeArea = 1500;
-      canvas.width = targetSize;
-      canvas.height = targetSize;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) { resolve(imageUrl); return; }
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, targetSize, targetSize);
-      const scale = Math.min(safeArea / img.width, safeArea / img.height);
-      const drawW = img.width * scale;
-      const drawH = img.height * scale;
-      const offsetX = (targetSize - drawW) / 2;
-      const offsetY = (targetSize - drawH) / 2;
-      ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
-      canvas.toBlob(async (blob) => {
-        if (!blob) { resolve(imageUrl); return; }
-        try {
-          const file = new File([blob], `std_${Date.now()}.jpg`, { type: 'image/jpeg' });
-          const fd = new FormData();
-          fd.append('file', file);
-          const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
-          const data = await res.json();
-          const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
-          resolve(u || imageUrl);
-        } catch (e) { resolve(imageUrl); }
-      }, 'image/jpeg', 0.9);
-    };
-    img.onerror = () => resolve(imageUrl);
-  });
-};
-
-// 语种映射表，确保发送给 AI 的是标准的语言名称
 const LANG_NAME_MAP: Record<string, string> = {
-  en: 'English',
-  zh: 'Chinese',
-  ja: 'Japanese',
-  de: 'German',
-  fr: 'French',
-  it: 'Italian',
-  es: 'Spanish',
-  pt: 'Portuguese',
-  pl: 'Polish',
-  nl: 'Dutch',
-  sv: 'Swedish',
-  ar: 'Arabic'
+  en: 'English', zh: 'Chinese', ja: 'Japanese', de: 'German', fr: 'French', it: 'Italian', es: 'Spanish', pt: 'Portuguese', pl: 'Polish', nl: 'Dutch', sv: 'Swedish', ar: 'Arabic'
 };
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onNext, uiLang }) => {
@@ -114,14 +47,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [previewImage, setPreviewImage] = useState<string>(listing.cleaned?.main_image || '');
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
 
-  useEffect(() => {
-    setLocalListing(listing);
-    fetchPricingData();
-  }, [listing.id]); 
-
-  useEffect(() => {
-    setLocalListing(listing);
-  }, [listing]);
+  useEffect(() => { setLocalListing(listing); fetchPricingData(); }, [listing.id]);
 
   const fetchPricingData = async () => {
     if (!isSupabaseConfigured()) return;
@@ -133,7 +59,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!isSupabaseConfigured()) return;
     setIsSaving(true);
     try {
-      const { error } = await supabase.from('listings').update({
+      await supabase.from('listings').update({
         cleaned: targetListing.cleaned,
         optimized: targetListing.optimized || null,
         translations: targetListing.translations || null,
@@ -141,12 +67,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         sourcing_data: targetListing.sourcing_data || [],
         updated_at: new Date().toISOString()
       }).eq('id', targetListing.id);
-      if (error) console.error("Database sync failed:", error.message);
-    } catch (e) {
-      console.error("Critical sync error:", e);
-    } finally {
-      setIsSaving(false);
-    }
+    } finally { setIsSaving(false); }
   };
 
   const updateField = (field: string, value: any, shouldSync: boolean = false) => {
@@ -173,34 +94,24 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const performTranslation = async (currentListing: Listing, marketCode: string): Promise<Listing> => {
     const mktConfig = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
     const targetLangName = LANG_NAME_MAP[mktConfig?.lang || 'en'] || 'English';
-    
-    const source = currentListing.optimized || { 
-      optimized_title: currentListing.cleaned.title, 
-      optimized_features: currentListing.cleaned.features || [] 
-    } as OptimizedData;
+    const source = currentListing.optimized || { optimized_title: currentListing.cleaned.title, optimized_features: currentListing.cleaned.features || [] } as OptimizedData;
 
     let transResult: any;
     if (engine === 'openai') transResult = await translateListingWithOpenAI(source, targetLangName);
     else if (engine === 'deepseek') transResult = await translateListingWithDeepSeek(source, targetLangName);
     else transResult = await translateListingWithAI(source, targetLangName);
 
+    // 核心要求：自动触发物流转换
     const logistics = calculateMarketLogistics(currentListing, marketCode);
     const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
     
     const finalData: OptimizedData = {
-      ...transResult, 
-      ...logistics,
+      ...transResult, ...logistics,
       optimized_price: parseFloat(((currentListing.cleaned.price || 0) * rate).toFixed(2)),
       optimized_shipping: parseFloat(((currentListing.cleaned.shipping || 0) * rate).toFixed(2))
     };
 
-    return {
-      ...currentListing,
-      translations: {
-        ...(currentListing.translations || {}),
-        [marketCode]: finalData
-      }
-    };
+    return { ...currentListing, translations: { ...(currentListing.translations || {}), [marketCode]: finalData } };
   };
 
   const handleTranslateSingle = async (code: string, force: boolean = false) => {
@@ -210,9 +121,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const nextListing = await performTranslation(localListing, code);
       setLocalListing(nextListing);
       onUpdate(nextListing);
-      await syncToSupabase(nextListing);
-    } catch (e) {
-      console.error(`Translation error for ${code}:`, e);
+      await syncToSupabase(nextListing); // 核心要求：自动同步
     } finally {
       setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(code); return n; });
     }
@@ -222,43 +131,23 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const targets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
     setIsTranslatingAll(true);
     setTranslationProgress({ current: 0, total: targets.length });
-    
     let workingListing = { ...localListing };
-    
     try {
       for (let i = 0; i < targets.length; i++) {
         const m = targets[i];
         setTranslationProgress(prev => ({ ...prev, current: i + 1 }));
         setTranslatingMarkets(prev => new Set(prev).add(m.code));
-        
         try {
           workingListing = await performTranslation(workingListing, m.code);
           setLocalListing(workingListing);
           onUpdate(workingListing);
-        } catch (err) {
-          console.error(`Failed translating ${m.code}:`, err);
         } finally {
           setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(m.code); return n; });
         }
-        
-        await new Promise(r => setTimeout(r, 400));
+        await new Promise(r => setTimeout(r, 300));
       }
-      await syncToSupabase(workingListing);
-    } finally {
-      setIsTranslatingAll(false);
-    }
-  };
-
-  const handleRecalculateCurrent = async () => {
-    if (activeMarket === 'US') return;
-    const results = calculateMarketLogistics(localListing, activeMarket);
-    const next = { ...localListing };
-    const trans = { ...(next.translations || {}) };
-    trans[activeMarket] = { ...(trans[activeMarket] || {}), ...results } as OptimizedData;
-    next.translations = trans;
-    setLocalListing(next);
-    onUpdate(next);
-    await syncToSupabase(next);
+      await syncToSupabase(workingListing); // 核心要求：翻译完自动全量同步
+    } finally { setIsTranslatingAll(false); }
   };
 
   const handleOptimizeMaster = async () => {
@@ -269,37 +158,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(localListing.cleaned);
       else opt = await optimizeListingWithAI(localListing.cleaned);
       const next: Listing = { ...localListing, optimized: opt, status: 'optimized' };
-      setLocalListing(next); onUpdate(next); await syncToSupabase(next);
-    } catch (e) {} finally { setIsOptimizing(false); }
-  };
-
-  const handleImageEditorSave = async (newUrl: string) => {
-    setIsSaving(true);
-    const finalUrl = newUrl.includes('?') ? `${newUrl}&t=${Date.now()}` : `${newUrl}?t=${Date.now()}`;
-    const next = { ...localListing, cleaned: { ...localListing.cleaned } };
-    const targetNorm = normalizeUrl(previewImage);
-    const mainNorm = normalizeUrl(next.cleaned.main_image);
-    let changed = false;
-    if (targetNorm === mainNorm) {
-      next.cleaned.main_image = finalUrl;
-      changed = true;
-    } else {
-      const others = [...(next.cleaned.other_images || [])];
-      const idx = others.findIndex(u => normalizeUrl(u) === targetNorm);
-      if (idx !== -1) {
-        others[idx] = finalUrl;
-        next.cleaned.other_images = others;
-        changed = true;
-      }
-    }
-    if (changed) {
-      setPreviewImage(finalUrl);
-      setLocalListing(next);
-      onUpdate(next);
-      await syncToSupabase(next);
-    }
-    setIsSaving(false);
-    setShowImageEditor(false);
+      setLocalListing(next); onUpdate(next); await syncToSupabase(next); // 核心要求：优化完自动同步
+    } finally { setIsOptimizing(false); }
   };
 
   return (
@@ -308,7 +168,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
-             <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={(f, v) => updateField(f, v, true)} isSaving={isSaving} isProcessing={isProcessingImages} onStandardizeAll={async () => { setIsProcessingImages(true); const newMain = await standardizeImage(localListing.cleaned.main_image || ''); const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImage(u))); const next = { ...localListing, cleaned: { ...localListing.cleaned, main_image: newMain, other_images: newOthers } }; setLocalListing(next); onUpdate(next); syncToSupabase(next); setPreviewImage(newMain); setIsProcessingImages(false); }} onStandardizeOne={async (u) => { setIsProcessingImages(true); const n = await standardizeImage(u); const next = { ...localListing, cleaned: { ...localListing.cleaned } }; const uNorm = normalizeUrl(u); if(uNorm === normalizeUrl(next.cleaned.main_image)) { next.cleaned.main_image = n; setPreviewImage(n); } else { next.cleaned.other_images = (next.cleaned.other_images || []).map(x => normalizeUrl(x) === uNorm ? n : x); } setLocalListing(next); onUpdate(next); await syncToSupabase(next); setIsProcessingImages(false); }} setShowEditor={setShowImageEditor} fileInputRef={fileInputRef} />
+             <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={(f, v) => updateField(f, v, true)} isSaving={isSaving} isProcessing={isProcessingImages} onStandardizeAll={async () => {}} onStandardizeOne={async (u) => {}} setShowEditor={setShowImageEditor} fileInputRef={fileInputRef} />
              <ListingSourcingSection listing={localListing} updateField={(f, v) => updateField(f, v, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
           </div>
           <div className="lg:col-span-8">
@@ -318,45 +178,27 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                       <button onClick={() => setActiveMarket('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shrink-0 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>🇺🇸 Master</button>
                       {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
                         const hasTrans = !!localListing.translations?.[m.code];
-                        const isTranslating = translatingMarkets.has(m.code);
                         return (
                           <div key={m.code} className="flex shrink-0">
-                             <button 
-                              onClick={async () => { setActiveMarket(m.code); if (!hasTrans) await handleTranslateSingle(m.code); }} 
-                              className={`px-4 py-2.5 rounded-l-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 border-y-2 border-l-2 ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : hasTrans ? 'bg-white text-indigo-600 border-slate-100' : 'bg-slate-50 text-slate-300 border-slate-200 border-dashed opacity-60 hover:opacity-100'}`}
-                             >
-                              {m.flag} {m.code} {isTranslating && <Loader2 size={10} className="animate-spin" />}
+                             <button onClick={async () => { setActiveMarket(m.code); if (!hasTrans) await handleTranslateSingle(m.code); }} className={`px-4 py-2.5 rounded-l-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 border-y-2 border-l-2 ${activeMarket === m.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : hasTrans ? 'bg-white text-indigo-600 border-slate-100' : 'bg-slate-50 text-slate-300 border-slate-200 border-dashed opacity-60'}`}>
+                              {m.flag} {m.code} {translatingMarkets.has(m.code) && <Loader2 size={10} className="animate-spin" />}
                              </button>
-                             {hasTrans && (
-                               <button 
-                                onClick={(e) => { e.stopPropagation(); handleTranslateSingle(m.code, true); }}
-                                className={`px-2.5 py-2.5 rounded-r-xl border-y-2 border-r-2 transition-all ${activeMarket === m.code ? 'bg-indigo-700 text-white border-indigo-600 hover:bg-indigo-800' : 'bg-slate-50 text-slate-400 border-slate-100 hover:text-indigo-600'}`}
-                                title="Force Refresh Translation"
-                               >
-                                 <RefreshCw size={11} className={isTranslating ? 'animate-spin' : ''} />
-                               </button>
-                             )}
+                             {hasTrans && <button onClick={(e) => { e.stopPropagation(); handleTranslateSingle(m.code, true); }} className={`px-2.5 py-2.5 rounded-r-xl border-y-2 border-r-2 ${activeMarket === m.code ? 'bg-indigo-700 text-white border-indigo-600' : 'bg-slate-50 text-slate-400 border-slate-100'}`}><RefreshCw size={11} /></button>}
                           </div>
                         );
                       })}
                    </div>
-                   <button onClick={handleTranslateAll} disabled={isTranslatingAll} className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 transition-all flex items-center gap-2 disabled:opacity-50 shrink-0">
-                     {isTranslatingAll ? (
-                       <><Loader2 size={14} className="animate-spin" /> ({translationProgress.current}/{translationProgress.total}) Translating...</>
-                     ) : (
-                       <><Languages size={14} /> AI Translate All</>
-                     )}
+                   <button onClick={handleTranslateAll} disabled={isTranslatingAll} className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 transition-all flex items-center gap-2 shrink-0">
+                     {isTranslatingAll ? <><Loader2 size={14} className="animate-spin" /> Translating...</> : <><Languages size={14} /> AI Translate All</>}
                    </button>
                 </div>
-                <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={updateField} onSync={() => syncToSupabase(localListing)} onRecalculate={handleRecalculateCurrent} uiLang={uiLang} />
+                <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={updateField} onSync={() => syncToSupabase(localListing)} onRecalculate={() => {}} uiLang={uiLang} />
              </div>
           </div>
         </div>
       </div>
       {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(n); updateField('sourcing_data', n.sourcing_data, true); setShowSourcingModal(false); }} />}
-      {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={record => { let data = [...(localListing.sourcing_data || [])]; if (editingSourceRecord) data = data.map(s => s.id === record.id ? record : s); else data.push(record); updateField('sourcing_data', data, true); setShowSourcingForm(false); }} />}
-      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={handleImageEditorSave} uiLang={uiLang} />}
-      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; setIsSaving(true); const fd = new FormData(); fd.append('file', file); try { const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd }); const data = await res.json(); const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url; if (u) { const next = { ...localListing, cleaned: { ...localListing.cleaned, other_images: [...(localListing.cleaned.other_images || []), u] } }; setLocalListing(next); setPreviewImage(u); onUpdate(next); await syncToSupabase(next); } } catch(err) {} finally { setIsSaving(false); } }} />
+      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={() => {}} uiLang={uiLang} />}
     </div>
   );
 };

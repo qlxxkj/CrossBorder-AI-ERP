@@ -23,7 +23,7 @@ const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [org, setOrg] = useState<Organization | null>(null);
-  const [loading, setLoading] = useState(true); // 全局挂载加载
+  const [isInitializing, setIsInitializing] = useState(true); // 仅用于首次启动
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -50,7 +50,7 @@ const App: React.FC = () => {
       if (error) throw error;
       setListings(data || []);
     } catch (e) {
-      console.error("Fetch listings failed:", e);
+      console.error("Fetch listings error:", e);
     } finally {
       setIsSyncing(false);
     }
@@ -58,7 +58,7 @@ const App: React.FC = () => {
 
   const fetchIdentity = useCallback(async (userId: string, currentSession: any) => {
     if (!isSupabaseConfigured()) {
-      setLoading(false);
+      setIsInitializing(false);
       return;
     }
 
@@ -73,25 +73,8 @@ const App: React.FC = () => {
 
       if (!profile) {
         const newOrgId = crypto.randomUUID();
-        await supabase.from('organizations').insert([{
-          id: newOrgId,
-          name: `Org_${userId.slice(0, 5)}`,
-          owner_id: userId,
-          plan_type: 'Free',
-          credits_total: 100,
-          credits_used: 0
-        }]);
-        
-        const { data: newProfile } = await supabase.from('user_profiles').insert([{
-          id: userId,
-          org_id: newOrgId,
-          role: 'tenant_admin',
-          email: currentSession?.user?.email,
-          plan_type: 'Free',
-          credits_total: 100,
-          credits_used: 0
-        }]).select().single();
-        
+        await supabase.from('organizations').insert([{ id: newOrgId, name: `Org_${userId.slice(0, 5)}`, owner_id: userId, plan_type: 'Free', credits_total: 100, credits_used: 0 }]);
+        const { data: newProfile } = await supabase.from('user_profiles').insert([{ id: userId, org_id: newOrgId, role: 'tenant_admin', email: currentSession?.user?.email, plan_type: 'Free', credits_total: 100, credits_used: 0 }]).select().single();
         profile = newProfile;
       }
 
@@ -102,16 +85,14 @@ const App: React.FC = () => {
       }
 
       setUserProfile(profile);
-
       if (viewRef.current === AppView.LANDING || viewRef.current === AppView.AUTH) {
         setView(AppView.DASHBOARD);
         setActiveTab('dashboard');
       }
     } catch (err) {
-      console.error("Identity error:", err);
-      setView(AppView.AUTH);
+      console.error("Identity failure:", err);
     } finally {
-      setLoading(false);
+      setIsInitializing(false);
     }
   }, [fetchListings]);
 
@@ -122,32 +103,23 @@ const App: React.FC = () => {
         sessionRef.current = cur.user.id;
         fetchIdentity(cur.user.id, cur);
       } else {
-        setLoading(false);
+        setIsInitializing(false);
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!newSession) {
-        setSession(null);
-        setUserProfile(null);
-        setOrg(null);
-        setListings([]);
-        setView(AppView.LANDING);
-        setLoading(false);
-        sessionRef.current = null;
+        setSession(null); setUserProfile(null); setOrg(null); setListings([]);
+        setView(AppView.LANDING); setIsInitializing(false); sessionRef.current = null;
         return;
       }
-
       if (newSession.user.id === sessionRef.current) {
-        setSession(newSession);
-        return;
+        setSession(newSession); return;
       }
-
       sessionRef.current = newSession.user.id;
       setSession(newSession);
       fetchIdentity(newSession.user.id, newSession);
     });
-    
     return () => subscription.unsubscribe();
   }, [fetchIdentity]);
 
@@ -155,11 +127,8 @@ const App: React.FC = () => {
     setActiveTab(tab);
     if (tab.startsWith('system:')) {
       const sub = tab.split(':')[1] as any;
-      setSystemSubTab(sub);
-      setView(AppView.SYSTEM_MGMT);
-      return;
+      setSystemSubTab(sub); setView(AppView.SYSTEM_MGMT); return;
     }
-
     switch(tab) {
       case 'dashboard': setView(AppView.DASHBOARD); break;
       case 'listings': setView(AppView.LISTINGS); break;
@@ -178,47 +147,13 @@ const App: React.FC = () => {
     setView(AppView.LISTING_DETAIL);
   };
 
-  const handleLandingLoginClick = () => {
-    if (session && userProfile) {
-      setView(AppView.DASHBOARD);
-      setActiveTab('dashboard');
-    } else {
-      setView(AppView.AUTH);
-    }
-  };
-
   const renderContent = () => {
     try {
-      if (view === AppView.ADMIN && !(userProfile?.role === 'super_admin' || userProfile?.role === 'admin')) {
-        return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
-      }
-
       switch(view) {
         case AppView.LISTINGS:
-          return (
-            <ListingsManager 
-              key={`list-view-${listings.length}`} 
-              onSelectListing={handleSelectListing} 
-              listings={listings || []} 
-              setListings={setListings} 
-              lang={lang} 
-              refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} 
-              isInitialLoading={isSyncing} 
-            />
-          );
+          return <ListingsManager key="list-view-fixed" onSelectListing={handleSelectListing} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} isInitialLoading={isSyncing} />;
         case AppView.LISTING_DETAIL:
-          return selectedListing ? (
-            <ListingDetail 
-              listing={selectedListing} 
-              onBack={() => setView(AppView.LISTINGS)} 
-              onUpdate={(u) => { setListings(prev => prev.map(l => l.id === u.id ? u : l)); setSelectedListing(u); }}
-              onNext={() => {
-                const idx = listings.findIndex(l => l.id === selectedListing.id);
-                if (idx < listings.length - 1) handleSelectListing(listings[idx + 1]);
-              }}
-              uiLang={lang} 
-            />
-          ) : <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
+          return selectedListing ? <ListingDetail listing={selectedListing} onBack={() => setView(AppView.LISTINGS)} onUpdate={(u) => { setListings(prev => prev.map(l => l.id === u.id ? u : l)); setSelectedListing(u); }} onNext={() => { const idx = listings.findIndex(l => l.id === selectedListing.id); if (idx < listings.length - 1) handleSelectListing(listings[idx + 1]); }} uiLang={lang} /> : <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
@@ -227,42 +162,23 @@ const App: React.FC = () => {
         case AppView.SYSTEM_MGMT: return <SystemManagement uiLang={lang} orgId={userProfile?.org_id || ''} orgData={org} onOrgUpdate={setOrg} activeSubTab={systemSubTab} onSubTabChange={setSystemSubTab} />;
         case AppView.DASHBOARD:
         default:
-          return (
-            <Dashboard 
-              listings={listings} 
-              lang={lang} 
-              userProfile={userProfile} 
-              onNavigate={handleTabChange} 
-              onSelectListing={handleSelectListing} 
-              isSyncing={isSyncing} 
-              onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} 
-            />
-          );
+          return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} onSelectListing={handleSelectListing} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
       }
     } catch (err) {
-      console.error("Render Content Error:", err);
       return (
         <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4">
-          <AlertCircle size={48} className="text-red-500" />
-          <h3 className="text-xl font-black">Content Load Failure</h3>
-          <p className="text-slate-500 max-w-md">An unexpected error occurred while rendering this page. This is usually caused by incompatible data formats.</p>
-          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest">Reload Application</button>
+          <AlertCircle size={48} className="text-red-500" /><h3 className="text-xl font-black">Framework Load Error</h3>
+          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs">Reload App</button>
         </div>
       );
     }
   };
 
-  if (loading) {
+  if (isInitializing) {
     return (
-      <div className="h-screen w-full flex flex-col items-center justify-center bg-white space-y-6">
-        <div className="relative">
-          <div className="w-16 h-16 border-4 border-indigo-100 rounded-full animate-pulse"></div>
-          <Loader2 className="absolute inset-0 m-auto animate-spin text-indigo-600" size={32} />
-        </div>
-        <div className="flex flex-col items-center gap-1">
-           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Authenticating Session</p>
-           <p className="text-[8px] font-bold text-slate-300 uppercase italic">AMZBot Core Engine</p>
-        </div>
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-white">
+        <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Initial Booting...</p>
       </div>
     );
   }
@@ -272,25 +188,13 @@ const App: React.FC = () => {
   return (
     <div className="flex min-h-screen bg-slate-50">
       {showSidebar && (
-        <Sidebar 
-          activeTab={activeTab} 
-          setActiveTab={handleTabChange} 
-          lang={lang} 
-          userProfile={userProfile} 
-          session={session} 
-          onLogout={() => supabase.auth.signOut()} 
-          onLogoClick={() => setView(AppView.LANDING)} 
-        />
+        <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} lang={lang} userProfile={userProfile} session={session} onLogout={() => supabase.auth.signOut()} onLogoClick={() => setView(AppView.LANDING)} />
       )}
       <main className={`${showSidebar ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative`}>
-        <div className="h-full overflow-y-auto custom-scrollbar bg-slate-50">
-          {view === AppView.LANDING ? (
-            <LandingPage onLogin={handleLandingLoginClick} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} />
-          ) : view === AppView.AUTH ? (
-            <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => setView(AppView.LANDING)} />
-          ) : (
-            renderContent()
-          )}
+        <div className="h-full overflow-y-auto custom-scrollbar">
+          {view === AppView.LANDING ? <LandingPage onLogin={() => setView(AppView.AUTH)} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
+           view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => setView(AppView.LANDING)} /> :
+           renderContent()}
         </div>
       </main>
     </div>
