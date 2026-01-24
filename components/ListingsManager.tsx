@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Search, CheckCircle, Trash2, Download, Package, 
   Loader2, Globe, ChevronLeft, ChevronRight, 
-  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink, Edit3
+  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink, Edit3, DollarSign
 } from 'lucide-react';
 import { Listing, UILanguage, Category } from '../types';
 import { useTranslation } from '../lib/i18n';
@@ -41,6 +41,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBatchUpdating, setIsBatchUpdating] = useState(false);
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+  const [batchCategoryId, setBatchCategoryId] = useState('');
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -74,6 +75,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     if (!error) {
       alert(lang === 'zh' ? "分类修改成功！" : "Category updated!");
       setSelectedIds(new Set());
+      setBatchCategoryId(''); // 重置下拉选项
       refreshListings();
     }
     setIsBatchUpdating(false);
@@ -198,10 +200,16 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
         </div>
 
         <div className="flex flex-wrap gap-3 w-full xl:w-auto">
-           {/* 常驻显示批量操作按钮 */}
            <div className={`flex gap-2 items-center bg-indigo-50 px-5 py-2 rounded-[2rem] border border-indigo-100 transition-opacity ${selectedIds.size === 0 ? 'opacity-50 pointer-events-none grayscale' : 'opacity-100'}`}>
               <span className="text-[10px] font-black text-indigo-600 uppercase">Batch:</span>
-              <select onChange={(e) => handleBulkUpdateCategory(e.target.value)} className="bg-white border border-indigo-200 rounded-xl text-[10px] font-black px-3 py-1.5 outline-none">
+              <select 
+                value={batchCategoryId}
+                onChange={(e) => {
+                  setBatchCategoryId(e.target.value);
+                  handleBulkUpdateCategory(e.target.value);
+                }} 
+                className="bg-white border border-indigo-200 rounded-xl text-[10px] font-black px-3 py-1.5 outline-none"
+              >
                 <option value="">Move to...</option>
                 <option value="NONE">None</option>
                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -240,6 +248,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                 <th className="p-8">Status</th>
                 <th className="p-8">Category</th>
                 <th className="p-8">ASIN</th>
+                <th className="p-8">Price</th>
                 <th className="p-8 w-1/4">Title</th>
                 <th className="p-8 text-right">Actions</th>
               </tr>
@@ -250,8 +259,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                    const catName = categories.find(c => c.id === listing.category_id)?.name || '-';
                    const mkt = AMAZON_MARKETPLACES.find(m => m.code === listing.marketplace);
                    const sequenceNum = (currentPage - 1) * itemsPerPage + index + 1;
+                   const price = listing.cleaned?.price || 0;
                    return (
-                    <tr key={listing.id} className={`hover:bg-slate-50 transition-all group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/20' : ''}`} onClick={() => onSelectListing(listing)}>
+                    <tr key={listing.id} className={`hover:bg-slate-50/50 transition-all group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/20' : ''}`} onClick={() => onSelectListing(listing)}>
                       <td className="p-8 text-center" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" className="w-5 h-5 rounded-lg border-slate-300 text-indigo-600 cursor-pointer" checked={selectedIds.has(listing.id)} onChange={(e) => toggleSelectOne(listing.id, e as any)} />
                       </td>
@@ -293,6 +303,12 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                           <span className="block mt-1 text-[8px] font-black text-slate-300 uppercase">{mkt?.flag} {listing.marketplace}</span>
                         </div>
                       </td>
+                      <td className="p-8">
+                        <div className="flex flex-col">
+                          <span className="text-xs font-black text-slate-900">{mkt?.currency}{price.toFixed(2)}</span>
+                          <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">{mkt?.name}</span>
+                        </div>
+                      </td>
                       <td className="p-8"><p className="text-xs font-bold text-slate-800 line-clamp-2 leading-relaxed">{title}</p></td>
                       <td className="p-8 text-right">
                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
@@ -306,7 +322,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               }
               {paginatedListings.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="p-20 text-center text-slate-300 font-black uppercase tracking-widest text-sm italic">
+                  <td colSpan={9} className="p-20 text-center text-slate-300 font-black uppercase tracking-widest text-sm italic">
                     No matching listings found.
                   </td>
                 </tr>
