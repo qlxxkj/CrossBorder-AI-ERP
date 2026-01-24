@@ -182,8 +182,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     canvas.getContext('2d')!.drawImage(tempCanvas, 0, 0);
     
     // Sync other layers
-    if (maskCanvasRef.current) { maskCanvasRef.current.width = w; maskCanvasRef.current.height = h; }
-    if (overlayCanvasRef.current) { overlayCanvasRef.current.width = w; overlayCanvasRef.current.height = h; }
+    if (maskCanvasRef.current) { 
+      const mTemp = document.createElement('canvas');
+      mTemp.width = w; mTemp.height = h;
+      mTemp.getContext('2d')!.drawImage(maskCanvasRef.current, x, y, w, h, 0, 0, w, h);
+      maskCanvasRef.current.width = w; 
+      maskCanvasRef.current.height = h; 
+      maskCanvasRef.current.getContext('2d')!.drawImage(mTemp, 0, 0);
+    }
+    if (overlayCanvasRef.current) { 
+      overlayCanvasRef.current.width = w; 
+      overlayCanvasRef.current.height = h; 
+    }
     
     // Adjust objects coordinates relative to new crop
     const updatedObjects = objects.map(obj => ({
@@ -336,7 +346,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const handleStart = (e: React.MouseEvent | React.TouchEvent) => {
     const pos = getMousePos(e);
 
-    // NEW: Handle crop confirmation via left click outside the selection
+    // Handle crop confirmation via left click outside the selection
     if (currentTool === 'crop' && selection) {
       const xMin = Math.min(selection.x1, selection.x2);
       const xMax = Math.max(selection.x1, selection.x2);
@@ -345,7 +355,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       
       const isOutside = pos.x < xMin || pos.x > xMax || pos.y < yMin || pos.y > yMax;
       
-      // If it's a left click (or touch) outside the crop area, confirm crop
       if (isOutside && !('touches' in e && (e as any).button !== 0)) {
         executeCrop();
         return;
@@ -505,35 +514,64 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const handleStandardizeAction = () => {
     const canvas = canvasRef.current; if (!canvas) return;
-    const temp = document.createElement('canvas'); 
-    temp.width = 1600; 
-    temp.height = 1600;
-    const tCtx = temp.getContext('2d')!; 
-    tCtx.fillStyle = '#FFFFFF'; 
-    tCtx.fillRect(0, 0, 1600, 1600);
-    
-    // Scale to max 1500px to maintain margin
+    const oldWidth = canvas.width;
+    const oldHeight = canvas.height;
+
+    // Scale calculations
     const maxDim = 1500;
-    const scale = Math.min(maxDim / canvas.width, maxDim / canvas.height);
-    const drawW = canvas.width * scale;
-    const drawH = canvas.height * scale;
+    const scale = Math.min(maxDim / oldWidth, maxDim / oldHeight);
+    const drawW = oldWidth * scale;
+    const drawH = oldHeight * scale;
+    const offsetX = (1600 - drawW) / 2;
+    const offsetY = (1600 - drawH) / 2;
+
+    // 1. Transform Main Canvas (Base Image + Brush Strokes)
+    const tempMain = document.createElement('canvas'); 
+    tempMain.width = 1600; 
+    tempMain.height = 1600;
+    const tMainCtx = tempMain.getContext('2d')!; 
+    tMainCtx.fillStyle = '#FFFFFF'; 
+    tMainCtx.fillRect(0, 0, 1600, 1600);
+    tMainCtx.drawImage(canvas, offsetX, offsetY, drawW, drawH);
     
-    // Centering
-    const x = (1600 - drawW) / 2;
-    const y = (1600 - drawH) / 2;
-    
-    tCtx.drawImage(canvas, x, y, drawW, drawH);
-    
-    // Re-init canvas sizes
     canvas.width = 1600; 
     canvas.height = 1600; 
-    canvas.getContext('2d')!.drawImage(temp, 0, 0);
+    canvas.getContext('2d')!.drawImage(tempMain, 0, 0);
+
+    // 2. Transform Mask Canvas (AI Erase Regions)
+    if (maskCanvasRef.current) {
+      const mTemp = document.createElement('canvas');
+      mTemp.width = 1600; mTemp.height = 1600;
+      const mTCtx = mTemp.getContext('2d')!;
+      // Draw old mask onto new scaled/centered coordinates
+      mTCtx.drawImage(maskCanvasRef.current, offsetX, offsetY, drawW, drawH);
+      
+      maskCanvasRef.current.width = 1600;
+      maskCanvasRef.current.height = 1600;
+      maskCanvasRef.current.getContext('2d')!.drawImage(mTemp, 0, 0);
+    }
+
+    // 3. Transform Overlay Canvas (Visual stripes for mask)
+    if (overlayCanvasRef.current) {
+        overlayCanvasRef.current.width = 1600;
+        overlayCanvasRef.current.height = 1600;
+        // Redraw will trigger on next animation frame via redrawOverlay()
+    }
+
+    // 4. Migrate Floating Objects (Shapes, Text, Fills)
+    const migratedObjects = objects.map(obj => ({
+      ...obj,
+      x: obj.x * scale + offsetX,
+      y: obj.y * scale + offsetY,
+      width: obj.width * scale,
+      height: obj.height * scale,
+      strokeWidth: obj.strokeWidth * scale,
+      fontSize: obj.fontSize ? obj.fontSize * scale : undefined
+    }));
     
-    maskCanvasRef.current!.width = overlayCanvasRef.current!.width = 1600;
-    maskCanvasRef.current!.height = overlayCanvasRef.current!.height = 1600;
-    
+    setObjects(migratedObjects);
     setZoom(Math.min((containerRef.current!.clientWidth - 100) / 1600, (containerRef.current!.clientHeight - 100) / 1600, 1));
-    saveToHistory([]);
+    saveToHistory(migratedObjects);
   };
 
   const perimeter = canvasRef.current ? (canvasRef.current.width + canvasRef.current.height) * 2 : 0;
@@ -618,7 +656,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                   height={Math.abs(selection.y1-selection.y2)} 
                   fill={currentTool==='select-fill'?fillColor:'none'} 
                   fillOpacity={currentTool==='select-fill'?0.5:0} 
-                  stroke={currentTool === 'crop' ? "#ffffff" : "#60a5fa"} 
+                  stroke={currentTool === 'crop' ? "#4f46e5" : "#60a5fa"} 
                   strokeWidth={3/zoom} 
                   strokeDasharray="6,6" 
                   className="animate-[marching-ants_0.8s_linear_infinite]" 
