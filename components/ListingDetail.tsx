@@ -75,23 +75,32 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } finally { setIsSaving(false); }
   };
 
+  // Safe field update with batch support
+  const updateFields = (updates: Record<string, any>, shouldSync: boolean = false) => {
+    setLocalListing(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      Object.entries(updates).forEach(([field, value]) => {
+        if (activeMarket === 'US') {
+          if (['main_image', 'other_images', 'sourcing_data'].includes(field)) {
+            if (field === 'sourcing_data') next.sourcing_data = value;
+            else next.cleaned = { ...next.cleaned, [field]: value };
+          } else {
+            next.optimized = { ...(next.optimized || {}), [field]: value } as OptimizedData;
+          }
+        } else {
+          const trans = { ...(next.translations || {}) };
+          trans[activeMarket] = { ...(trans[activeMarket] || {}), [field]: value } as OptimizedData;
+          next.translations = trans;
+        }
+      });
+      onUpdate(next);
+      if (shouldSync) syncToSupabase(next);
+      return next;
+    });
+  };
+
   const updateField = (field: string, value: any, shouldSync: boolean = false) => {
-    const next = JSON.parse(JSON.stringify(localListing));
-    if (activeMarket === 'US') {
-      if (['main_image', 'other_images', 'sourcing_data'].includes(field)) {
-        if (field === 'sourcing_data') next.sourcing_data = value;
-        else next.cleaned = { ...next.cleaned, [field]: value };
-      } else {
-        next.optimized = { ...(next.optimized || {}), [field]: value } as OptimizedData;
-      }
-    } else {
-      const trans = { ...(next.translations || {}) };
-      trans[activeMarket] = { ...(trans[activeMarket] || {}), [field]: value } as OptimizedData;
-      next.translations = trans;
-    }
-    setLocalListing(next);
-    onUpdate(next);
-    if (shouldSync) syncToSupabase(next);
+    updateFields({ [field]: value }, shouldSync);
   };
 
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
@@ -126,16 +135,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setProcessingUrls(prev => new Set(prev).add(url));
     try {
       const newUrl = await processAndUploadImage(url);
-      const next = JSON.parse(JSON.stringify(localListing));
-      if (next.cleaned.main_image === url) {
-        next.cleaned.main_image = newUrl;
-        setPreviewImage(newUrl);
-      } else {
-        next.cleaned.other_images = (next.cleaned.other_images || []).map((u: string) => u === url ? newUrl : u);
-      }
-      setLocalListing(next);
-      onUpdate(next);
-      await syncToSupabase(next);
+      setLocalListing(prev => {
+        const next = JSON.parse(JSON.stringify(prev));
+        if (next.cleaned.main_image === url) {
+          next.cleaned.main_image = newUrl;
+          setPreviewImage(newUrl);
+        } else {
+          next.cleaned.other_images = (next.cleaned.other_images || []).map((u: string) => u === url ? newUrl : u);
+        }
+        onUpdate(next);
+        syncToSupabase(next);
+        return next;
+      });
     } catch (e) { alert("Failed to standardize image."); }
     finally { setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; }); }
   };
@@ -144,15 +155,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsProcessingImages(true);
     const all = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].filter(Boolean) as string[];
     all.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
-    const nextList = JSON.parse(JSON.stringify(localListing));
     try {
       const results = await Promise.all(all.map(u => processAndUploadImage(u)));
-      nextList.cleaned.main_image = results[0];
-      nextList.cleaned.other_images = results.slice(1);
-      setLocalListing(nextList);
-      setPreviewImage(results[0]);
-      onUpdate(nextList);
-      await syncToSupabase(nextList);
+      setLocalListing(prev => {
+        const next = JSON.parse(JSON.stringify(prev));
+        next.cleaned.main_image = results[0];
+        next.cleaned.other_images = results.slice(1);
+        setPreviewImage(results[0]);
+        onUpdate(next);
+        syncToSupabase(next);
+        return next;
+      });
     } catch (e) { alert("Batch standardization failed."); }
     finally { 
       setIsProcessingImages(false); 
@@ -172,8 +185,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         return Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
       });
       const results = await Promise.all(uploadPromises);
-      const newOthers = [...(localListing.cleaned.other_images || []), ...results.filter(Boolean)];
-      updateField('other_images', newOthers, true);
+      const newUrls = results.filter(Boolean);
+      updateField('other_images', [...(localListing.cleaned.other_images || []), ...newUrls], true);
     } catch (e) { alert("Upload failed."); }
     finally { setIsProcessingImages(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
@@ -244,6 +257,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               previewImage={previewImage} 
               setPreviewImage={setPreviewImage} 
               updateField={(f, v) => updateField(f, v, true)} 
+              updateFields={(fields) => updateFields(fields, true)}
               isSaving={isSaving} 
               isProcessing={isProcessingImages} 
               processingUrls={processingUrls}
