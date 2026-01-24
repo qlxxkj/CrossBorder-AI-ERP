@@ -25,7 +25,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200];
 
 export const ListingsManager: React.FC<ListingsManagerProps> = ({ 
   onSelectListing, 
-  listings = [], // 确保默认值为数组
+  listings = [], 
   setListings, 
   lang, 
   refreshListings,
@@ -55,9 +55,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     if (!isSupabaseConfigured()) return;
     try {
       const { data } = await supabase.from('categories').select('*');
-      if (data) setCategories(data);
+      if (data && Array.isArray(data)) setCategories(data);
     } catch (e) {
-      console.warn("Failed to fetch categories");
+      console.warn("Failed to fetch categories:", e);
     }
   };
 
@@ -73,40 +73,50 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   };
 
   const handleBulkUpdateCategory = async (catId: string) => {
-    if (selectedIds.size === 0 || catId === '') return;
+    if (selectedIds.size === 0 || !catId) return;
     setIsBatchUpdating(true);
-    const { error } = await supabase.from('listings').update({ category_id: catId === 'NONE' ? null : catId }).in('id', Array.from(selectedIds));
-    if (!error) {
-      setSelectedIds(new Set());
-      setBatchCategoryId(''); 
-      refreshListings();
+    try {
+      const { error } = await supabase
+        .from('listings')
+        .update({ category_id: catId === 'NONE' ? null : catId })
+        .in('id', Array.from(selectedIds));
+      
+      if (!error) {
+        setSelectedIds(new Set());
+        setBatchCategoryId(''); 
+        refreshListings();
+      }
+    } finally {
+      setIsBatchUpdating(false);
     }
-    setIsBatchUpdating(false);
   };
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
     if (!window.confirm(lang === 'zh' ? `确定删除 ${selectedIds.size} 个产品？` : "Delete selected?")) return;
     setIsBatchDeleting(true);
-    const { error } = await supabase.from('listings').delete().in('id', Array.from(selectedIds));
-    if (!error) {
-      setSelectedIds(new Set());
-      refreshListings();
+    try {
+      const { error } = await supabase.from('listings').delete().in('id', Array.from(selectedIds));
+      if (!error) {
+        setSelectedIds(new Set());
+        refreshListings();
+      }
+    } finally {
+      setIsBatchDeleting(false);
     }
-    setIsBatchDeleting(false);
   };
 
   const filteredListings = useMemo(() => {
     if (!Array.isArray(listings)) return [];
     return listings.filter(l => {
-      if (!l) return false;
+      if (!l || !l.cleaned) return false;
       const displayTitle = (l.status === 'optimized' && l.optimized?.optimized_title) 
         ? l.optimized.optimized_title 
-        : l.cleaned?.title;
+        : (l.cleaned?.title || "");
       
-      const safeTitle = (displayTitle || "").toLowerCase();
-      const safeAsin = (l.asin || "").toLowerCase();
-      const safeSearch = searchTerm.toLowerCase();
+      const safeTitle = String(displayTitle).toLowerCase();
+      const safeAsin = String(l.asin || "").toLowerCase();
+      const safeSearch = String(searchTerm).toLowerCase();
 
       const matchesSearch = safeTitle.includes(safeSearch) || safeAsin.includes(safeSearch);
       const matchesMarketplace = filterMarketplace === 'ALL' || l.marketplace === filterMarketplace;
@@ -116,7 +126,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     });
   }, [listings, searchTerm, filterMarketplace, filterCategory]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredListings.length / itemsPerPage));
+  const totalPages = Math.max(1, Math.ceil(filteredListings.length / (itemsPerPage || 20)));
   const paginatedListings = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredListings.slice(start, start + itemsPerPage);
@@ -277,12 +287,21 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                   </tr>
                 ))
               ) : paginatedListings.map((listing, index) => {
-                   if (!listing) return null; // 极度防御性编程
-                   const title = (listing.status === 'optimized' && listing.optimized?.optimized_title) ? listing.optimized.optimized_title : (listing.cleaned?.title || "Untitled");
+                   if (!listing || !listing.cleaned) return null;
+                   
+                   // 核心崩溃防护：强制将 price 转换为数字，防止字符串导致 toFixed(2) 报错
+                   const rawPrice = (listing.status === 'optimized' && listing.optimized?.optimized_price !== undefined) 
+                      ? listing.optimized.optimized_price 
+                      : listing.cleaned.price;
+                   const price = Number(rawPrice) || 0;
+                   
+                   const title = (listing.status === 'optimized' && listing.optimized?.optimized_title) 
+                      ? listing.optimized.optimized_title 
+                      : (listing.cleaned.title || "Untitled");
+                   
                    const catName = categories.find(c => c.id === listing.category_id)?.name || '-';
                    const mkt = AMAZON_MARKETPLACES.find(m => m.code === listing.marketplace);
                    const sequenceNum = (currentPage - 1) * itemsPerPage + index + 1;
-                   const price = listing.cleaned?.price || 0;
                    
                    return (
                     <tr key={listing.id} className={`hover:bg-slate-50/50 transition-all group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/20' : ''}`} onClick={() => onSelectListing(listing)}>
@@ -294,7 +313,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                       </td>
                       <td className="p-8">
                         <div className="w-14 h-14 rounded-xl bg-white border border-slate-100 overflow-hidden flex items-center justify-center p-1">
-                          <img src={listing.cleaned?.main_image || ''} className="max-w-full max-h-full object-contain" onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/100?text=No+Img')} />
+                          <img src={listing.cleaned.main_image || ''} className="max-w-full max-h-full object-contain" onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/100?text=No+Img')} />
                         </div>
                       </td>
                       <td className="p-8">
@@ -329,8 +348,8 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                       </td>
                       <td className="p-8">
                         <div className="flex flex-col">
-                          <span className="text-xs font-black text-slate-900">{mkt?.currency}{price.toFixed(2)}</span>
-                          <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">{mkt?.name}</span>
+                          <span className="text-xs font-black text-slate-900">{mkt?.currency || '$'}{price.toFixed(2)}</span>
+                          <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">{mkt?.name || 'US'}</span>
                         </div>
                       </td>
                       <td className="p-8"><p className="text-xs font-bold text-slate-800 line-clamp-2 leading-relaxed">{title}</p></td>
@@ -391,7 +410,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               
               <div className="flex items-center gap-1">
                 {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum = currentPage;
+                  let pageNum = 1;
                   if (totalPages <= 5) pageNum = i + 1;
                   else if (currentPage <= 3) pageNum = i + 1;
                   else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
