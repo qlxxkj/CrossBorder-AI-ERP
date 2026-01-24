@@ -2,23 +2,28 @@
 import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
-const UNIFIED_OPTIMIZE_PROMPT = `
-Act as a Senior Amazon SEO Specialist. Your mission is to re-engineer the product data to maximize conversion and search visibility.
+const UNIFIED_OPTIMIZE_PROMPT = (Brand: string) => `
+Act as a Senior Amazon SEO Specialist. Your goal is to REWRITE the product data to maximize conversion and search visibility.
 
-[CRITICAL QUALITY RULES]
-1. BRAND REMOVAL: No original brands. NO car/motorcycle brands (Toyota, Tesla, etc.).
-2. RADICAL TITLE REWRITE: Do NOT reuse the source title's word order. Use a completely fresh, high-CTR structure. Strictly MAX 150 characters.
-3. 5 UNIQUE BULLET POINTS: 
+[CRITICAL REMOVAL RULES]
+1. REMOVE SPECIFIC BRAND: Completely delete the brand name "${Brand}" (and its uppercase/lowercase variants) from all fields.
+2. REMOVE TRADEMARKS: Delete ALL automotive/motorcycle brand names (e.g., Toyota, BMW, Tesla, Honda, etc.) and generic trademarked terms.
+3. NO AD WORDS: No "Best", "Top-rated", "Sale".
+
+[CONTENT STRUCTURE]
+1. RADICAL TITLE REWRITE: Do NOT follow the source title's word order. Use a completely fresh, high-CTR structure with synonyms. Strictly MAX 150 characters.
+2. 5 UNIQUE BULLET POINTS: 
    - Generate exactly 5 points.
    - Each point MUST cover a different product dimension: [1. Construction/Material], [2. Core Feature], [3. User Benefit], [4. Compatibility], [5. Care/Guarantee].
-   - Points MUST be distinct from each other.
-   - Format: Each must start with a bold "KEYWORD: " in all caps.
+   - Points MUST be distinct. Each must start with a bold "KEYWORD: " in all caps.
    - MAX 350 characters per point.
-4. DESCRIPTION: Professional HTML. 1200-1700 characters.
-5. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total. Do not exceed 200.
-6. INNOVATION: Produce a version that sounds fresh and premium, avoiding generic phrases.
+3. DESCRIPTION: Professional HTML. 1200-1700 characters.
+4. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters. DO NOT EXCEED.
 
-Return ONLY a flat JSON object.
+[VARIATION]
+Even if the source looks optimized, generate a DRATICALLY DIFFERENT version using a new vocabulary.
+
+Output ONLY a flat JSON object including optimized_title, optimized_features, optimized_description, and search_keywords.No Markdown.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
@@ -26,7 +31,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   result.optimized_title = String(raw.optimized_title || "").slice(0, 150);
   result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
   
-  // Rule: Search Keywords < 200 (Strict enforcement)
+  // Amazon Limit 200 for Search Keywords
   result.search_keywords = String(raw.search_keywords || "").slice(0, 200);
   
   let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
@@ -36,7 +41,6 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .slice(0, 5)
     .map((f: any) => {
       let s = String(f).slice(0, 250);
-      // Force "KEYWORD:" format if GPT fails
       if (!s.includes(":") || s.indexOf(":") > 30) {
         return "EXCEPTIONAL FEATURE: " + s;
       }
@@ -71,8 +75,8 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
   
+  const brandToKill = cleanedData.brand || "ORIGINAL_BRAND";
   const sourceCopy = { ...cleanedData };
-  delete sourceCopy.brand;
 
   const response = await fetch(finalUrl, {
     method: "POST",
@@ -80,10 +84,10 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "Amazon SEO Master. Rewrite titles completely. 5 UNIQUE bullets starting with 'KEYWORD:'. Keywords limit 200. JSON only." },
-        { role: "user", content: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
+        { role: "system", content: "Amazon SEO Master. You must return ALL JSON fields including 'search_keywords'. Max variation on titles. Remove brands." },
+        { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
       ],
-      temperature: 1.0, // Forced high temperature for variation
+      temperature: 1.0,
       response_format: { type: "json_object" }
     })
   });

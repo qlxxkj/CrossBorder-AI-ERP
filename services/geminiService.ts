@@ -2,23 +2,28 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
-const UNIFIED_OPTIMIZE_PROMPT = `
-Act as a Senior Amazon SEO Specialist. Your mission is to re-engineer the product data to maximize conversion and search visibility.
+const UNIFIED_OPTIMIZE_PROMPT = (Brand: string) => `
+Act as a Senior Amazon SEO Specialist. Your goal is to REWRITE the product data to maximize conversion and search visibility.
 
-[CRITICAL QUALITY RULES]
-1. BRAND REMOVAL: No original brands. NO car/motorcycle brands (Toyota, Tesla, etc.).
-2. RADICAL TITLE REWRITE: Do NOT reuse the source title's word order. Use a completely fresh, high-CTR structure. Strictly MAX 150 characters.
-3. 5 UNIQUE BULLET POINTS: 
+[CRITICAL REMOVAL RULES]
+1. REMOVE SPECIFIC BRAND: Completely delete the brand name "${Brand}" (and its uppercase/lowercase variants) from all fields.
+2. REMOVE TRADEMARKS: Delete ALL automotive/motorcycle brand names (e.g., Toyota, BMW, Tesla, Honda, etc.) and generic trademarked terms.
+3. NO AD WORDS: No "Best", "Top-rated", "Sale".
+
+[CONTENT STRUCTURE]
+1. RADICAL TITLE REWRITE: Do NOT follow the source title's word order. Use a completely fresh, high-CTR structure with synonyms. Strictly MAX 150 characters.
+2. 5 UNIQUE BULLET POINTS: 
    - Generate exactly 5 points.
    - Each point MUST cover a different product dimension: [1. Construction/Material], [2. Core Feature], [3. User Benefit], [4. Compatibility], [5. Care/Guarantee].
-   - Points MUST be distinct from each other.
-   - Format: Each must start with a bold "KEYWORD: " in all caps.
+   - Points MUST be distinct. Each must start with a bold "KEYWORD: " in all caps.
    - MAX 350 characters per point.
-4. DESCRIPTION: Professional HTML. 1200-1700 characters.
-5. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total. Do not exceed 200.
-6. INNOVATION: Produce a version that sounds fresh and premium, avoiding generic phrases.
+3. DESCRIPTION: Professional HTML. 1200-1700 characters.
+4. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters. DO NOT EXCEED.
 
-Return ONLY a flat JSON object.
+[VARIATION]
+Even if the source looks optimized, generate a DRATICALLY DIFFERENT version using a new vocabulary.
+
+Return ONLY a flat JSON object. No Markdown.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
@@ -26,7 +31,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   result.optimized_title = String(raw.optimized_title || "").slice(0, 150);
   result.optimized_description = String(raw.optimized_description || "").slice(0, 1700);
   
-  // Rule: Search Keywords < 200 (Reduced from 250/300)
+  // Strict 200 character limit for Amazon Backend Search Terms
   result.search_keywords = String(raw.search_keywords || "").slice(0, 200);
   
   let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
@@ -72,15 +77,16 @@ const extractJSONObject = (text: string) => {
 export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
+    const brandToKill = cleanedData.brand || "UNKNOWN_BRAND";
     const sourceCopy = { ...cleanedData };
-    delete sourceCopy.brand;
-
+    // Pass everything but highlight the brand to be removed
+    
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: UNIFIED_OPTIMIZE_PROMPT + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}\n\n[INSTRUCTION] Be creative. Ensure the title is drastically different from the source.`,
+      contents: UNIFIED_OPTIMIZE_PROMPT(brandToKill) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}\n\n[TASK] Generate a FRESH variation. Purge "${brandToKill}" completely.`,
       config: { 
         responseMimeType: "application/json",
-        temperature: 1.0 // Increased for higher variety
+        temperature: 1.0 // Maximum variety
       }
     });
     const rawData = extractJSONObject(response.text || "{}");
@@ -91,7 +97,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Translate this to "${targetLangName}". JSON ONLY. Title<150, 5 UNIQUE Bullets<250, Keywords<200. NO brands. Data: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate to "${targetLangName}". JSON ONLY. Title<150, 5 UNIQUE Bullets<250, Keywords<200. NO brands. Data: ${JSON.stringify(sourceData)}`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
