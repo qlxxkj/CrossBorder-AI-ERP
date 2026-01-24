@@ -93,25 +93,32 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const performTranslation = async (currentListing: Listing, marketCode: string): Promise<Listing> => {
     const mktConfig = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
     const targetLangName = LANG_NAME_MAP[mktConfig?.lang || 'en'] || 'English';
-    const source = currentListing.optimized || { optimized_title: currentListing.cleaned.title, optimized_features: currentListing.cleaned.features || [] } as OptimizedData;
+    // Always translate from the master optimized version if available
+    const source = currentListing.optimized || { 
+      optimized_title: currentListing.cleaned.title, 
+      optimized_features: currentListing.cleaned.features || [],
+      optimized_description: currentListing.cleaned.description || "",
+      search_keywords: currentListing.cleaned.search_keywords || ""
+    } as OptimizedData;
 
     let transResult: any;
     if (engine === 'openai') transResult = await translateListingWithOpenAI(source, targetLangName);
     else if (engine === 'deepseek') transResult = await translateListingWithDeepSeek(source, targetLangName);
     else transResult = await translateListingWithAI(source, targetLangName);
 
-    // Rule: Trigger forced logistics conversion for non-US sites
+    // Rule: Trigger forced logistics conversion for non-US markets
     const logistics = calculateMarketLogistics(currentListing, marketCode);
     const rate = exchangeRates.find(r => r.marketplace === marketCode)?.rate || 1;
     
     const finalData: OptimizedData = {
       ...transResult, 
-      ...logistics, // Merge converted logistics fields
+      ...logistics, 
       optimized_price: parseFloat(((currentListing.cleaned.price || 0) * rate).toFixed(2)),
       optimized_shipping: parseFloat(((currentListing.cleaned.shipping || 0) * rate).toFixed(2))
     };
 
-    return { ...currentListing, translations: { ...(currentListing.translations || {}), [marketCode]: finalData } };
+    const nextListing = { ...currentListing, translations: { ...(currentListing.translations || {}), [marketCode]: finalData } };
+    return nextListing;
   };
 
   const handleTranslateSingle = async (code: string, force: boolean = false) => {
@@ -121,7 +128,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const nextListing = await performTranslation(localListing, code);
       setLocalListing(nextListing);
       onUpdate(nextListing);
-      await syncToSupabase(nextListing); // Rule: Auto-sync to DB
+      await syncToSupabase(nextListing); // Rule: Auto-sync after single translation
     } finally {
       setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(code); return n; });
     }
@@ -144,9 +151,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         } finally {
           setTranslatingMarkets(prev => { const n = new Set(prev); n.delete(m.code); return n; });
         }
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 100));
       }
-      await syncToSupabase(workingListing); // Rule: Auto-sync to DB
+      await syncToSupabase(workingListing); // Rule: Auto-sync after batch translation
     } finally { setIsTranslatingAll(false); }
   };
 
@@ -154,13 +161,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setIsOptimizing(true);
     try {
       let opt: OptimizedData;
+      // Always optimize from original cleaned data to ensure fresh results even if already optimized
       if (engine === 'openai') opt = await optimizeListingWithOpenAI(localListing.cleaned);
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(localListing.cleaned);
       else opt = await optimizeListingWithAI(localListing.cleaned);
+      
       const next: Listing = { ...localListing, optimized: opt, status: 'optimized' };
       setLocalListing(next); 
       onUpdate(next); 
-      await syncToSupabase(next); // Rule: Auto-sync to DB
+      await syncToSupabase(next); // Rule: Auto-sync after optimization
     } finally { setIsOptimizing(false); }
   };
 
@@ -200,6 +209,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         </div>
       </div>
       {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(n); updateField('sourcing_data', n.sourcing_data, true); setShowSourcingModal(false); }} />}
+      {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={res => { let n; if (editingSourceRecord) { n = { ...localListing, sourcing_data: (localListing.sourcing_data || []).map(s => s.id === res.id ? res : s) }; } else { n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), { ...res, id: `m-${Date.now()}` }] }; } setLocalListing(n); updateField('sourcing_data', n.sourcing_data, true); setShowSourcingForm(false); }} />}
       {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={(url) => { setPreviewImage(url); updateField('main_image', url, true); setShowImageEditor(false); }} uiLang={uiLang} />}
     </div>
   );

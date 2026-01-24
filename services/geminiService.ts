@@ -3,18 +3,17 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-You are a professional Amazon Listing Optimization Expert. Your goal is to maximize SEO and conversion.
-
+You are a professional Amazon Listing Optimization Expert. 
 [STRICT CONSTRAINTS]
-1. REMOVE ALL BRAND NAMES: Strictly NO Brand Names. DO NOT mention the original brand. NO famous Car or Motorcycle brands (BMW, Toyota, Honda, Ford, etc.).
-2. TITLE: Max 150 characters.
-3. BULLETS: Exactly 5 points. Every point must start with a CAPITALIZED KEYWORD. Max 250 characters per bullet point.
-4. DESCRIPTION: Between 1000 and 1700 characters. Use basic HTML (<p>, <br>, <b>).
-5. SEARCH KEYWORDS: Max 300 characters.
-6. NO-GO ZONE: No Ad words (Best, Top, Sale), no extreme words ("#1", "Greatest").
-7. MEASUREMENTS: Use FULL words for units (e.g., "Kilograms", "Centimeters").
+1. REMOVE ALL BRAND NAMES: No original brand names. NO Car/Motorcycle brands (Toyota, Honda, BMW, Ford, etc.).
+2. TITLE: Compelling title, strictly MAX 150 characters.
+3. BULLETS: Exactly 5 points. Every point MUST start with a bolded capitalized KEYWORD followed by a colon. MAX 250 characters per bullet point.
+4. DESCRIPTION: Professional HTML (p, br, b tags), length between 1000 and 1700 characters.
+5. SEARCH KEYWORDS: Highly relevant backend keywords, strictly MAX 300 characters.
+6. NO-GO: No "Best", "#1", "Sale", or other extreme marketing words.
+7. MEASUREMENTS: Use FULL words for units.
 
-Return ONLY a flat JSON object with keys: optimized_title, optimized_features (array of 5 strings), optimized_description, search_keywords, optimized_weight_value, optimized_weight_unit, optimized_length, optimized_width, optimized_height, optimized_size_unit.
+Return ONLY a flat JSON object. No Markdown blocks.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
@@ -31,7 +30,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .map((f: string) => f.slice(0, 250));
 
   while (result.optimized_features.length < 5) {
-    result.optimized_features.push("High quality material ensures long-lasting durability for daily use.");
+    result.optimized_features.push("High-quality construction designed for long-term durability and performance.");
   }
 
   result.optimized_weight_value = String(raw.optimized_weight_value || "");
@@ -56,7 +55,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const sourceCopy = { ...cleanedData };
-    delete sourceCopy.brand;
+    delete sourceCopy.brand; // Absolute removal
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -64,7 +63,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
       config: { responseMimeType: "application/json" }
     });
     const rawData = extractJSONObject(response.text || "{}");
-    if (!rawData) throw new Error("Invalid AI Response format.");
+    if (!rawData) throw new Error("Invalid AI Response.");
     return normalizeOptimizedData(rawData);
   } catch (error: any) { throw new Error(`Gemini Optimization Failed: ${error.message}`); }
 };
@@ -75,7 +74,7 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
     Task: Translate this Amazon listing to "${targetLangName}". 
     [STRICT RULES]: 
     1. KEEP ALL JSON KEYS UNCHANGED.
-    2. RETURN ONLY JSON. 
+    2. RETURN ONLY FLAT JSON. 
     3. Title < 150 chars. 5 Bullets < 250 chars. Keywords < 300 chars.
     4. NO Brands or Car/Moto names.
     5. Translate units to FULL words in "${targetLangName}".
