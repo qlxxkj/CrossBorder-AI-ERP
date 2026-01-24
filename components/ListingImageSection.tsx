@@ -10,6 +10,7 @@ interface ListingImageSectionProps {
   updateField: (field: string, value: any) => void;
   isSaving: boolean;
   isProcessing: boolean;
+  processingUrls: Set<string>;
   onStandardizeAll: () => void;
   onStandardizeOne: (url: string) => void;
   setShowEditor: (show: boolean) => void;
@@ -17,7 +18,7 @@ interface ListingImageSectionProps {
 }
 
 export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
-  listing, previewImage, setPreviewImage, updateField, isSaving, isProcessing, onStandardizeAll, onStandardizeOne, setShowEditor, fileInputRef
+  listing, previewImage, setPreviewImage, updateField, isSaving, isProcessing, processingUrls, onStandardizeAll, onStandardizeOne, setShowEditor, fileInputRef
 }) => {
   const [hoverImage, setHoverImage] = useState<string | null>(null);
   const allImages = [listing.cleaned?.main_image, ...(listing.cleaned?.other_images || [])].filter(Boolean) as string[];
@@ -29,13 +30,19 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const activeDisplayImage = hoverImage || previewImage;
 
   const handleSetMain = (url: string) => {
-    const oldMain = listing.cleaned.main_image;
-    if (url === oldMain) return;
-    const others = (listing.cleaned.other_images || []).filter(u => u !== url);
-    if (oldMain) others.unshift(oldMain);
-    updateField('main_image', url);
-    updateField('other_images', others);
-    setPreviewImage(url);
+    const currentMain = listing.cleaned.main_image;
+    if (url === currentMain) return;
+    
+    // 实现互换逻辑：找到被选图片在 other_images 中的位置，替换为当前主图
+    const others = [...(listing.cleaned.other_images || [])];
+    const targetIdx = others.indexOf(url);
+    
+    if (targetIdx > -1) {
+      others[targetIdx] = currentMain;
+      updateField('main_image', url);
+      updateField('other_images', others);
+      setPreviewImage(url);
+    }
   };
 
   const handleRemoveImage = (url: string) => {
@@ -50,6 +57,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         setPreviewImage('');
       }
     } else {
+      // 核心修复：确保精确过滤掉点击的 URL，不影响其他
       const others = (listing.cleaned.other_images || []).filter(u => u !== url);
       updateField('other_images', others);
     }
@@ -73,53 +81,60 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       </div>
 
       <div className="flex flex-wrap gap-2">
-         {allImages.map((img, i) => (
-           <div 
-            key={`${img}-${i}`} 
-            onMouseEnter={() => setHoverImage(img)}
-            onMouseLeave={() => setHoverImage(null)}
-            onClick={() => {
-              setPreviewImage(img);
-              setHoverImage(null);
-            }} 
-            className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg scale-105 z-10' : 'border-transparent opacity-60 hover:opacity-100 hover:scale-105'}`}
-           >
-              <img src={img} className="w-full h-full object-cover" />
-              
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 flex flex-col justify-between p-1 transition-opacity">
-                 <div className="flex justify-between w-full">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); handleSetMain(img); }} 
-                      className={`p-1 rounded-lg text-white transition-colors ${img === listing.cleaned.main_image ? 'bg-amber-500' : 'bg-white/20 hover:bg-amber-400'}`}
-                      title="Set as Main"
-                    >
-                      <Star size={10} fill={img === listing.cleaned.main_image ? "currentColor" : "none"} />
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); handleRemoveImage(img); }} 
-                      className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white transition-colors"
-                      title="Remove Image"
-                    >
-                      <Trash2 size={10} />
-                    </button>
-                 </div>
-                 
-                 <button 
-                  onClick={(e) => { e.stopPropagation(); onStandardizeOne(img); }} 
-                  title="Standardize to 1600px"
-                  className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg hover:bg-indigo-400 transition-colors shadow-lg self-end"
-                 >
-                   <Maximize2 size={10} />
-                 </button>
-              </div>
-
-              {isProcessing && (
-                <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
-                  <Loader2 size={12} className="animate-spin text-indigo-600" />
+         {allImages.map((img, i) => {
+           const isSelfProcessing = processingUrls.has(img);
+           return (
+             <div 
+              key={`${img}-${i}`} 
+              onMouseEnter={() => setHoverImage(img)}
+              onMouseLeave={() => setHoverImage(null)}
+              onClick={() => {
+                setPreviewImage(img);
+                setHoverImage(null);
+              }} 
+              className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg scale-105 z-10' : 'border-transparent opacity-60 hover:opacity-100 hover:scale-105'}`}
+             >
+                <img src={img} className="w-full h-full object-cover" />
+                
+                <div className={`absolute inset-0 bg-black/40 flex flex-col justify-between p-1 transition-opacity ${isSelfProcessing ? 'opacity-100' : 'opacity-0 group-hover/thumb:opacity-100'}`}>
+                   <div className="flex justify-between w-full">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleSetMain(img); }} 
+                        className={`p-1 rounded-lg text-white transition-colors ${img === listing.cleaned.main_image ? 'bg-amber-500' : 'bg-white/20 hover:bg-amber-400'}`}
+                        title="Set as Main"
+                        disabled={isSelfProcessing}
+                      >
+                        <Star size={10} fill={img === listing.cleaned.main_image ? "currentColor" : "none"} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleRemoveImage(img); }} 
+                        className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white transition-colors"
+                        title="Remove Image"
+                        disabled={isSelfProcessing}
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                   </div>
+                   
+                   {/* 核心修复：按钮移至左下角 */}
+                   <button 
+                    onClick={(e) => { e.stopPropagation(); onStandardizeOne(img); }} 
+                    title="Standardize to 1600px"
+                    disabled={isSelfProcessing}
+                    className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg hover:bg-indigo-400 transition-colors shadow-lg self-start"
+                   >
+                     {isSelfProcessing ? <Loader2 size={10} className="animate-spin" /> : <Maximize2 size={10} />}
+                   </button>
                 </div>
-              )}
-           </div>
-         ))}
+
+                {isSelfProcessing && (
+                  <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
+                    <Loader2 size={12} className="animate-spin text-indigo-600" />
+                  </div>
+                )}
+             </div>
+           );
+         })}
          <button 
            onClick={() => fileInputRef.current?.click()} 
            disabled={isProcessing}

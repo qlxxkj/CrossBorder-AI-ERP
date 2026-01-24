@@ -43,6 +43,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [translatingMarkets, setTranslatingMarkets] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [isProcessingImages, setIsProcessingImages] = useState(false);
+  const [processingUrls, setProcessingUrls] = useState<Set<string>>(new Set());
   const [showImageEditor, setShowImageEditor] = useState(false);
   const [showSourcingModal, setShowSourcingModal] = useState(false);
   const [showSourcingForm, setShowSourcingForm] = useState(false);
@@ -122,23 +123,27 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const handleStandardizeOne = async (url: string) => {
-    setIsProcessingImages(true);
+    setProcessingUrls(prev => new Set(prev).add(url));
     try {
       const newUrl = await processAndUploadImage(url);
-      if (localListing.cleaned.main_image === url) {
-        updateField('main_image', newUrl, true);
+      const next = JSON.parse(JSON.stringify(localListing));
+      if (next.cleaned.main_image === url) {
+        next.cleaned.main_image = newUrl;
         setPreviewImage(newUrl);
       } else {
-        const others = (localListing.cleaned.other_images || []).map(u => u === url ? newUrl : u);
-        updateField('other_images', others, true);
+        next.cleaned.other_images = (next.cleaned.other_images || []).map((u: string) => u === url ? newUrl : u);
       }
+      setLocalListing(next);
+      onUpdate(next);
+      await syncToSupabase(next);
     } catch (e) { alert("Failed to standardize image."); }
-    finally { setIsProcessingImages(false); }
+    finally { setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; }); }
   };
 
   const handleStandardizeAll = async () => {
     setIsProcessingImages(true);
     const all = [localListing.cleaned.main_image, ...(localListing.cleaned.other_images || [])].filter(Boolean) as string[];
+    all.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
     const nextList = JSON.parse(JSON.stringify(localListing));
     try {
       const results = await Promise.all(all.map(u => processAndUploadImage(u)));
@@ -149,7 +154,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       onUpdate(nextList);
       await syncToSupabase(nextList);
     } catch (e) { alert("Batch standardization failed."); }
-    finally { setIsProcessingImages(false); }
+    finally { 
+      setIsProcessingImages(false); 
+      setProcessingUrls(new Set()); 
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -231,7 +239,19 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
-             <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={(f, v) => updateField(f, v, true)} isSaving={isSaving} isProcessing={isProcessingImages} onStandardizeAll={handleStandardizeAll} onStandardizeOne={handleStandardizeOne} setShowEditor={setShowImageEditor} fileInputRef={fileInputRef} />
+             <ListingImageSection 
+              listing={localListing} 
+              previewImage={previewImage} 
+              setPreviewImage={setPreviewImage} 
+              updateField={(f, v) => updateField(f, v, true)} 
+              isSaving={isSaving} 
+              isProcessing={isProcessingImages} 
+              processingUrls={processingUrls}
+              onStandardizeAll={handleStandardizeAll} 
+              onStandardizeOne={handleStandardizeOne} 
+              setShowEditor={setShowImageEditor} 
+              fileInputRef={fileInputRef} 
+             />
              <input type="file" ref={fileInputRef} className="hidden" accept="image/*" multiple onChange={handleFileUpload} />
              <ListingSourcingSection listing={localListing} updateField={(f, v) => updateField(f, v, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
           </div>
