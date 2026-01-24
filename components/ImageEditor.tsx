@@ -567,16 +567,46 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             style={{ 
               left: mousePos.clientX, 
               top: mousePos.clientY, 
-              width: strokeWidth * zoom, 
-              height: strokeWidth * zoom, 
-              transform: 'translate(-50%, -50%)',
+              width: Math.max(48, strokeWidth * zoom), 
+              height: Math.max(48, strokeWidth * zoom), 
+              transform: 'translate(-10%, -90%)',
               opacity: isProcessing ? 0 : 1
             }}
           >
-            <div 
-              className="w-full h-full border-2 border-dashed rounded-full animate-[spin_8s_linear_infinite] shadow-[0_0_10px_rgba(0,0,0,0.5)]"
-              style={{ borderColor: currentTool === 'ai-erase' ? 'white' : strokeColor }}
-            ></div>
+            <div className="relative w-full h-full">
+              {/* Calligraphy Brush SVG */}
+              <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-2xl">
+                <defs>
+                  <linearGradient id="brushHandle" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#334155" />
+                    <stop offset="100%" stopColor="#0f172a" />
+                  </linearGradient>
+                </defs>
+                {/* Handle */}
+                <rect x="40" y="0" width="12" height="60" rx="4" fill="url(#brushHandle)" stroke="#1e293b" strokeWidth="1" />
+                {/* Gold band */}
+                <rect x="38" y="55" width="16" height="8" fill="#fbbf24" />
+                {/* Brush Tip */}
+                <path 
+                  d="M40 63 Q46 60 52 63 L58 75 Q46 95 34 75 Z" 
+                  fill={currentTool === 'ai-erase' ? '#ef4444' : strokeColor} 
+                  stroke="white" 
+                  strokeWidth="2"
+                />
+              </svg>
+              
+              {/* Position indicator dot */}
+              <div 
+                className="absolute bg-white rounded-full border border-black shadow-sm"
+                style={{ 
+                  left: '10%', 
+                  top: '90%', 
+                  width: '6px', 
+                  height: '6px', 
+                  transform: 'translate(-50%, -50%)' 
+                }}
+              />
+            </div>
           </div>
         )}
 
