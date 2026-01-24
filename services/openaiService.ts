@@ -2,43 +2,41 @@
 import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
-const UNIFIED_OPTIMIZE_PROMPT = (Brand: string) => `
-Expert Amazon SEO Copywriter. Optimize this listing.
+const UNIFIED_OPTIMIZE_PROMPT = (brand: string, seed: number) => `
+Expert Amazon SEO Copywriter. Optimize this listing. 
+[SEED: ${seed}]
 
-[CRITICAL BRAND REMOVAL]
-1. DELETE BRAND: Completely remove "${Brand}" and all its variants (e.g., "${Brand.toUpperCase()}", "${Brand.toLowerCase()}") from all fields.
-2. DELETE TRADEMARKS: No automotive brand names (Toyota, BMW, Tesla, Ford, etc.) or generic manufacturer marks.
-3. NO AD WORDS: No "Best", "Top-rated", "Sale".
+[STRICT BRAND PURGE]
+- REMOVE BRAND: "${brand}" (including variants like "${brand.toUpperCase()}") MUST be deleted.
+- REMOVE AUTOMOTIVE: No Toyota, BMW, etc.
 
-[CONTENT STRUCTURE]
-1. RADICAL TITLE REWRITE: Do NOT reuse the source title's word order. Use a COMPLETELY FRESH structure. Create a compelling, high-CTR version. MAX 150 characters.
-2. 5 UNIQUE BULLET POINTS: 
-   - Generate exactly 5 points.
-   - Each MUST cover a different dimension: [Material/Quality], [Core Design], [Key Benefit], [Usage/Compatibility], [Service/Guarantee].
-   - Points MUST be distinct. Each must start with a bold "KEYWORD: " in all caps.
-   - MAX 300 characters per point.
-3. DESCRIPTION: Professional HTML. 1200-1700 characters.
-4. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total.
+[CONTENT SPECIFICATIONS]
+1. UNIQUE TITLE: Change the word sequence completely. Be creative. MAX 150 characters.
+2. 5 DISTINCT BULLETS: 5 unique points as a plain string array. Format: "KEYWORD: Description". MAX 300 characters each.
+3. SEARCH KEYWORDS: Mandatory field. STRICTLY MAX 200 characters.
+4. DESCRIPTION: 1200-1700 chars HTML.
 
-
-Output ONLY a flat JSON object. Use strings only for feature array elements.
+Output ONLY a flat JSON object with keys: "optimized_title", "optimized_features", "optimized_description", "search_keywords".
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
   
-  // Safe extractor to handle potential nested objects from AI
   const extractText = (val: any): string => {
     if (typeof val === 'string') return val;
-    if (val && typeof val === 'object') return val.text || val.content || val.value || JSON.stringify(val);
-    return String(val || "");
+    if (val && typeof val === 'object') return val.text || val.content || val.value || val.string || JSON.stringify(val);
+    return "";
   };
 
-  result.optimized_title = extractText(raw.optimized_title).slice(0, 150);
-  result.optimized_description = extractText(raw.optimized_description).slice(0, 1700);
-  result.search_keywords = extractText(raw.search_keywords || raw.optimized_search_keywords || raw.keywords).slice(0, 200);
+  // Aliases for OpenAI consistency
+  result.optimized_title = extractText(raw.optimized_title || raw.title || raw.product_title || "").slice(0, 150);
+  result.optimized_description = extractText(raw.optimized_description || raw.description || raw.product_description || "").slice(0, 1700);
+  result.search_keywords = extractText(raw.search_keywords || raw.keywords || raw.optimized_search_keywords || "").slice(0, 200);
   
-  let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
+  let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : 
+              Array.isArray(raw.features) ? raw.features : 
+              Array.isArray(raw.bullet_points) ? raw.bullet_points : [];
+
   result.optimized_features = feats
     .map((f: any) => extractText(f).trim())
     .filter((f: string) => f.length > 0)
@@ -62,12 +60,12 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     result.optimized_features.push(fallbacks[result.optimized_features.length]);
   }
   
-  result.optimized_weight_value = extractText(raw.optimized_weight_value);
-  result.optimized_weight_unit = extractText(raw.optimized_weight_unit);
-  result.optimized_length = extractText(raw.optimized_length);
-  result.optimized_width = extractText(raw.optimized_width);
-  result.optimized_height = extractText(raw.optimized_height);
-  result.optimized_size_unit = extractText(raw.optimized_size_unit);
+  result.optimized_weight_value = extractText(raw.optimized_weight_value || raw.item_weight_value || "");
+  result.optimized_weight_unit = extractText(raw.optimized_weight_unit || raw.item_weight_unit || "");
+  result.optimized_length = extractText(raw.optimized_length || raw.item_length || "");
+  result.optimized_width = extractText(raw.optimized_width || raw.item_width || "");
+  result.optimized_height = extractText(raw.optimized_height || raw.item_height || "");
+  result.optimized_size_unit = extractText(raw.optimized_size_unit || raw.item_size_unit || "");
   
   return result as OptimizedData;
 };
@@ -88,8 +86,8 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
-        { role: "system", content: "Expert Amazon SEO. Return FLAT JSON. Every feature MUST be a plain string. No nested objects in features array. Keywords limit 200." },
-        { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
+        { role: "system", content: "Expert Amazon SEO. Use EXACT JSON KEYS: optimized_title, optimized_features, optimized_description, search_keywords. Keywords limit 200." },
+        { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
       ],
       temperature: 1.0,
       response_format: { type: "json_object" }
@@ -105,7 +103,7 @@ export const translateListingWithOpenAI = async (sourceData: OptimizedData, targ
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OpenAI Key missing.");
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const prompt = `Translate to "${targetLangName}". UNIQUE Title<150, 5 DISTINCT Bullets<300 (KEYWORD: format), Keywords < 200. FLAT JSON. Data: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate to "${targetLangName}". UNIQUE Title<150, 5 DISTINCT Bullets<300, Keywords<200. FLAT JSON. Data: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
   const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 

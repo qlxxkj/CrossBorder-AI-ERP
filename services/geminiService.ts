@@ -3,42 +3,43 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
 const UNIFIED_OPTIMIZE_PROMPT = (Brand: string, timestamp: number) => `
-Act as a Senior Amazon SEO Specialist. Your goal is to REWRITE the product data to maximize conversion.
-[INTERNAL_SEED: ${timestamp}] 
+Act as a Senior Amazon Listing Expert. REWRITE the product data for maximum conversion.
+[UNIQUE_SESSION_ID: ${timestamp}] 
 
-[CRITICAL BRAND REMOVAL]
-1. DELETE BRAND: Completely remove "${Brand}" and all its variants (e.g., "${Brand.toUpperCase()}", "${Brand.toLowerCase()}") from all fields.
-2. DELETE TRADEMARKS: No automotive brand names (Toyota, BMW, Tesla, Ford, etc.) or generic manufacturer marks.
-3. NO AD WORDS: No "Best", "Top-rated", "Sale".
+[CRITICAL REMOVAL]
+1. DELETE BRAND: Completely remove "${Brand}" and variants like "${Brand.toUpperCase()}".
+2. NO TRADEMARKS: No Toyota, BMW, Tesla, Honda, etc. 
 
-[CONTENT STRUCTURE]
-1. RADICAL TITLE REWRITE: Do NOT reuse the source title's word order. Use a COMPLETELY FRESH structure. Create a compelling, high-CTR version. MAX 150 characters.
-2. 5 UNIQUE BULLET POINTS: 
-   - Generate exactly 5 points.
-   - Each MUST cover a different dimension: [Material/Quality], [Core Design], [Key Benefit], [Usage/Compatibility], [Service/Guarantee].
-   - Points MUST be distinct. Each must start with a bold "KEYWORD: " in all caps.
-   - MAX 300 characters per point.
-3. DESCRIPTION: Professional HTML. 1200-1700 characters.
-4. SEARCH KEYWORDS: Highly relevant terms. STRICTLY MAX 200 characters total.
+[CONTENT REQUIREMENTS]
+1. RADICAL REWRITE: Generate a COMPLETELY NEW title structure. Do NOT use the same word order as the source. Use high-converting synonyms. MAX 150 characters.
+2. 5 DISTINCT BULLETS: 5 unique points. Each MUST start with "UPPERCASE_KEYWORD: ". 
+   - Points must cover: [Material], [Design], [Usage], [Compatibility], [Guarantee].
+   - MAX 300 characters each.
+3. DESCRIPTION: Pro HTML. 1200-1700 characters.
+4. SEARCH KEYWORDS: Highly relevant. STRICTLY MAX 200 characters total.
 
-Return ONLY a flat JSON object.
+Return ONLY a flat JSON object with these EXACT keys: 
+"optimized_title", "optimized_features", "optimized_description", "search_keywords".
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
   
-  // Safe string extractor to prevent [object Object]
   const extractText = (val: any): string => {
     if (typeof val === 'string') return val;
-    if (val && typeof val === 'object') return val.text || val.content || val.value || JSON.stringify(val);
-    return String(val || "");
+    if (val && typeof val === 'object') return val.text || val.content || val.value || val.string || JSON.stringify(val);
+    return "";
   };
 
-  result.optimized_title = extractText(raw.optimized_title).slice(0, 150);
-  result.optimized_description = extractText(raw.optimized_description).slice(0, 1700);
-  result.search_keywords = extractText(raw.search_keywords).slice(0, 200);
+  // Robust field mapping with aliases
+  result.optimized_title = extractText(raw.optimized_title || raw.title || raw.product_title || "").slice(0, 150);
+  result.optimized_description = extractText(raw.optimized_description || raw.description || raw.product_description || "").slice(0, 1700);
+  result.search_keywords = extractText(raw.search_keywords || raw.keywords || raw.optimized_search_keywords || "").slice(0, 200);
   
-  let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : [];
+  let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : 
+              Array.isArray(raw.features) ? raw.features : 
+              Array.isArray(raw.bullet_points) ? raw.bullet_points : [];
+
   result.optimized_features = feats
     .map((f: any) => extractText(f).trim())
     .filter((f: string) => f.length > 0)
@@ -60,12 +61,12 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     result.optimized_features.push(fallbacks[result.optimized_features.length]);
   }
 
-  result.optimized_weight_value = extractText(raw.optimized_weight_value);
-  result.optimized_weight_unit = extractText(raw.optimized_weight_unit);
-  result.optimized_length = extractText(raw.optimized_length);
-  result.optimized_width = extractText(raw.optimized_width);
-  result.optimized_height = extractText(raw.optimized_height);
-  result.optimized_size_unit = extractText(raw.optimized_size_unit);
+  result.optimized_weight_value = extractText(raw.optimized_weight_value || raw.item_weight_value || "");
+  result.optimized_weight_unit = extractText(raw.optimized_weight_unit || raw.item_weight_unit || "");
+  result.optimized_length = extractText(raw.optimized_length || raw.item_length || "");
+  result.optimized_width = extractText(raw.optimized_width || raw.item_width || "");
+  result.optimized_height = extractText(raw.optimized_height || raw.item_height || "");
+  result.optimized_size_unit = extractText(raw.optimized_size_unit || raw.item_size_unit || "");
   
   return result as OptimizedData;
 };
@@ -100,7 +101,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Translate to "${targetLangName}". JSON ONLY. Title<150, 5 UNIQUE Bullets<300, Keywords<200. NO brands. Data: ${JSON.stringify(sourceData)}`;
+  const prompt = `Translate to "${targetLangName}". JSON ONLY. Use keys: optimized_title, optimized_features, optimized_description, search_keywords. NO brands. Data: ${JSON.stringify(sourceData)}`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
