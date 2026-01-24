@@ -9,7 +9,7 @@ Act as a Senior Amazon Listing Expert. Optimize this listing.
 [STRICT BRAND PURGE]
 - REMOVE BRAND: "${brand}" (including variants like "${brand.toUpperCase()}") MUST be deleted.
 - REMOVE AUTOMOTIVE: NO car/motorcycle brands (Toyota, Tesla, etc.).
-- Retain the vehicle model and OE number.
+- Retain：Vehicle model names,model numbers/ codes (XV50,E90),years,OEM/part numbers
 
 [CONTENT SPECIFICATIONS]
 1. UNIQUE TITLE: Change the word sequence completely.Use high-converting synonyms. Be creative. MAX 150 characters.

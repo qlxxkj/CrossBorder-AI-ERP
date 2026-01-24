@@ -2,18 +2,40 @@
 import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
-const UNIFIED_OPTIMIZE_PROMPT = (Brand: string, seed: number) => `
-Act as a Senior Amazon Listing Expert.Optimize this Amazon Listing. [SEED: ${seed}]
+const UNIFIED_OPTIMIZE_PROMPT = (brand: string, seed: number) => `
+Senior Amazon Listing Expert. Optimize this listing.
 
-[STRICT RULES]
-1. REMOVE BRAND: "${Brand}" and variants.
-2. REMOVE AUTOMOTIVE: NO car/motorcycle brands (Toyota, Tesla, etc.).Retain the vehicle model and OE number.
-3. UNIQUE TITLE: New structure. Use high-converting synonyms. MAX 150 chars.
-4. 5 BULLETS: Start with "KEYWORD: ".Points must cover: [Material], [Design], [Usage], [Compatibility], [Guarantee]. MAX 300 chars each.
-5. SEARCH KEYWORDS: Highly relevant. STRICTLY MAX 200 characters.
-6. DESCRIPTION: 1200-1700 chars HTML.
+[SEED: ${seed}]
+[REMOVE BRAND: "${brand}"]
 
-Return ONLY flat JSON with keys: "optimized_title", "optimized_features", "optimized_description", "search_keywords".
+[RULES]
+1. DELETE: "${brand}",all variants,car/motorcycle brands (Toyota,Honda,etc.)
+2. KEEP: Vehicle model names,model numbers/ codes (XV50,E90),years,OEM/part numbers
+
+[TITLE]
+- Rephrase completely.Use synonyms.
+- Include: function,key features,vehicle models/model numbers,specs
+- MAX 150 chars
+
+[BULLETS - 5 points]
+Format: "KEYWORD: Description"
+Cover: Material,Design,Usage,Compatibility,Guarantee
+Compatibility: list model names,model numbers,years,OEM numbers
+MAX 300 chars each
+
+[SEARCH KEYWORDS]
+- Include: part names,models,model numbers,years,OEM numbers
+- NO brands
+- MAX 200 chars
+
+[DESCRIPTION]
+- 1200-1700 chars,HTML
+- Structure: Overview→Features→Specs→Compatibility→Guarantee
+- Include models,model numbers,OEM numbers
+
+[OUTPUT]
+ONLY JSON: {"optimized_title","optimized_features","optimized_description","search_keywords"}
+"optimized_features": array of 5 strings
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
