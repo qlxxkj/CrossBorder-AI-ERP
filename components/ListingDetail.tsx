@@ -29,15 +29,27 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
-// 辅助函数：归一化 URL 用于准确比对，剔除代理和特殊编码干扰
-const normalizeUrl = (url: string): string => {
+// 增强版 URL 归一化：用于跨环境精准比对
+const normalizeUrl = (url: string | undefined): string => {
   if (!url) return "";
   let clean = url;
+  
+  // 1. 处理代理前缀
   if (url.includes('corsproxy.io/?')) {
     const parts = url.split('corsproxy.io/?');
-    clean = decodeURIComponent(parts[parts.length - 1]);
+    const encoded = parts[parts.length - 1];
+    try {
+      clean = decodeURIComponent(encoded);
+    } catch(e) {
+      clean = encoded;
+    }
   }
-  return clean.split('?')[0].split('#')[0].trim();
+  
+  // 2. 移除时间戳参数和 Fragment
+  clean = clean.split('?')[0].split('#')[0];
+  
+  // 3. 移除协议头（解决 http/https 不一致）并统一斜杠
+  return clean.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
 };
 
 const standardizeImage = async (imageUrl: string): Promise<string> => {
@@ -108,10 +120,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [previewImage, setPreviewImage] = useState<string>(listing.cleaned?.main_image || '');
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
 
+  // 核心修复：仅在切换 ASIN (产品 ID) 时重置预览图
+  // 防止在保存编辑后，预览图被 useEffect 强制切回旧的主图
   useEffect(() => {
     setLocalListing(listing);
-    setPreviewImage(listing.cleaned?.main_image || '');
     fetchPricingData();
+  }, [listing.id]); 
+
+  // 当外部强制更新 listing 时同步本地状态，但不重置预览
+  useEffect(() => {
+    setLocalListing(listing);
   }, [listing]);
 
   const fetchPricingData = async () => {
@@ -231,37 +249,41 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     } catch (e) {} finally { setIsOptimizing(false); }
   };
 
-  // 处理图片编辑器保存 - 修复版本
+  // 深度修复：处理图片编辑器保存
   const handleImageEditorSave = async (newUrl: string) => {
     setIsSaving(true);
-    // 1. 克隆最新的 listing
+    
+    // 1. 使用 Cache Buster 确保 UI 强制刷新（即使 URL 看起来一样）
+    const finalUrl = newUrl.includes('?') ? `${newUrl}&t=${Date.now()}` : `${newUrl}?t=${Date.now()}`;
+    
+    // 2. 准备最新的 listing 副本
     const next = { ...localListing, cleaned: { ...localListing.cleaned } };
     
-    // 2. 归一化预览图 URL 进行比对
-    const targetUrlNorm = normalizeUrl(previewImage);
-    const mainUrlNorm = normalizeUrl(next.cleaned.main_image || "");
-
+    // 3. 彻底归一化 URL 以进行精准位置匹配
+    const targetNorm = normalizeUrl(previewImage);
+    const mainNorm = normalizeUrl(next.cleaned.main_image);
+    
     let changed = false;
-    if (targetUrlNorm === mainUrlNorm) {
-      next.cleaned.main_image = newUrl;
+    if (targetNorm === mainNorm) {
+      next.cleaned.main_image = finalUrl;
       changed = true;
     } else {
       const others = [...(next.cleaned.other_images || [])];
-      // 遍历比对归一化后的地址
-      const idx = others.findIndex(u => normalizeUrl(u) === targetUrlNorm);
+      const idx = others.findIndex(u => normalizeUrl(u) === targetNorm);
       if (idx !== -1) {
-        others[idx] = newUrl;
+        others[idx] = finalUrl;
         next.cleaned.other_images = others;
         changed = true;
       }
     }
 
     if (changed) {
-      // 3. 同时更新预览图和对象状态，触发 UI 刷新
-      setPreviewImage(newUrl);
+      // 4. 原子更新状态
+      setPreviewImage(finalUrl);
       setLocalListing(next);
       onUpdate(next);
-      // 4. 真正持久化到数据库
+      
+      // 5. 延迟异步同步，确保状态已提交
       await syncToSupabase(next);
     }
 
@@ -287,7 +309,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 const newMain = await standardizeImage(localListing.cleaned.main_image || ''); 
                 const newOthers = await Promise.all((localListing.cleaned.other_images || []).map(u => standardizeImage(u))); 
                 const next = { ...localListing, cleaned: { ...localListing.cleaned, main_image: newMain, other_images: newOthers } };
-                setLocalListing(next); onUpdate(next); await syncToSupabase(next);
+                setLocalListing(next); onUpdate(next); syncToSupabase(next);
                 setPreviewImage(newMain); setIsProcessingImages(false); 
               }} 
               onStandardizeOne={async (u) => {
@@ -295,7 +317,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 const n = await standardizeImage(u);
                 const next = { ...localListing, cleaned: { ...localListing.cleaned } };
                 const uNorm = normalizeUrl(u);
-                if(uNorm === normalizeUrl(next.cleaned.main_image || "")) { 
+                if(uNorm === normalizeUrl(next.cleaned.main_image)) { 
                   next.cleaned.main_image = n; 
                   setPreviewImage(n); 
                 } else { 
