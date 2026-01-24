@@ -249,15 +249,23 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const img = new Image();
     img.src = history[history.length - 1].canvasData;
     img.onload = async () => {
+      ctx.save();
+      ctx.globalAlpha = 1.0;
+      ctx.globalCompositeOperation = 'source-over';
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
+      ctx.restore();
+
       if (process.env.API_KEY && process.env.API_KEY !== 'undefined') {
         try {
           const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
           const result = await editImageWithAI(base64, "Permanently remove the watermarks, logos, and text highlighted by the red mask. Reconstruct the background texture naturally to make it seamless.");
           const resImg = new Image(); resImg.src = `data:image/jpeg;base64,${result}`;
           resImg.onload = () => {
+            ctx.save();
+            ctx.globalAlpha = 1.0;
             ctx.drawImage(resImg, 0, 0); 
+            ctx.restore();
             mCtx.clearRect(0,0,mCanvas.width, mCanvas.height);
             saveToHistory(); setIsProcessing(false); setCurrentTool('select');
           };
@@ -297,6 +305,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (['rect', 'circle', 'line', 'select-fill', 'crop'].includes(currentTool)) setSelection({x1:pos.x, y1:pos.y, x2:pos.x, y2:pos.y});
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
       const target = currentTool === 'brush' ? canvasRef.current!.getContext('2d')! : maskCanvasRef.current!.getContext('2d')!;
+      target.save();
       target.beginPath(); target.moveTo(pos.x, pos.y);
     }
   };
@@ -322,7 +331,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         mCtx.lineTo(pos.x, pos.y); mCtx.stroke(); redrawOverlay();
       } else if (currentTool === 'brush') {
         const ctx = canvasRef.current?.getContext('2d')!;
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = strokeColor; ctx.lineWidth = strokeWidth; ctx.globalAlpha = opacity; ctx.lineTo(pos.x, pos.y); ctx.stroke();
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = strokeColor; ctx.lineWidth = strokeWidth; ctx.globalAlpha = opacity; ctx.globalCompositeOperation = 'source-over';
+        ctx.lineTo(pos.x, pos.y); ctx.stroke();
       }
     }
   };
@@ -332,6 +342,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (currentTool === 'select') { if (isDragging || isResizing || isRotating) saveToHistory(objects); setIsDragging(false); setIsResizing(false); setIsRotating(false); return; }
     if (!isDrawing) return;
     setIsDrawing(false);
+    
+    if (currentTool === 'brush' || currentTool === 'ai-erase') {
+        const target = currentTool === 'brush' ? canvasRef.current!.getContext('2d')! : maskCanvasRef.current!.getContext('2d')!;
+        target.restore();
+    }
+
     if (currentTool === 'ai-erase') { handleSmartErase(); setSelection(null); return; }
     if (currentTool === 'select-fill' && selection) {
       const x = Math.min(selection.x1, selection.x2); const y = Math.min(selection.y1, selection.y2);
@@ -352,52 +368,43 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         setObjects([...objects, newObj]); setSelectedObjectId(newObj.id); setCurrentTool('select'); saveToHistory([...objects, newObj]);
       }
     } else if (currentTool === 'brush') { saveToHistory(); }
-    // Crop 模式下保留选区，直到点击保存
     if (currentTool !== 'crop') setSelection(null);
   };
 
   const getMousePos = (e: any) => {
     const rect = canvasRef.current!.getBoundingClientRect();
-    const cx = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const cy = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const cx = ('touches' in e && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+    const cy = ('touches' in e && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
     return { x: (cx - rect.left) / zoom, y: (cy - rect.top) / zoom };
   };
 
-  /**
-   * 核心功能：全图合并上传
-   * 将所有的形状、文字、画笔图层合并为一个临时 Canvas，并处理剪裁
-   */
   const handleFinalSave = async () => {
     const sourceCanvas = canvasRef.current;
     if (!sourceCanvas) return;
 
     setIsProcessing(true);
-    
-    // 1. 创建终极合成 Canvas
     const finalCanvas = document.createElement('canvas');
     finalCanvas.width = sourceCanvas.width;
     finalCanvas.height = sourceCanvas.height;
     const fCtx = finalCanvas.getContext('2d')!;
 
-    // 2. 绘制基础 Canvas 层（底图 + 画笔）
+    fCtx.save();
+    fCtx.globalAlpha = 1.0;
+    fCtx.globalCompositeOperation = 'source-over';
     fCtx.drawImage(sourceCanvas, 0, 0);
+    fCtx.restore();
 
-    // 3. 绘制所有对象层 (形状和文字)
     objects.forEach(obj => {
       fCtx.save();
       fCtx.globalAlpha = obj.opacity;
-      
-      // 处理旋转
       const centerX = obj.x + obj.width / 2;
       const centerY = obj.y + obj.height / 2;
       fCtx.translate(centerX, centerY);
       fCtx.rotate(obj.rotation);
       fCtx.translate(-centerX, -centerY);
-
       fCtx.strokeStyle = obj.stroke;
       fCtx.fillStyle = obj.fill;
       fCtx.lineWidth = obj.strokeWidth;
-
       if (obj.type === 'rect') {
         if (obj.fill !== 'transparent') fCtx.fillRect(obj.x, obj.y, obj.width, obj.height);
         if (obj.stroke !== 'transparent') fCtx.strokeRect(obj.x, obj.y, obj.width, obj.height);
@@ -418,14 +425,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       fCtx.restore();
     });
 
-    // 4. 应用剪裁 (如果有的话)
     let exportCanvas = finalCanvas;
     if (selection) {
       const cropX = Math.max(0, Math.min(selection.x1, selection.x2));
       const cropY = Math.max(0, Math.min(selection.y1, selection.y2));
       const cropW = Math.min(finalCanvas.width - cropX, Math.abs(selection.x1 - selection.x2));
       const cropH = Math.min(finalCanvas.height - cropY, Math.abs(selection.y1 - selection.y2));
-      
       if (cropW > 5 && cropH > 5) {
         const cropCanvas = document.createElement('canvas');
         cropCanvas.width = cropW;
@@ -435,23 +440,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       }
     }
 
-    // 5. 导出并上传
     exportCanvas.toBlob(async (blob) => {
       if (!blob) { setIsProcessing(false); return; }
       const fd = new FormData();
       fd.append('file', new File([blob], `composed_${Date.now()}.jpg`, { type: 'image/jpeg' }));
-      
       try {
         const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
         const data = await res.json();
         const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
-        if (u) {
-          onSave(u); // 这里会传回 ListingDetail 进行数据库更新
-        } else {
-          throw new Error("Empty URL from host");
-        }
+        if (u) onSave(u);
+        else throw new Error("Empty URL");
       } catch (e) {
-        alert("Failed to sync final image to cloud storage.");
+        alert("Failed to sync final image.");
         setIsProcessing(false);
       }
     }, 'image/jpeg', 0.92);
@@ -509,7 +509,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ref={containerRef} 
         onWheel={e => { e.preventDefault(); setZoom(z => Math.min(10, Math.max(0.05, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }} 
         className="flex-1 bg-slate-950 relative overflow-hidden"
-        style={{ cursor: currentTool === 'ai-erase' ? 'none' : 'default' }}
+        style={{ cursor: (currentTool === 'ai-erase' || currentTool === 'brush') ? 'none' : 'default' }}
       >
         <div 
           className="absolute origin-center" 
@@ -536,7 +536,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               ref={canvasRef} 
               onMouseDown={handleStart} 
               onMouseMove={handleMove} 
-              onMouseUp={handleEnd} 
+              onMouseUp={handleEnd}
+              onTouchStart={handleStart}
+              onTouchMove={handleMove}
+              onTouchEnd={handleEnd}
               className="block" 
             />
             <canvas ref={maskCanvasRef} className="hidden" />
@@ -558,7 +561,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
         </div>
 
-        {currentTool === 'ai-erase' && (
+        {(currentTool === 'ai-erase' || currentTool === 'brush') && (
           <div 
             className="fixed pointer-events-none z-[200] flex items-center justify-center transition-opacity duration-200"
             style={{ 
@@ -570,7 +573,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               opacity: isProcessing ? 0 : 1
             }}
           >
-            <div className="w-full h-full border-2 border-white/80 border-dashed rounded-full animate-[spin_8s_linear_infinite] shadow-[0_0_10px_rgba(0,0,0,0.5)]"></div>
+            <div 
+              className="w-full h-full border-2 border-dashed rounded-full animate-[spin_8s_linear_infinite] shadow-[0_0_10px_rgba(0,0,0,0.5)]"
+              style={{ borderColor: currentTool === 'ai-erase' ? 'white' : strokeColor }}
+            ></div>
           </div>
         )}
 
@@ -644,7 +650,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             <input type="range" min="0" max="1" step="0.01" value={selectedObj?.opacity ?? opacity} onChange={e=>{const v=parseFloat(e.target.value); setOpacity(v); updateSelectedProperty('opacity', v);}} className="w-full h-1 bg-slate-800 appearance-none cursor-pointer accent-blue-500" />
           </div>
           
-          {currentTool === 'ai-erase' && (
+          {(currentTool === 'ai-erase') && (
             <div className="flex items-center gap-2 px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 rounded-xl">
                <Sparkles size={14} className="text-indigo-400 animate-pulse" />
                <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Generative</span>
