@@ -2,7 +2,7 @@
 import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
-const UNIFIED_OPTIMIZE_PROMPT = (brand: string) => `
+const UNIFIED_OPTIMIZE_PROMPT = (Brand: string) => `
 Expert Amazon SEO Copywriter. Optimize this listing.
 
 [CRITICAL BRAND REMOVAL]
