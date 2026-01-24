@@ -7,7 +7,7 @@ Act as a Senior Amazon Listing Expert.Optimize this Amazon Listing. [SEED: ${see
 
 [STRICT RULES]
 1. REMOVE BRAND: "${Brand}" and variants.
-2. REMOVE AUTOMOTIVE: NO car/motorcycle brands (Toyota, Tesla, etc.).
+2. REMOVE AUTOMOTIVE: NO car/motorcycle brands (Toyota, Tesla, etc.).Retain the vehicle model and OE number.
 3. UNIQUE TITLE: New structure. Use high-converting synonyms. MAX 150 chars.
 4. 5 BULLETS: Start with "KEYWORD: ".Points must cover: [Material], [Design], [Usage], [Compatibility], [Guarantee]. MAX 300 chars each.
 5. SEARCH KEYWORDS: Highly relevant. STRICTLY MAX 200 characters.

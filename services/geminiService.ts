@@ -8,7 +8,7 @@ Act as a Senior Amazon Listing Expert. REWRITE the product data for maximum conv
 
 [CRITICAL REMOVAL]
 1. DELETE BRAND: Completely remove "${Brand}" and variants like "${Brand.toUpperCase()}".
-2. NO TRADEMARKS: No Toyota, BMW, Tesla, Honda, etc. 
+2. NO TRADEMARKS: No Toyota, BMW, Tesla, Honda, etc. Retain the vehicle model and OE number.
 
 [CONTENT REQUIREMENTS]
 1. RADICAL REWRITE: Generate a COMPLETELY NEW title structure. Do NOT use the same word order as the source. Use high-converting synonyms. MAX 150 characters.
