@@ -45,6 +45,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [processingUrls, setProcessingUrls] = useState<Set<string>>(new Set());
   const [showImageEditor, setShowImageEditor] = useState(false);
+  const [editingImageUrl, setEditingImageUrl] = useState<string>(''); // Track which image is in editor
   const [showSourcingModal, setShowSourcingModal] = useState(false);
   const [showSourcingForm, setShowSourcingForm] = useState(false);
   const [editingSourceRecord, setEditingSourceRecord] = useState<SourcingRecord | null>(null);
@@ -263,7 +264,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               processingUrls={processingUrls}
               onStandardizeAll={handleStandardizeAll} 
               onStandardizeOne={handleStandardizeOne} 
-              setShowEditor={setShowImageEditor} 
+              setShowEditor={(show) => {
+                if (show) setEditingImageUrl(previewImage); // Capture source URL when opening
+                setShowImageEditor(show);
+              }} 
               fileInputRef={fileInputRef} 
              />
              <input type="file" ref={fileInputRef} className="hidden" accept="image/*" multiple onChange={handleFileUpload} />
@@ -301,7 +305,35 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       </div>
       {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={res => { const n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), res] }; setLocalListing(n); updateField('sourcing_data', n.sourcing_data, true); setShowSourcingModal(false); }} />}
       {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={res => { let n; if (editingSourceRecord) { n = { ...localListing, sourcing_data: (localListing.sourcing_data || []).map(s => s.id === res.id ? res : s) }; } else { n = { ...localListing, sourcing_data: [...(localListing.sourcing_data || []), { ...res, id: `m-${Date.now()}` }] }; } setLocalListing(n); updateField('sourcing_data', n.sourcing_data, true); setShowSourcingForm(false); }} />}
-      {showImageEditor && <ImageEditor imageUrl={previewImage} onClose={() => setShowImageEditor(false)} onSave={(url) => { setPreviewImage(url); updateField('main_image', url, true); setShowImageEditor(false); }} uiLang={uiLang} />}
+      {showImageEditor && (
+        <ImageEditor 
+          imageUrl={editingImageUrl} 
+          onClose={() => setShowImageEditor(false)} 
+          onSave={(newUrl) => { 
+            // Precision logic to replace the correct image
+            setLocalListing(prev => {
+              const next = JSON.parse(JSON.stringify(prev));
+              if (next.cleaned.main_image === editingImageUrl) {
+                next.cleaned.main_image = newUrl;
+              } else {
+                const idx = (next.cleaned.other_images || []).indexOf(editingImageUrl);
+                if (idx > -1) {
+                  next.cleaned.other_images[idx] = newUrl;
+                } else {
+                  // Fallback: update main if source no longer found
+                  next.cleaned.main_image = newUrl;
+                }
+              }
+              setPreviewImage(newUrl);
+              onUpdate(next);
+              syncToSupabase(next);
+              return next;
+            });
+            setShowImageEditor(false); 
+          }} 
+          uiLang={uiLang} 
+        />
+      )}
     </div>
   );
 };
