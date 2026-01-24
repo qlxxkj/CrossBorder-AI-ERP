@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { CheckCircle, TrendingUp, Package, Sparkles, Globe, Clock, Zap, RefreshCcw, Loader2, Layout, ShieldCheck, ArrowRight, AlertTriangle } from 'lucide-react';
+import { CheckCircle, TrendingUp, Package, Sparkles, Globe, Clock, Zap, RefreshCcw, Loader2, Layout, ShieldCheck, ArrowRight, AlertTriangle, ChevronRight } from 'lucide-react';
 import { Listing, UILanguage, UserProfile } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -12,12 +12,12 @@ interface DashboardProps {
   onRefresh?: () => void;
   userProfile?: UserProfile | null;
   onNavigate?: (tab: string) => void;
+  onSelectListing?: (listing: Listing) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing, onRefresh, userProfile, onNavigate }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing, onRefresh, userProfile, onNavigate, onSelectListing }) => {
   const t = useTranslation(lang);
   const [templateCount, setTemplateCount] = useState(0);
-  // Corrected role check to match super_admin
   const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin';
 
   useEffect(() => {
@@ -38,7 +38,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
-      {/* 管理员权限显著提醒 */}
       {isAdmin && (
         <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 rounded-[2.5rem] shadow-2xl shadow-amber-200 text-white flex flex-col md:flex-row items-center justify-between gap-6 animate-in slide-in-from-top-4 duration-500">
            <div className="flex items-center gap-5">
@@ -85,7 +84,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title={t('totalListings')} value={stats.total} icon={<Package className="text-blue-500" />} />
+        <div onClick={() => onNavigate?.('listings')} className="cursor-pointer">
+          <StatCard title={t('totalListings')} value={stats.total} icon={<Package className="text-blue-500" />} />
+        </div>
         <StatCard title={t('optimized')} value={stats.optimized} icon={<Sparkles className="text-indigo-500" />} color="indigo" />
         
         <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between group hover:border-indigo-200 transition-all">
@@ -98,7 +99,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
           </p>
         </div>
 
-        <div className="bg-gradient-to-br from-indigo-600 to-blue-700 p-6 rounded-[2.5rem] shadow-xl text-white flex flex-col justify-between group hover:scale-[1.02] transition-transform">
+        <div onClick={() => onNavigate?.('templates')} className="bg-gradient-to-br from-indigo-600 to-blue-700 p-6 rounded-[2.5rem] shadow-xl text-white flex flex-col justify-between group hover:scale-[1.02] transition-transform cursor-pointer">
           <h3 className="text-indigo-100 text-[10px] font-black uppercase tracking-widest">{lang === 'zh' ? '已维护模板' : 'Active Templates'}</h3>
           <div className="flex items-end justify-between mt-4">
             <p className="text-4xl font-black">{templateCount}</p>
@@ -113,10 +114,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
               <h3 className="font-black text-slate-900 flex items-center gap-2">
                  <TrendingUp size={20} className="text-emerald-500" /> Recent Activity
               </h3>
-              {isSyncing && <div className="text-[10px] font-black text-indigo-500 uppercase animate-pulse">Syncing...</div>}
+              <button onClick={() => onNavigate?.('listings')} className="text-[10px] font-black text-indigo-500 uppercase hover:underline">View All</button>
            </div>
            
-           <div className="space-y-6 flex-1">
+           <div className="space-y-4 flex-1">
               {isSyncing && listings.length === 0 ? (
                 <div className="space-y-4">
                   {[1, 2, 3, 4, 5].map(i => (
@@ -129,17 +130,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
                   <p className="font-black uppercase tracking-widest text-xs">No active listings in database</p>
                 </div>
               ) : (
-                listings.slice(0, 5).map(l => (
-                  <div key={l.id} className="flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-100">
-                     <div className="w-12 h-12 bg-slate-100 rounded-xl overflow-hidden border border-slate-200">
+                listings.slice(0, 8).map(l => (
+                  <div 
+                    key={l.id} 
+                    onClick={() => onSelectListing?.(l)}
+                    className="flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-200 cursor-pointer group/item"
+                  >
+                     <div className="w-14 h-14 bg-white rounded-xl overflow-hidden border border-slate-100 p-1 group-hover/item:border-indigo-200 transition-colors">
                         <img src={l.cleaned?.main_image} className="w-full h-full object-contain" />
                      </div>
-                     <div className="flex-1">
-                        <p className="text-xs font-black text-slate-800 line-clamp-1">{l.cleaned?.title}</p>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">{l.asin} &bull; {l.status}</p>
+                     <div className="flex-1 min-w-0">
+                        <p className="text-xs font-black text-slate-800 line-clamp-1 group-hover/item:text-indigo-600 transition-colors">{l.cleaned?.title}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5 flex items-center gap-2">
+                          <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{l.asin}</span>
+                          <span className={`${l.status === 'optimized' ? 'text-green-500' : 'text-slate-300'}`}>&bull; {l.status}</span>
+                        </p>
                      </div>
-                     <div className="text-[10px] font-black text-slate-300 flex items-center gap-1">
-                        <Clock size={12} /> {new Date(l.created_at).toLocaleDateString()}
+                     <div className="flex items-center gap-4">
+                        <div className="text-[10px] font-black text-slate-300 flex items-center gap-1">
+                           <Clock size={12} /> {new Date(l.created_at).toLocaleDateString()}
+                        </div>
+                        <ChevronRight size={16} className="text-slate-200 group-hover/item:text-indigo-400 transform group-hover/item:translate-x-1 transition-all" />
                      </div>
                   </div>
                 ))
@@ -160,7 +171,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
               </div>
               <button 
                 onClick={() => onNavigate?.('billing')}
-                className="w-full py-3 bg-white text-slate-900 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-all"
+                className="w-full py-3 bg-white text-slate-900 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-all shadow-lg"
               >
                 Top up / Upgrade
               </button>
@@ -179,7 +190,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
 };
 
 const StatCard = ({ title, value, icon, color = "blue" }: any) => (
-  <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between group hover:border-indigo-200 transition-all">
+  <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between group hover:border-indigo-200 transition-all hover:shadow-lg hover:-translate-y-1">
     <div className="flex justify-between items-start">
       <h3 className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{title}</h3>
       <div className={`p-2 rounded-xl bg-${color}-50 group-hover:scale-110 transition-transform`}>{icon}</div>
@@ -189,7 +200,7 @@ const StatCard = ({ title, value, icon, color = "blue" }: any) => (
 );
 
 const Tip = ({ icon, text }: any) => (
-  <div className="flex gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+  <div className="flex gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-100 transition-colors">
     <div className="mt-0.5">{icon}</div>
     <p className="text-[11px] font-bold text-slate-600 leading-relaxed">{text}</p>
   </div>

@@ -130,7 +130,6 @@ const App: React.FC = () => {
         return;
       }
 
-      // 核心优化：如果用户 ID 没变，说明只是 Token 自动刷新或标签切换聚焦，不触发全屏加载
       if (newSession.user.id === sessionRef.current) {
         setSession(newSession);
         return;
@@ -208,9 +207,9 @@ const App: React.FC = () => {
         ) : null;
       default:
         if (activeTab === 'listings') {
-          return <ListingsManager onSelectListing={handleSelectListing} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
+          return <ListingsManager onSelectListing={handleSelectListing} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} isInitialLoading={isSyncing} />;
         }
-        return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
+        return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} onSelectListing={handleSelectListing} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
     }
   };
 

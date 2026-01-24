@@ -254,7 +254,15 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {paginatedListings.map((listing, index) => {
+              {isInitialLoading && paginatedListings.length === 0 ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i} className="animate-pulse">
+                    <td colSpan={9} className="p-8">
+                       <div className="h-14 bg-slate-50 rounded-2xl w-full"></div>
+                    </td>
+                  </tr>
+                ))
+              ) : paginatedListings.map((listing, index) => {
                    const title = (listing.status === 'optimized' && listing.optimized?.optimized_title) ? listing.optimized.optimized_title : (listing.cleaned?.title || "Untitled");
                    const catName = categories.find(c => c.id === listing.category_id)?.name || '-';
                    const mkt = AMAZON_MARKETPLACES.find(m => m.code === listing.marketplace);
@@ -320,7 +328,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                    );
                 })
               }
-              {paginatedListings.length === 0 && (
+              {!isInitialLoading && paginatedListings.length === 0 && (
                 <tr>
                   <td colSpan={9} className="p-20 text-center text-slate-300 font-black uppercase tracking-widest text-sm italic">
                     No matching listings found.
