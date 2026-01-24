@@ -154,8 +154,57 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     return () => cancelAnimationFrame(reqId);
   }, [isDrawing, currentTool]);
 
+  /**
+   * Execute actual cropping of the canvas
+   */
+  const executeCrop = useCallback(() => {
+    if (currentTool !== 'crop' || !selection) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const x = Math.max(0, Math.min(selection.x1, selection.x2));
+    const y = Math.max(0, Math.min(selection.y1, selection.y2));
+    const w = Math.min(canvas.width - x, Math.abs(selection.x1 - selection.x2));
+    const h = Math.min(canvas.height - y, Math.abs(selection.y1 - selection.y2));
+
+    if (w < 5 || h < 5) return;
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = w;
+    tempCanvas.height = h;
+    const tCtx = tempCanvas.getContext('2d')!;
+    tCtx.drawImage(canvas, x, y, w, h, 0, 0, w, h);
+    
+    // Resize main canvas
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d')!.drawImage(tempCanvas, 0, 0);
+    
+    // Sync other layers
+    if (maskCanvasRef.current) { maskCanvasRef.current.width = w; maskCanvasRef.current.height = h; }
+    if (overlayCanvasRef.current) { overlayCanvasRef.current.width = w; overlayCanvasRef.current.height = h; }
+    
+    // Adjust objects coordinates relative to new crop
+    const updatedObjects = objects.map(obj => ({
+      ...obj,
+      x: obj.x - x,
+      y: obj.y - y
+    }));
+    
+    setObjects(updatedObjects);
+    setSelection(null);
+    saveToHistory(updatedObjects);
+  }, [currentTool, selection, objects]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Confirm crop with Enter
+      if (e.key === 'Enter' && currentTool === 'crop' && selection) {
+        executeCrop();
+        return;
+      }
+
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObjectId && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) {
         setObjects(prev => prev.filter(o => o.id !== selectedObjectId));
         setSelectedObjectId(null);
@@ -164,7 +213,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectId]);
+  }, [selectedObjectId, currentTool, selection, executeCrop]);
 
   const redrawOverlay = () => {
     const oCanvas = overlayCanvasRef.current;
@@ -286,6 +335,23 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const handleStart = (e: React.MouseEvent | React.TouchEvent) => {
     const pos = getMousePos(e);
+
+    // NEW: Handle crop confirmation via left click outside the selection
+    if (currentTool === 'crop' && selection) {
+      const xMin = Math.min(selection.x1, selection.x2);
+      const xMax = Math.max(selection.x1, selection.x2);
+      const yMin = Math.min(selection.y1, selection.y2);
+      const yMax = Math.max(selection.y1, selection.y2);
+      
+      const isOutside = pos.x < xMin || pos.x > xMax || pos.y < yMin || pos.y > yMax;
+      
+      // If it's a left click (or touch) outside the crop area, confirm crop
+      if (isOutside && !('touches' in e && (e as any).button !== 0)) {
+        executeCrop();
+        return;
+      }
+    }
+
     const hit = objects.slice().reverse().find(o => pos.x >= o.x && pos.x <= o.x+o.width && pos.y >= o.y && pos.y <= o.y+o.height);
     if (currentTool === 'pan' || (currentTool === 'select' && !hit && !selectedObjectId)) {
       setIsPanning(true); setLastPanPos({ x: 'touches' in e ? (e as React.TouchEvent).touches[0].clientX : (e as React.MouseEvent).clientX, y: 'touches' in e ? (e as React.TouchEvent).touches[0].clientY : (e as React.MouseEvent).clientY }); return;
@@ -375,7 +441,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         setObjects([...objects, newObj]); setSelectedObjectId(newObj.id); setCurrentTool('select'); saveToHistory([...objects, newObj]);
       }
     } else if (currentTool === 'brush') { saveToHistory(); }
+    // No automatic nulling for crop, we keep selection visible until confirmation
     if (currentTool !== 'crop') setSelection(null);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    // Standard context menu prevention in some cases, or handled in handleStart
+    if (currentTool === 'crop' && selection) {
+      e.preventDefault();
+    }
   };
 
   const getMousePos = (e: any) => {
@@ -413,17 +487,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       }
       fCtx.restore();
     });
-    let exportCanvas = finalCanvas;
-    if (selection) {
-      const cropX = Math.max(0, Math.min(selection.x1, selection.x2)), cropY = Math.max(0, Math.min(selection.y1, selection.y2));
-      const cropW = Math.min(finalCanvas.width - cropX, Math.abs(selection.x1 - selection.x2)), cropH = Math.min(finalCanvas.height - cropY, Math.abs(selection.y1 - selection.y2));
-      if (cropW > 5 && cropH > 5) {
-        const cropCanvas = document.createElement('canvas'); cropCanvas.width = cropW; cropCanvas.height = cropH;
-        cropCanvas.getContext('2d')!.drawImage(finalCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-        exportCanvas = cropCanvas;
-      }
-    }
-    exportCanvas.toBlob(async (blob) => {
+
+    finalCanvas.toBlob(async (blob) => {
       if (!blob) { setIsProcessing(false); return; }
       const fd = new FormData();
       fd.append('file', new File([blob], `composed_${Date.now()}.jpg`, { type: 'image/jpeg' }));
@@ -509,7 +574,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         </div>
       </div>
 
-      <div ref={containerRef} onWheel={e => { e.preventDefault(); setZoom(z => Math.min(10, Math.max(0.05, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }} className="flex-1 bg-slate-700 relative overflow-hidden">
+      <div 
+        ref={containerRef} 
+        onWheel={e => { e.preventDefault(); setZoom(z => Math.min(10, Math.max(0.05, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }} 
+        className="flex-1 bg-slate-700 relative overflow-hidden"
+      >
         <div className="absolute origin-center" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, top: '50%', left: '50%', marginTop: canvasRef.current ? -canvasRef.current.height/2 : 0, marginLeft: canvasRef.current ? -canvasRef.current.width/2 : 0 }}>
           {isProcessing && canvasRef.current && (
             <div className="absolute -inset-[20px] z-[80] pointer-events-none">
@@ -527,15 +596,34 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           )}
           <div className="relative shadow-[0_0_100px_rgba(0,0,0,0.4)] bg-white overflow-hidden rounded-sm">
             <canvas 
-              ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd}
-              onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd}
+              ref={canvasRef} 
+              onMouseDown={handleStart} 
+              onMouseMove={handleMove} 
+              onMouseUp={handleEnd}
+              onContextMenu={handleContextMenu}
+              onTouchStart={handleStart} 
+              onTouchMove={handleMove} 
+              onTouchEnd={handleEnd}
               className="block" 
-              style={{ cursor: (isMouseOverCanvas && (currentTool === 'ai-erase' || currentTool === 'brush')) ? 'none' : 'crosshair' }}
+              style={{ cursor: (isMouseOverCanvas && (currentTool === 'ai-erase' || currentTool === 'brush')) ? 'none' : (currentTool === 'crop' ? 'crosshair' : 'default') }}
             />
             <canvas ref={maskCanvasRef} className="hidden" />
             <canvas ref={overlayCanvasRef} className="absolute inset-0 pointer-events-none z-10" />
             <svg className="absolute inset-0 pointer-events-none w-full h-full z-20" viewBox={`0 0 ${canvasRef.current?.width||0} ${canvasRef.current?.height||0}`}>
-              {selection && <rect x={Math.min(selection.x1, selection.x2)} y={Math.min(selection.y1, selection.y2)} width={Math.abs(selection.x1-selection.x2)} height={Math.abs(selection.y1-selection.y2)} fill={currentTool==='select-fill'?fillColor:'none'} fillOpacity={currentTool==='select-fill'?0.5:0} stroke="#60a5fa" strokeWidth={3/zoom} strokeDasharray="6,6" className="animate-[marching-ants_0.8s_linear_infinite]" />}
+              {selection && (
+                <rect 
+                  x={Math.min(selection.x1, selection.x2)} 
+                  y={Math.min(selection.y1, selection.y2)} 
+                  width={Math.abs(selection.x1-selection.x2)} 
+                  height={Math.abs(selection.y1-selection.y2)} 
+                  fill={currentTool==='select-fill'?fillColor:'none'} 
+                  fillOpacity={currentTool==='select-fill'?0.5:0} 
+                  stroke={currentTool === 'crop' ? "#ffffff" : "#60a5fa"} 
+                  strokeWidth={3/zoom} 
+                  strokeDasharray="6,6" 
+                  className="animate-[marching-ants_0.8s_linear_infinite]" 
+                />
+              )}
               {objects.map(obj => (
                 <g key={obj.id} transform={`rotate(${obj.rotation*180/Math.PI} ${obj.x+obj.width/2} ${obj.y+obj.height/2})`} opacity={obj.opacity}>
                   {obj.type==='rect' && <rect x={obj.x} y={obj.y} width={obj.width} height={obj.height} fill={obj.fill} stroke={obj.stroke} strokeWidth={obj.strokeWidth} />}
@@ -599,6 +687,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             <div className="flex items-center gap-2 px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 rounded-xl">
                <Sparkles size={14} className="text-indigo-400 animate-pulse" />
                <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">{isWebGPUActive ? 'GPU SEAMLESS FUSION' : 'GRADIENT SYNTHESIS'}</span>
+            </div>
+          )}
+          {(currentTool === 'crop' && selection) && (
+            <div className="flex items-center gap-3 px-4 py-2 bg-white/10 border border-white/20 rounded-xl">
+               <span className="text-[10px] font-black text-white uppercase tracking-widest animate-pulse">
+                 {uiLang === 'zh' ? '左键或回车确认' : 'Enter or Left-click to confirm'}
+               </span>
             </div>
           )}
         </div>
