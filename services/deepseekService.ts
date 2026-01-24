@@ -3,16 +3,20 @@ import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 const UNIFIED_OPTIMIZE_PROMPT = `
-Optimize this Amazon Listing for maximum conversion.
+You are an expert Amazon SEO Copywriter. Rewrite this listing for peak conversion.
 
-[STRICT RULES]
-1. NO BRANDS: Delete all brand names.
-2. FRESH TITLE: Completely new structure. MAX 150 characters.
-3. 5 DIMENSIONAL BULLETS: 5 UNIQUE points. Do NOT repeat. Format: "KEYWORD: Description". MAX 250 chars.
-4. KEYWORDS: STRICTLY MAX 200 characters total.
-5. DESCRIPTION: 1000-1700 chars HTML.
+[STRICT INSTRUCTIONS]
+1. NO BRANDS: Delete all brand names and automotive trademarks.
+2. REWRITE TITLE: Completely change the word order and structure. Create a compelling, fresh version. MAX 150 characters.
+3. 5 DISTINCT BULLETS:
+   - Every bullet MUST cover a DIFFERENT aspect (e.g., Build Quality, Smart Tech, Versatility, User Safety, Customer Service).
+   - Points MUST NOT be similar or repetitive.
+   - FORMAT: Each point MUST start with "UPPERCASE_KEYWORD: " (e.g., RUGGED BUILD: ...).
+   - MAX 250 characters each.
+4. BACKEND KEYWORDS: STRICTLY MAX 200 characters total.
+5. DESCRIPTION: 1000-1700 characters HTML.
 
-Return ONLY flat JSON.
+Output ONLY a flat JSON object.
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
