@@ -178,13 +178,14 @@ export enum AppView {
   LANDING = 'LANDING',
   AUTH = 'AUTH',
   DASHBOARD = 'DASHBOARD',
+  LISTINGS = 'LISTINGS', // 新增：产品列表显式路由
   LISTING_DETAIL = 'LISTING_DETAIL',
   TEMPLATES = 'TEMPLATES',
   CATEGORIES = 'CATEGORIES',
   PRICING = 'PRICING',
   BILLING = 'BILLING',
-  ADMIN = 'ADMIN', // 超级管理员视图
-  SYSTEM_MGMT = 'SYSTEM_MGMT' // 租户管理员视图
+  ADMIN = 'ADMIN', 
+  SYSTEM_MGMT = 'SYSTEM_MGMT' 
 }
 
 export type UILanguage = 'en' | 'zh' | 'ja' | 'de' | 'fr' | 'es';

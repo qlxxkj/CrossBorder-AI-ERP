@@ -35,7 +35,10 @@ const App: React.FC = () => {
   useEffect(() => { viewRef.current = view; }, [view]);
 
   const fetchListings = useCallback(async (orgId: string) => {
-    if (!isSupabaseConfigured() || !orgId) return;
+    if (!isSupabaseConfigured() || !orgId) {
+      setIsSyncing(false);
+      return;
+    }
     setIsSyncing(true);
     try {
       const { data, error } = await supabase
@@ -96,8 +99,9 @@ const App: React.FC = () => {
       if (profile?.org_id) {
         const { data: orgData } = await supabase.from('organizations').select('*').eq('id', profile.org_id).maybeSingle();
         setOrg(orgData);
-        // 重要：不要 await 这里的 fetchListings，让 UI 优先显示
         fetchListings(profile.org_id);
+      } else {
+        setIsSyncing(false);
       }
 
       setUserProfile(profile);
@@ -110,7 +114,6 @@ const App: React.FC = () => {
       console.error("Identity error:", err);
       setView(AppView.AUTH);
     } finally {
-      // 这里的 setLoading(false) 将在 profile 获取后立即执行，不再等待 listing 列表下载
       setLoading(false);
     }
   }, [fetchListings]);
@@ -162,7 +165,7 @@ const App: React.FC = () => {
     }
     switch(tab) {
       case 'dashboard': setView(AppView.DASHBOARD); break;
-      case 'listings': setView(AppView.DASHBOARD); break;
+      case 'listings': setView(AppView.LISTINGS); break;
       case 'templates': setView(AppView.TEMPLATES); break;
       case 'categories': setView(AppView.CATEGORIES); break;
       case 'pricing': setView(AppView.PRICING); break;
@@ -200,11 +203,21 @@ const App: React.FC = () => {
       case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
       case AppView.PRICING: return <PricingManager uiLang={lang} />;
       case AppView.BILLING: return <BillingCenter uiLang={lang} />;
+      case AppView.LISTINGS: 
+        return <ListingsManager 
+          key="listings-view"
+          onSelectListing={handleSelectListing} 
+          listings={listings} 
+          setListings={setListings} 
+          lang={lang} 
+          refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} 
+          isInitialLoading={isSyncing} 
+        />;
       case AppView.LISTING_DETAIL:
         return selectedListing ? (
           <ListingDetail 
             listing={selectedListing} 
-            onBack={() => setView(AppView.DASHBOARD)} 
+            onBack={() => setView(AppView.LISTINGS)} 
             onUpdate={(u) => { setListings(prev => prev.map(l => l.id === u.id ? u : l)); setSelectedListing(u); }}
             onNext={() => {
               const idx = listings.findIndex(l => l.id === selectedListing.id);
@@ -213,17 +226,8 @@ const App: React.FC = () => {
             uiLang={lang} 
           />
         ) : null;
+      case AppView.DASHBOARD:
       default:
-        if (activeTab === 'listings') {
-          return <ListingsManager 
-            onSelectListing={handleSelectListing} 
-            listings={listings} 
-            setListings={setListings} 
-            lang={lang} 
-            refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} 
-            isInitialLoading={isSyncing} 
-          />;
-        }
         return <Dashboard 
           listings={listings} 
           lang={lang} 

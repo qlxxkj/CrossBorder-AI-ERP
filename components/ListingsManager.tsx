@@ -25,7 +25,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200];
 
 export const ListingsManager: React.FC<ListingsManagerProps> = ({ 
   onSelectListing, 
-  listings, 
+  listings = [], 
   setListings, 
   lang, 
   refreshListings,
@@ -53,8 +53,10 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
 
   const fetchCategories = async () => {
     if (!isSupabaseConfigured()) return;
-    const { data } = await supabase.from('categories').select('*');
-    if (data) setCategories(data);
+    try {
+      const { data } = await supabase.from('categories').select('*');
+      if (data) setCategories(data);
+    } catch (e) {}
   };
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     if (!error) {
       alert(lang === 'zh' ? "分类修改成功！" : "Category updated!");
       setSelectedIds(new Set());
-      setBatchCategoryId(''); // 重置下拉选项
+      setBatchCategoryId(''); 
       refreshListings();
     }
     setIsBatchUpdating(false);
@@ -94,19 +96,20 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   };
 
   const filteredListings = useMemo(() => {
+    if (!listings) return [];
     return listings.filter(l => {
-      const displayTitle = (l.status === 'optimized' && l.optimized?.optimized_title) 
+      const displayTitle = (l?.status === 'optimized' && l?.optimized?.optimized_title) 
         ? l.optimized.optimized_title 
-        : l.cleaned?.title;
+        : l?.cleaned?.title;
       const matchesSearch = (displayTitle || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
-                             (l.asin || "").toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesMarketplace = filterMarketplace === 'ALL' || l.marketplace === filterMarketplace;
-      const matchesCategory = filterCategory === 'ALL' || l.category_id === (filterCategory === 'NONE' ? null : filterCategory);
+                             (l?.asin || "").toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesMarketplace = filterMarketplace === 'ALL' || l?.marketplace === filterMarketplace;
+      const matchesCategory = filterCategory === 'ALL' || l?.category_id === (filterCategory === 'NONE' ? null : filterCategory);
       return matchesSearch && matchesMarketplace && matchesCategory;
     });
   }, [listings, searchTerm, filterMarketplace, filterCategory]);
 
-  const totalPages = Math.ceil(filteredListings.length / itemsPerPage);
+  const totalPages = Math.ceil(filteredListings.length / (itemsPerPage || 20)) || 1;
   const paginatedListings = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredListings.slice(start, start + itemsPerPage);
@@ -135,8 +138,8 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   };
 
   const renderDistributionStatus = (listing: Listing) => {
-    const translations = listing.translations ? Object.keys(listing.translations) : [];
-    const exports = listing.exported_marketplaces || [];
+    const translations = listing?.translations ? Object.keys(listing.translations) : [];
+    const exports = listing?.exported_marketplaces || [];
     return (
       <div className="flex flex-col gap-2">
         {translations.length > 0 && (
@@ -257,17 +260,21 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               {isInitialLoading && paginatedListings.length === 0 ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    <td colSpan={9} className="p-8">
-                       <div className="h-14 bg-slate-50 rounded-2xl w-full"></div>
+                    <td colSpan={9} className="p-8 text-center">
+                       <div className="flex items-center justify-center gap-3">
+                         <Loader2 size={16} className="animate-spin text-indigo-500" />
+                         <div className="h-6 bg-slate-50 rounded-lg w-1/2"></div>
+                       </div>
                     </td>
                   </tr>
                 ))
               ) : paginatedListings.map((listing, index) => {
-                   const title = (listing.status === 'optimized' && listing.optimized?.optimized_title) ? listing.optimized.optimized_title : (listing.cleaned?.title || "Untitled");
-                   const catName = categories.find(c => c.id === listing.category_id)?.name || '-';
-                   const mkt = AMAZON_MARKETPLACES.find(m => m.code === listing.marketplace);
+                   if (!listing) return null;
+                   const title = (listing?.status === 'optimized' && listing?.optimized?.optimized_title) ? listing.optimized.optimized_title : (listing?.cleaned?.title || "Untitled");
+                   const catName = categories.find(c => c.id === listing?.category_id)?.name || '-';
+                   const mkt = AMAZON_MARKETPLACES.find(m => m.code === listing?.marketplace);
                    const sequenceNum = (currentPage - 1) * itemsPerPage + index + 1;
-                   const price = listing.cleaned?.price || 0;
+                   const price = listing?.cleaned?.price || 0;
                    return (
                     <tr key={listing.id} className={`hover:bg-slate-50/50 transition-all group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/20' : ''}`} onClick={() => onSelectListing(listing)}>
                       <td className="p-8 text-center" onClick={(e) => e.stopPropagation()}>
@@ -278,12 +285,12 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                       </td>
                       <td className="p-8">
                         <div className="w-14 h-14 rounded-xl bg-white border border-slate-100 overflow-hidden flex items-center justify-center p-1">
-                          <img src={listing.cleaned?.main_image} className="max-w-full max-h-full object-contain" />
+                          <img src={listing?.cleaned?.main_image} className="max-w-full max-h-full object-contain" />
                         </div>
                       </td>
                       <td className="p-8">
                         <div className="space-y-2">
-                          {listing.status === 'optimized' ? (
+                          {listing?.status === 'optimized' ? (
                             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-green-50 text-green-600 rounded-md text-[8px] font-black uppercase border border-green-100">Optimized</span>
                           ) : (
                             <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 text-slate-400 rounded-md text-[8px] font-black uppercase border border-slate-100">Collected</span>
@@ -292,23 +299,23 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                         </div>
                       </td>
                       <td className="p-8">
-                        <span className={`text-[10px] font-black uppercase ${listing.category_id ? 'text-indigo-600' : 'text-slate-300 italic'}`}>
+                        <span className={`text-[10px] font-black uppercase ${listing?.category_id ? 'text-indigo-600' : 'text-slate-300 italic'}`}>
                           {catName}
                         </span>
                       </td>
                       <td className="p-8">
                         <div className="flex flex-col gap-1">
                           <a 
-                            href={getAmazonUrl(listing.asin, listing.marketplace)}
+                            href={getAmazonUrl(listing?.asin, listing?.marketplace)}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
                             className="flex items-center gap-1 group/asin"
                           >
-                            <span className="font-mono text-[11px] font-black text-slate-400 group-hover/asin:text-blue-600 transition-colors underline decoration-dotted decoration-slate-300">{listing.asin}</span>
+                            <span className="font-mono text-[11px] font-black text-slate-400 group-hover/asin:text-blue-600 transition-colors underline decoration-dotted decoration-slate-300">{listing?.asin}</span>
                             <ExternalLink size={10} className="text-slate-200 group-hover/asin:text-blue-500" />
                           </a>
-                          <span className="block mt-1 text-[8px] font-black text-slate-300 uppercase">{mkt?.flag} {listing.marketplace}</span>
+                          <span className="block mt-1 text-[8px] font-black text-slate-300 uppercase">{mkt?.flag} {listing?.marketplace}</span>
                         </div>
                       </td>
                       <td className="p-8">
