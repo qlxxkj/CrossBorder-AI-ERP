@@ -43,10 +43,6 @@ const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
-/**
- * 边缘感知的高级本地 Inpainting 算法
- * 针对文字和 Logo 进行了多梯度扩散优化
- */
 const localInpaint = (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingContext2D, width: number, height: number) => {
   const imgData = ctx.getImageData(0, 0, width, height);
   const maskData = maskCtx.getImageData(0, 0, width, height);
@@ -56,18 +52,14 @@ const localInpaint = (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingCon
   
   let pixelsToFix = 0;
   for (let i = 0; i < mData.length; i += 4) {
-    if (mData[i] > 20) { // 提高遮罩灵敏度
+    if (mData[i] > 20) {
       mask[i / 4] = 1;
       pixelsToFix++;
     }
   }
-
   if (pixelsToFix === 0) return;
 
-  const temp = new Uint8ClampedArray(data);
-  // 120次高强度迭代，确保深度融合
   const iterations = 120; 
-
   for (let iter = 0; iter < iterations; iter++) {
     const currentPass = new Uint8ClampedArray(data);
     for (let y = 1; y < height - 1; y++) {
@@ -75,13 +67,11 @@ const localInpaint = (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingCon
         const i = y * width + x;
         if (mask[i] === 1) {
           let r=0, g=0, b=0, totalWeight=0;
-          
-          // 3x3 邻域梯度采样
           for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
               if (dx === 0 && dy === 0) continue;
               const ni = i + (dy * width) + dx;
-              if (mask[ni] === 0) { // 只从背景像素取样
+              if (mask[ni] === 0) {
                 const weight = 1.0; 
                 r += currentPass[ni * 4] * weight;
                 g += currentPass[ni * 4 + 1] * weight;
@@ -90,13 +80,11 @@ const localInpaint = (ctx: CanvasRenderingContext2D, maskCtx: CanvasRenderingCon
               }
             }
           }
-          
           if (totalWeight > 0) {
             data[i * 4] = r / totalWeight;
             data[i * 4 + 1] = g / totalWeight;
             data[i * 4 + 2] = b / totalWeight;
             data[i * 4 + 3] = 255;
-            // 逐步缩小遮罩范围，模拟像素向内生长
             if (iter > 20) mask[i] = 0; 
           }
         }
@@ -140,7 +128,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const stripePatternRef = useRef<CanvasPattern | null>(null);
   const patternOffsetRef = useRef(0);
 
-  // 初始化斜纹 Pattern 和动画
   useEffect(() => {
     const pCanvas = document.createElement('canvas');
     pCanvas.width = 32; pCanvas.height = 32;
@@ -258,19 +245,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
     const mCtx = mCanvas.getContext('2d')!;
     setIsProcessing(true);
-    
     oCanvas.getContext('2d')!.clearRect(0, 0, oCanvas.width, oCanvas.height);
-
     const img = new Image();
     img.src = history[history.length - 1].canvasData;
     img.onload = async () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
-
       if (process.env.API_KEY && process.env.API_KEY !== 'undefined') {
         try {
           const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
-          // 强化提示词
           const result = await editImageWithAI(base64, "Permanently remove the watermarks, logos, and text highlighted by the red mask. Reconstruct the background texture naturally to make it seamless.");
           const resImg = new Image(); resImg.src = `data:image/jpeg;base64,${result}`;
           resImg.onload = () => {
@@ -281,7 +264,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           return;
         } catch (e) { }
       }
-
       setTimeout(() => {
         localInpaint(ctx, mCtx, canvas.width, canvas.height);
         mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
@@ -293,11 +275,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const handleStart = (e: React.MouseEvent | React.TouchEvent) => {
     const pos = getMousePos(e);
     const hit = objects.slice().reverse().find(o => pos.x >= o.x && pos.x <= o.x+o.width && pos.y >= o.y && pos.y <= o.y+o.height);
-
     if (currentTool === 'pan' || (currentTool === 'select' && !hit && !selectedObjectId)) {
       setIsPanning(true); setLastPanPos({ x: 'touches' in e ? (e as React.TouchEvent).touches[0].clientX : (e as React.MouseEvent).clientX, y: 'touches' in e ? (e as React.TouchEvent).touches[0].clientY : (e as React.MouseEvent).clientY }); return;
     }
-
     setStartPos(pos);
     if (currentTool === 'select') {
       if (selectedObjectId) {
@@ -313,7 +293,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       else setSelectedObjectId(null);
       return;
     }
-
     setIsDrawing(true);
     if (['rect', 'circle', 'line', 'select-fill', 'crop'].includes(currentTool)) setSelection({x1:pos.x, y1:pos.y, x2:pos.x, y2:pos.y});
     if (currentTool === 'brush' || currentTool === 'ai-erase') {
@@ -326,19 +305,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const clientX = 'touches' in e ? (e as React.TouchEvent).touches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'touches' in e ? (e as React.TouchEvent).touches[0].clientY : (e as React.MouseEvent).clientY;
     const pos = getMousePos(e);
-    
-    // 始终更新 mousePos，确保虚线圈光标能实时显示
     setMousePos({ ...pos, clientX, clientY });
-
     if (isPanning) { setPan(p => ({ x: p.x + (clientX - lastPanPos.x), y: p.y + (clientY - lastPanPos.y) })); setLastPanPos({ x: clientX, y: clientY }); return; }
-    
     if (currentTool === 'select' && selectedObjectId) {
       if (isDragging) setObjects(prev => prev.map(o => o.id === selectedObjectId ? {...o, x: pos.x-dragOffset.x, y: pos.y-dragOffset.y} : o));
       else if (isResizing) setObjects(prev => prev.map(o => o.id === selectedObjectId ? {...o, width: Math.max(10, pos.x-o.x), height: Math.max(10, pos.y-o.y)} : o));
       else if (isRotating) { setObjects(prev => prev.map(o => o.id === selectedObjectId ? {...o, rotation: Math.atan2(pos.y-(o.y+o.height/2), pos.x-(o.x+o.width/2)) + Math.PI/2} : o)); }
       return;
     }
-
     if (!isDrawing) return;
     if (['rect', 'circle', 'line', 'select-fill', 'crop'].includes(currentTool)) setSelection(p => p ? {...p, x2: pos.x, y2: pos.y} : null);
     else {
@@ -358,7 +332,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (currentTool === 'select') { if (isDragging || isResizing || isRotating) saveToHistory(objects); setIsDragging(false); setIsResizing(false); setIsRotating(false); return; }
     if (!isDrawing) return;
     setIsDrawing(false);
-    
     if (currentTool === 'ai-erase') { handleSmartErase(); setSelection(null); return; }
     if (currentTool === 'select-fill' && selection) {
       const x = Math.min(selection.x1, selection.x2); const y = Math.min(selection.y1, selection.y2);
@@ -369,7 +342,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       }
       setSelection(null); return;
     }
-
     if (['rect', 'circle', 'line'].includes(currentTool)) {
       const newObj: EditorObject = { id: crypto.randomUUID(), type: currentTool as any, x: Math.min(startPos.x, mousePos.x), y: Math.min(startPos.y, mousePos.y), width: Math.abs(startPos.x-mousePos.x), height: Math.abs(startPos.y-mousePos.y), rotation: 0, stroke: strokeColor, fill: fillColor, strokeWidth: strokeWidth, opacity: opacity };
       setObjects([...objects, newObj]); setSelectedObjectId(newObj.id); setCurrentTool('select'); saveToHistory([...objects, newObj]);
@@ -380,7 +352,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         setObjects([...objects, newObj]); setSelectedObjectId(newObj.id); setCurrentTool('select'); saveToHistory([...objects, newObj]);
       }
     } else if (currentTool === 'brush') { saveToHistory(); }
-    setSelection(null);
+    // Crop 模式下保留选区，直到点击保存
+    if (currentTool !== 'crop') setSelection(null);
   };
 
   const getMousePos = (e: any) => {
@@ -390,12 +363,105 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     return { x: (cx - rect.left) / zoom, y: (cy - rect.top) / zoom };
   };
 
+  /**
+   * 核心功能：全图合并上传
+   * 将所有的形状、文字、画笔图层合并为一个临时 Canvas，并处理剪裁
+   */
+  const handleFinalSave = async () => {
+    const sourceCanvas = canvasRef.current;
+    if (!sourceCanvas) return;
+
+    setIsProcessing(true);
+    
+    // 1. 创建终极合成 Canvas
+    const finalCanvas = document.createElement('canvas');
+    finalCanvas.width = sourceCanvas.width;
+    finalCanvas.height = sourceCanvas.height;
+    const fCtx = finalCanvas.getContext('2d')!;
+
+    // 2. 绘制基础 Canvas 层（底图 + 画笔）
+    fCtx.drawImage(sourceCanvas, 0, 0);
+
+    // 3. 绘制所有对象层 (形状和文字)
+    objects.forEach(obj => {
+      fCtx.save();
+      fCtx.globalAlpha = obj.opacity;
+      
+      // 处理旋转
+      const centerX = obj.x + obj.width / 2;
+      const centerY = obj.y + obj.height / 2;
+      fCtx.translate(centerX, centerY);
+      fCtx.rotate(obj.rotation);
+      fCtx.translate(-centerX, -centerY);
+
+      fCtx.strokeStyle = obj.stroke;
+      fCtx.fillStyle = obj.fill;
+      fCtx.lineWidth = obj.strokeWidth;
+
+      if (obj.type === 'rect') {
+        if (obj.fill !== 'transparent') fCtx.fillRect(obj.x, obj.y, obj.width, obj.height);
+        if (obj.stroke !== 'transparent') fCtx.strokeRect(obj.x, obj.y, obj.width, obj.height);
+      } else if (obj.type === 'circle') {
+        fCtx.beginPath();
+        fCtx.ellipse(centerX, centerY, obj.width / 2, obj.height / 2, 0, 0, Math.PI * 2);
+        if (obj.fill !== 'transparent') fCtx.fill();
+        if (obj.stroke !== 'transparent') fCtx.stroke();
+      } else if (obj.type === 'line') {
+        fCtx.beginPath();
+        fCtx.moveTo(obj.x, obj.y);
+        fCtx.lineTo(obj.x + obj.width, obj.y + obj.height);
+        fCtx.stroke();
+      } else if (obj.type === 'text') {
+        fCtx.font = `bold ${obj.fontSize}px Inter`;
+        fCtx.fillText(obj.text || "", obj.x, obj.y + obj.height);
+      }
+      fCtx.restore();
+    });
+
+    // 4. 应用剪裁 (如果有的话)
+    let exportCanvas = finalCanvas;
+    if (selection) {
+      const cropX = Math.max(0, Math.min(selection.x1, selection.x2));
+      const cropY = Math.max(0, Math.min(selection.y1, selection.y2));
+      const cropW = Math.min(finalCanvas.width - cropX, Math.abs(selection.x1 - selection.x2));
+      const cropH = Math.min(finalCanvas.height - cropY, Math.abs(selection.y1 - selection.y2));
+      
+      if (cropW > 5 && cropH > 5) {
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = cropW;
+        cropCanvas.height = cropH;
+        cropCanvas.getContext('2d')!.drawImage(finalCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        exportCanvas = cropCanvas;
+      }
+    }
+
+    // 5. 导出并上传
+    exportCanvas.toBlob(async (blob) => {
+      if (!blob) { setIsProcessing(false); return; }
+      const fd = new FormData();
+      fd.append('file', new File([blob], `composed_${Date.now()}.jpg`, { type: 'image/jpeg' }));
+      
+      try {
+        const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
+        const data = await res.json();
+        const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
+        if (u) {
+          onSave(u); // 这里会传回 ListingDetail 进行数据库更新
+        } else {
+          throw new Error("Empty URL from host");
+        }
+      } catch (e) {
+        alert("Failed to sync final image to cloud storage.");
+        setIsProcessing(false);
+      }
+    }, 'image/jpeg', 0.92);
+  };
+
   const perimeter = canvasRef.current ? (canvasRef.current.width + canvasRef.current.height) * 2 : 0;
   const selectedObj = objects.find(o => o.id === selectedObjectId);
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-inter overflow-hidden">
-      {/* Top Bar */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between text-white shadow-xl z-50">
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors"><X size={20} /></button>
@@ -428,26 +494,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               img.onload = () => { canvasRef.current!.getContext('2d')!.drawImage(img, 0, 0); setObjects(prev.objects); setHistory(hist); };
             }
           }} disabled={history.length<=1} className="p-2.5 bg-slate-800 disabled:opacity-30 rounded-xl text-slate-300"><Undo size={18} /></button>
-          <button onClick={async () => {
-             const canvas = canvasRef.current; if (!canvas) return;
-             setIsProcessing(true);
-             canvas.toBlob(async (blob) => {
-               if (!blob) return;
-               const fd = new FormData(); fd.append('file', new File([blob], `edit_${Date.now()}.jpg`, { type: 'image/jpeg' }));
-               try {
-                 const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
-                 const data = await res.json();
-                 const u = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url;
-                 if (u) onSave(u);
-               } catch (e) { alert("Save failed"); setIsProcessing(false); }
-             }, 'image/jpeg', 0.9);
-          }} disabled={isProcessing} className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transition-all">
+          
+          <button 
+            onClick={handleFinalSave} 
+            disabled={isProcessing} 
+            className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transition-all disabled:opacity-50"
+          >
             {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save & Apply
           </button>
         </div>
       </div>
 
-      {/* Workspace (Controlled Cursor Visibility) */}
       <div 
         ref={containerRef} 
         onWheel={e => { e.preventDefault(); setZoom(z => Math.min(10, Math.max(0.05, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }} 
@@ -458,8 +515,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           className="absolute origin-center" 
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, top: '50%', left: '50%', marginTop: canvasRef.current ? -canvasRef.current.height/2 : 0, marginLeft: canvasRef.current ? -canvasRef.current.width/2 : 0 }}
         >
-          
-          {/* Enhanced Snake Loading Frame */}
           {isProcessing && canvasRef.current && (
             <div className="absolute -inset-[20px] z-[80] pointer-events-none">
               <svg width="calc(100% + 40px)" height="calc(100% + 40px)" className="absolute inset-0 drop-shadow-[0_0_15px_rgba(59,130,246,0.8)]">
@@ -503,7 +558,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
         </div>
 
-        {/* Custom AI Erase Cursor (Always Visible when selected) */}
         {currentTool === 'ai-erase' && (
           <div 
             className="fixed pointer-events-none z-[200] flex items-center justify-center transition-opacity duration-200"
@@ -520,25 +574,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
         )}
 
-        {/* Sidebar Tools */}
         <div className="fixed left-6 top-1/2 -translate-y-1/2 w-16 bg-slate-900/90 backdrop-blur-xl border border-slate-800 flex flex-col items-center py-6 gap-6 rounded-3xl shadow-2xl z-50">
           <ToolIcon active={currentTool==='select'} onClick={()=>{setCurrentTool('select'); setShowShapeMenu(false);}} icon={<MousePointer2 size={18}/>} label="Select" />
           <ToolIcon active={currentTool==='pan'} onClick={()=>{setCurrentTool('pan'); setShowShapeMenu(false);}} icon={<Move size={18}/>} label="Pan" />
           <ToolIcon active={currentTool==='brush'} onClick={()=>{setCurrentTool('brush');setSelectedObjectId(null); setShowShapeMenu(false);}} icon={<Palette size={18}/>} label="Brush" />
-          
-          {/* AI Erase Trigger: sets brush size to 50px */}
           <ToolIcon 
             active={currentTool==='ai-erase'} 
             onClick={()=>{
               setCurrentTool('ai-erase');
               setSelectedObjectId(null); 
               setShowShapeMenu(false);
-              setStrokeWidth(50); // 默认画笔到50px
+              setStrokeWidth(50);
             }} 
             icon={<Eraser size={18}/>} 
             label="AI Erase" 
           />
-          
           <div className="relative">
             <ToolIcon active={['rect', 'circle', 'line'].includes(currentTool)} onClick={() => setShowShapeMenu(!showShapeMenu)} icon={<ShapeIcon size={18} type={lastUsedShape} />} label="Shapes" />
             {showShapeMenu && (
@@ -549,13 +599,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               </div>
             )}
           </div>
-
           <ToolIcon active={currentTool==='text'} onClick={()=>{setCurrentTool('text');setSelectedObjectId(null); setShowShapeMenu(false);}} icon={<Type size={18}/>} label="Text" />
           <ToolIcon active={currentTool==='select-fill'} onClick={()=>{setCurrentTool('select-fill');setSelectedObjectId(null); setShowShapeMenu(false);}} icon={<PaintBucket size={18}/>} label="Fill" />
           <ToolIcon active={currentTool==='crop'} onClick={()=>{setCurrentTool('crop');setSelectedObjectId(null); setShowShapeMenu(false);}} icon={<Scissors size={18}/>} label="Crop" />
         </div>
 
-        {/* Property Bar */}
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 rounded-[2.5rem] shadow-2xl min-w-[650px] z-50">
           <div className="flex items-center gap-4">
             <div className="space-y-1">
