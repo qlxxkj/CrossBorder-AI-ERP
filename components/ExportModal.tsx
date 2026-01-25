@@ -259,7 +259,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             }
             else if (f === 'brand') val = cleaned.brand || '';
             else if (f === 'description') val = localOpt?.optimized_description || cleaned.description || '';
-            else if (f === 'main_image') val = localOpt?.optimized_main_image || '';
+            else if (f === 'main_image') val = localOpt?.optimized_main_image || cleaned.main_image || '';
             else if (f?.startsWith('feature')) {
               const idx = parseInt(f.replace('feature', '')) - 1;
               const features = localOpt?.optimized_features || cleaned.features || [];
@@ -267,7 +267,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             }
             else if (f?.startsWith('other_image')) {
               const idx = parseInt(f.replace('other_image', '')) - 1;
-              const otherImages = localOpt?.optimized_other_images || [];
+              const otherImages = localOpt?.optimized_other_images || cleaned.other_images || [];
               val = otherImages[idx] || '';
             }
             else if (f === 'item_weight_value') val = formatExportVal(localOpt?.optimized_weight_value || cleaned.item_weight_value || '');
