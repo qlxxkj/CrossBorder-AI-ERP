@@ -35,7 +35,6 @@ const getLocalizedUnitName = (unit: string | undefined, marketplace: string) => 
   if (!unit) return "";
   const u = unit.toLowerCase().trim();
   
-  // 特殊站点拼写处理
   if (['UK', 'AU', 'SG', 'IE'].includes(marketplace)) {
     if (u === 'cm' || u.includes('centimeter')) return 'Centimetres';
     if (u === 'mm' || u.includes('millimetre')) return 'Millimetres';
@@ -220,7 +219,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
       const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] ?? 3;
       const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
 
-      // 初始化当前 sheet 的最大范围
       let maxRow = dataStartRowIdx;
       let maxCol = 0;
 
@@ -229,9 +227,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         if (rowIdx > maxRow) maxRow = rowIdx;
 
         const cleaned = listing.cleaned;
-        const localOpt: OptimizedData | any = (targetMarket !== 'US' && listing.translations?.[targetMarket]) 
-          ? listing.translations[targetMarket] 
-          : (listing.optimized || null);
+        const masterOpt = listing.optimized || {} as OptimizedData;
+        const localizedOpt = (targetMarket !== 'US' && listing.translations?.[targetMarket]) ? listing.translations[targetMarket] : {} as OptimizedData;
+
+        // 核心修正：严格的真值回溯取值函数
+        // 逻辑：如果 localizedOpt 里的值是空字符串或 undefined，则穿透寻找 masterOpt，再寻找 cleaned
+        const getEffectiveValue = (field: string, fallbackField: string) => {
+           const localVal = (localizedOpt as any)[field];
+           const masterVal = (masterOpt as any)[field];
+           const cleanedVal = (cleaned as any)[fallbackField];
+
+           if (localVal && String(localVal).trim() !== "") return localVal;
+           if (masterVal && String(masterVal).trim() !== "") return masterVal;
+           return cleanedVal || "";
+        };
 
         mappingKeys.forEach(mappingKey => {
           const colIdx = parseInt(mappingKey.replace('col_', ''));
@@ -245,7 +254,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
           if (mapping.source === 'listing') {
             const f = mapping.listingField;
             if (f === 'asin') val = listing.asin || cleaned.asin || '';
-            else if (f === 'title') val = localOpt?.optimized_title || cleaned.title || '';
+            else if (f === 'title') val = getEffectiveValue('optimized_title', 'title');
             else if (f === 'price') val = calculateFinalPrice(listing, targetMarket);
             else if (f === 'shipping') {
               const trans = listing.translations?.[targetMarket];
@@ -258,24 +267,36 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               }
             }
             else if (f === 'brand') val = cleaned.brand || '';
-            else if (f === 'description') val = localOpt?.optimized_description || cleaned.description || '';
-            else if (f === 'main_image') val = localOpt?.optimized_main_image || '';
+            else if (f === 'description') val = getEffectiveValue('optimized_description', 'description');
+            else if (f === 'main_image') val = getEffectiveValue('optimized_main_image', 'main_image');
             else if (f?.startsWith('feature')) {
               const idx = parseInt(f.replace('feature', '')) - 1;
-              const features = localOpt?.optimized_features || cleaned.features || [];
-              val = features[idx] || '';
+              // 针对 Feature 的三级回溯
+              const localFeats = (localizedOpt as any)?.optimized_features || [];
+              const masterFeats = masterOpt?.optimized_features || [];
+              const cleanFeats = cleaned.features || [];
+              
+              if (localFeats[idx] && String(localFeats[idx]).trim() !== "") val = localFeats[idx];
+              else if (masterFeats[idx] && String(masterFeats[idx]).trim() !== "") val = masterFeats[idx];
+              else val = cleanFeats[idx] || "";
             }
             else if (f?.startsWith('other_image')) {
               const idx = parseInt(f.replace('other_image', '')) - 1;
-              const otherImages = localOpt?.optimized_other_images || [];
-              val = otherImages[idx] || '';
+              // 针对附图的三级回溯
+              const localOthers = (localizedOpt as any)?.optimized_other_images || [];
+              const masterOthers = masterOpt?.optimized_other_images || [];
+              const cleanOthers = cleaned.other_images || [];
+
+              if (localOthers[idx]) val = localOthers[idx];
+              else if (masterOthers[idx]) val = masterOthers[idx];
+              else val = cleanOthers[idx] || "";
             }
-            else if (f === 'item_weight_value') val = formatExportVal(localOpt?.optimized_weight_value || cleaned.item_weight_value || '');
-            else if (f === 'item_weight_unit') val = getLocalizedUnitName(localOpt?.optimized_weight_unit || cleaned.item_weight_unit || '', targetMarket);
-            else if (f === 'item_length') val = formatExportVal(localOpt?.optimized_length || cleaned.item_length || '');
-            else if (f === 'item_width') val = formatExportVal(localOpt?.optimized_width || cleaned.item_width || '');
-            else if (f === 'item_height') val = formatExportVal(localOpt?.optimized_height || cleaned.item_height || '');
-            else if (f === 'item_size_unit') val = getLocalizedUnitName(localOpt?.optimized_size_unit || cleaned.item_size_unit || '', targetMarket);
+            else if (f === 'item_weight_value') val = formatExportVal(getEffectiveValue('optimized_weight_value', 'item_weight_value'));
+            else if (f === 'item_weight_unit') val = getLocalizedUnitName(getEffectiveValue('optimized_weight_unit', 'item_weight_unit'), targetMarket);
+            else if (f === 'item_length') val = formatExportVal(getEffectiveValue('optimized_length', 'item_length'));
+            else if (f === 'item_width') val = formatExportVal(getEffectiveValue('optimized_width', 'item_width'));
+            else if (f === 'item_height') val = formatExportVal(getEffectiveValue('optimized_height', 'item_height'));
+            else if (f === 'item_size_unit') val = getLocalizedUnitName(getEffectiveValue('optimized_size_unit', 'item_size_unit'), targetMarket);
           } 
           else if (mapping.source === 'custom') val = mapping.defaultValue || '';
           else if (mapping.source === 'random') val = generateRandomValue(mapping.randomType);
@@ -286,9 +307,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
         });
       });
 
-      // 强制更新 sheet 的有效引用范围
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
-      range.s.r = 0; // 确保从第一行开始
+      range.s.r = 0; 
       range.s.c = 0;
       range.e.r = Math.max(range.e.r, maxRow);
       range.e.c = Math.max(range.e.c, maxCol);

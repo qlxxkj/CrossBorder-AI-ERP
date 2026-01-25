@@ -75,6 +75,10 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   result.optimized_height = extractText(raw.optimized_height || "");
   result.optimized_size_unit = extractText(raw.optimized_size_unit || "");
   
+  // Image handling
+  result.optimized_main_image = raw.optimized_main_image || raw.main_image || "";
+  result.optimized_other_images = Array.isArray(raw.optimized_other_images) ? raw.optimized_other_images : (Array.isArray(raw.other_images) ? raw.other_images : []);
+  
   return result as OptimizedData;
 };
 
