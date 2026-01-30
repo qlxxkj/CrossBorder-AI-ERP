@@ -57,7 +57,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   useEffect(() => { 
     setLocalListing(listing); 
-    // Effect: Always show the optimized image if it exists, otherwise fall back to cleaned
     const effectiveMain = listing.optimized?.optimized_main_image || listing.cleaned?.main_image || '';
     setPreviewImage(effectiveMain); 
     fetchPricingData(); 
@@ -89,7 +88,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const next = JSON.parse(JSON.stringify(prev));
       Object.entries(updates).forEach(([field, value]) => {
         if (activeMarket === 'US') {
-          // INTERCEPT IMAGE FIELDS: Redirect to optimized instead of cleaned
           if (['main_image', 'other_images'].includes(field)) {
             const optKey = field === 'main_image' ? 'optimized_main_image' : 'optimized_other_images';
             next.optimized = { ...(next.optimized || {}), [optKey]: value };
@@ -115,44 +113,43 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
+    if (!imgUrl) return "";
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.src = `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
       img.onload = async () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1600; 
-        canvas.height = 1600;
-        const ctx = canvas.getContext('2d')!;
-        ctx.fillStyle = '#FFFFFF'; 
-        ctx.fillRect(0, 0, 1600, 1600);
-        const maxDim = 1500;
-        const scale = Math.min(maxDim / img.width, maxDim / img.height);
-        const drawW = img.width * scale;
-        const drawH = img.height * scale;
-        const offsetX = (1600 - drawW) / 2;
-        const offsetY = (1600 - drawH) / 2;
-        ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
-        canvas.toBlob(async (blob) => {
-          if (!blob) return reject("Blob creation failed");
-          const fd = new FormData();
-          fd.append('file', blob, `std_${Date.now()}.jpg`);
-          try {
-            const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
-            const data = await res.json();
-            const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-            const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-            resolve(u || imgUrl);
-          } catch (e) { 
-            console.error("Upload error in standardization:", e);
-            resolve(imgUrl); 
-          }
-        }, 'image/jpeg', 0.9);
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 1600; 
+          canvas.height = 1600;
+          const ctx = canvas.getContext('2d')!;
+          ctx.fillStyle = '#FFFFFF'; 
+          ctx.fillRect(0, 0, 1600, 1600);
+          const maxDim = 1500;
+          const scale = Math.min(maxDim / img.width, maxDim / img.height);
+          const drawW = img.width * scale;
+          const drawH = img.height * scale;
+          const offsetX = (1600 - drawW) / 2;
+          const offsetY = (1600 - drawH) / 2;
+          ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+          
+          canvas.toBlob(async (blob) => {
+            if (!blob) return resolve(imgUrl);
+            const fd = new FormData();
+            fd.append('file', blob, `std_${Date.now()}.jpg`);
+            try {
+              const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
+              if (!res.ok) throw new Error("Upload fail");
+              const data = await res.json();
+              const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+              const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
+              resolve(u || imgUrl);
+            } catch (e) { resolve(imgUrl); }
+          }, 'image/jpeg', 0.9);
+        } catch (e) { resolve(imgUrl); }
       };
-      img.onerror = () => {
-        console.warn("Failed to load image for standardization, skipping:", imgUrl);
-        resolve(imgUrl);
-      };
+      img.onerror = () => resolve(imgUrl);
     });
   };
 
@@ -165,11 +162,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const next = JSON.parse(JSON.stringify(prev));
         const currentMain = next.optimized?.optimized_main_image || next.cleaned.main_image;
         
+        // 修正：更精准的字段定位
         if (currentMain === url) {
           next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
           if (previewImage === url) setPreviewImage(newUrl);
         } else {
-          const currentOthers = next.optimized?.optimized_other_images || next.cleaned.other_images || [];
+          const currentOthers = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
           const updatedOthers = currentOthers.map((u: string) => u === url ? newUrl : u);
           next.optimized = { ...(next.optimized || {}), optimized_other_images: updatedOthers };
           if (previewImage === url) setPreviewImage(newUrl);
@@ -180,7 +178,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         return next;
       });
     } catch (e) { 
-      console.error("Standardize one failed:", e);
+      console.error("Standardize failed:", e);
     } finally { 
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; }); 
     }
@@ -190,38 +188,40 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (isProcessingImages) return;
     setIsProcessingImages(true);
     
-    // Calculate current effective images (optimized if exists, else cleaned)
-    const effectiveMain = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image;
+    const effectiveMain = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image || "";
     const effectiveOthers = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
-    const all = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
     
+    const all = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
     all.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
     
     try {
-      const results = await Promise.all(all.map(u => processAndUploadImage(u)));
+      // 分开处理主图和附图，确保不偏移
+      const [newMain, ...newOthers] = await Promise.all([
+        effectiveMain ? processAndUploadImage(effectiveMain) : Promise.resolve(""),
+        ...effectiveOthers.map(u => processAndUploadImage(u))
+      ]);
       
       setLocalListing(prev => {
         const next = JSON.parse(JSON.stringify(prev));
-        if (effectiveMain) {
-          next.optimized = { 
-            ...(next.optimized || {}), 
-            optimized_main_image: results[0],
-            optimized_other_images: results.slice(1)
-          };
-          if (previewImage === effectiveMain) setPreviewImage(results[0]);
-          else {
-            const oldIdx = effectiveOthers.indexOf(previewImage);
-            if (oldIdx > -1) setPreviewImage(results[oldIdx + 1]);
-          }
-        } else {
-          next.optimized = { ...(next.optimized || {}), optimized_other_images: results };
+        next.optimized = { 
+          ...(next.optimized || {}), 
+          optimized_main_image: newMain || next.optimized?.optimized_main_image,
+          optimized_other_images: newOthers
+        };
+        
+        // 更新预览状态
+        if (previewImage === effectiveMain) setPreviewImage(newMain);
+        else {
+          const idx = effectiveOthers.indexOf(previewImage);
+          if (idx > -1) setPreviewImage(newOthers[idx]);
         }
+
         onUpdate(next);
         syncToSupabase(next);
         return next;
       });
     } catch (e) { 
-      alert("Batch standardization failed.");
+      alert("Batch processing error.");
     } finally { 
       setIsProcessingImages(false); 
       setProcessingUrls(new Set()); 
@@ -229,7 +229,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const handleRestoreAllImages = async () => {
-    if (!window.confirm(uiLang === 'zh' ? "确定要恢复所有原始图片吗？您之前的修改将被清空。" : "Are you sure you want to restore all original images? Your modifications will be cleared.")) return;
+    if (!window.confirm(uiLang === 'zh' ? "确定要恢复所有原始图片吗？" : "Restore original images?")) return;
     setLocalListing(prev => {
       const next = JSON.parse(JSON.stringify(prev));
       if (next.optimized) {
@@ -273,7 +273,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       else if (engine === 'deepseek') opt = await optimizeListingWithDeepSeek(source);
       else opt = await optimizeListingWithAI(source);
       
-      // Preserve existing optimized images if present
       const finalOpt = { 
         ...opt, 
         optimized_main_image: localListing.optimized?.optimized_main_image,
@@ -365,7 +364,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   };
 
   const handleDetailDelete = async () => {
-    if (!window.confirm(uiLang === 'zh' ? "确定要删除这条产品吗？删除后将自动为您跳转到下一条。" : "Are you sure you want to delete this listing? It will automatically switch to the next one.")) return;
+    if (!window.confirm(uiLang === 'zh' ? "确定要删除这条产品吗？" : "Delete this listing?")) return;
     setIsDeleting(true);
     try {
       await onDelete(localListing.id);
@@ -464,7 +463,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                   currentOthers[idx] = newUrl;
                   next.optimized = { ...(next.optimized || {}), optimized_other_images: currentOthers };
                 } else {
-                   // Fallback: If for some reason we can't find it, treat it as main
                   next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
                 }
               }
