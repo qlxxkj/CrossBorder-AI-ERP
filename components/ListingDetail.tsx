@@ -14,7 +14,6 @@ import { optimizeListingWithAI, translateListingWithAI } from '../services/gemin
 import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
 import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
-import { calculateMarketLogistics } from './LogisticsEditor';
 
 interface ListingDetailProps {
   listing: Listing;
@@ -54,7 +53,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     if (!isSupabaseConfigured()) return;
     setIsSaving(true);
     try {
-      await supabase.from('listings').update({
+      const { error } = await supabase.from('listings').update({
         cleaned: targetListing.cleaned,
         optimized: targetListing.optimized || null,
         translations: targetListing.translations || null,
@@ -62,8 +61,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         sourcing_data: targetListing.sourcing_data || [],
         updated_at: new Date().toISOString()
       }).eq('id', targetListing.id);
+      if (error) throw error;
     } catch (e) {
-      console.error("Supabase sync failure:", e);
+      console.error("Supabase Save Error:", e);
     } finally { setIsSaving(false); }
   };
 
@@ -90,18 +90,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  // 标准化图像核心函数：1600x1600 画布，纯白底，1500px 居中
+  // 标准化算法实现：1600x1600, 白色背景, 内容 1500px 比例缩放并居中
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     return new Promise(async (resolve) => {
       try {
-        const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
-          ? imgUrl 
-          : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
+        const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
+          ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
         
-        const response = await fetch(proxiedUrl);
+        const response = await fetch(proxied);
         const blob = await response.blob();
         const img = new Image();
+        img.crossOrigin = "anonymous";
         img.src = URL.createObjectURL(blob);
         
         img.onload = () => {
@@ -110,21 +110,23 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           canvas.height = 1600;
           const ctx = canvas.getContext('2d')!;
           
-          // 1. 涂白底
+          // 1. 填充白色底
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, 1600, 1600);
           
-          // 2. 计算 1500px 居中缩放
+          // 2. 缩放逻辑 (限制在 1500px 内)
           const limit = 1500;
           const scale = Math.min(limit / img.width, limit / img.height);
-          const dW = img.width * scale;
-          const dH = img.height * scale;
-          const oX = (1600 - dW) / 2;
-          const oY = (1600 - dH) / 2;
+          const drawW = img.width * scale;
+          const drawH = img.height * scale;
+          
+          // 3. 居中绘制
+          const offsetX = (1600 - drawW) / 2;
+          const offsetY = (1600 - drawH) / 2;
           
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(img, oX, oY, dW, dH);
+          ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
           
           canvas.toBlob(async (outBlob) => {
             if (!outBlob) return resolve(imgUrl);
@@ -152,9 +154,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       if (newUrl === url) return;
 
       const next = JSON.parse(JSON.stringify(localListing));
-      const currentMain = next.optimized?.optimized_main_image || next.cleaned.main_image;
+      const isMain = (next.optimized?.optimized_main_image || next.cleaned.main_image) === url;
       
-      if (currentMain === url) {
+      if (isMain) {
         next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
       } else {
         const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
@@ -200,6 +202,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
+  const handleAIEditSave = (url: string) => {
+    const next = JSON.parse(JSON.stringify(localListing));
+    const isMain = (next.optimized?.optimized_main_image || next.cleaned.main_image) === editingImageUrl;
+    if (isMain) { next.optimized = { ...(next.optimized || {}), optimized_main_image: url }; }
+    else {
+      const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
+      const idx = others.indexOf(editingImageUrl);
+      if (idx > -1) { others[idx] = url; next.optimized = { ...(next.optimized || {}), optimized_other_images: others }; }
+    }
+    setPreviewImage(url); setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowImageEditor(false);
+  };
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-inter text-slate-900">
       <ListingTopBar onBack={onBack} engine={engine} setEngine={setEngine} onOptimize={async () => {
@@ -222,28 +236,20 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           </div>
           <div className="lg:col-span-8">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
-                <div className="px-8 py-6 bg-slate-50/50 flex flex-wrap gap-4 border-b">
-                   <button onClick={() => setActiveMarket('US')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'bg-white text-slate-400'}`}>🇺🇸 Master</button>
-                   {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => (
-                      <button key={m.code} onClick={() => setActiveMarket(m.code)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-400 border border-slate-100'}`}>{m.flag} {m.code}</button>
-                   ))}
+                <div className="px-8 py-6 bg-slate-50/50 flex flex-wrap gap-4 border-b border-slate-100 items-center justify-between">
+                   <div className="flex gap-2 p-1.5 bg-white border border-slate-200 rounded-2xl">
+                     <button onClick={() => setActiveMarket('US')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'bg-white text-slate-400'}`}>🇺🇸 Master</button>
+                     {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').slice(0, 5).map(m => (
+                        <button key={m.code} onClick={() => setActiveMarket(m.code)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-400 border border-slate-100'}`}>{m.flag} {m.code}</button>
+                     ))}
+                   </div>
                 </div>
                 <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={(f, v) => updateFields({[f]: v})} onSync={() => syncToSupabase(localListing)} onRecalculate={() => {}} uiLang={uiLang} />
              </div>
           </div>
         </div>
       </div>
-      {showImageEditor && <ImageEditor imageUrl={editingImageUrl} onClose={() => setShowImageEditor(false)} onSave={(url) => {
-        const next = JSON.parse(JSON.stringify(localListing));
-        const currentMain = next.optimized?.optimized_main_image || next.cleaned.main_image;
-        if (currentMain === editingImageUrl) { next.optimized = { ...(next.optimized || {}), optimized_main_image: url }; }
-        else {
-          const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
-          const idx = others.indexOf(editingImageUrl);
-          if (idx > -1) { others[idx] = url; next.optimized = { ...(next.optimized || {}), optimized_other_images: others }; }
-        }
-        setPreviewImage(url); setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowImageEditor(false);
-      }} uiLang={uiLang} />}
+      {showImageEditor && <ImageEditor imageUrl={editingImageUrl} onClose={() => setShowImageEditor(false)} onSave={handleAIEditSave} uiLang={uiLang} />}
     </div>
   );
 };

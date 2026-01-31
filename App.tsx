@@ -40,7 +40,7 @@ const App: React.FC = () => {
       if (error) throw error;
       setListings(data || []);
     } catch (e) {
-      console.error("Fetch listings error:", e);
+      console.error("Fetch listings failure:", e);
     } finally {
       setIsSyncing(false);
     }
@@ -73,18 +73,12 @@ const App: React.FC = () => {
         fetchListings(profile.org_id);
       }
       setUserProfile(profile);
-      
-      // 如果登录过期后重新在 Auth 页登录，跳转回主界面
-      if (view === AppView.AUTH) {
-        setView(AppView.DASHBOARD);
-        setActiveTab('dashboard');
-      }
     } catch (err) {
-      console.error("Identity error:", err);
+      console.error("Critical Identity Error:", err);
     } finally {
       setIsInitializing(false);
     }
-  }, [fetchListings, view]);
+  }, [fetchListings]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
@@ -97,6 +91,10 @@ const App: React.FC = () => {
       setSession(newSession);
       if (newSession) {
         fetchIdentity(newSession.user.id, newSession);
+        if (view === AppView.AUTH) {
+          setView(AppView.DASHBOARD);
+          setActiveTab('dashboard');
+        }
       } else {
         setUserProfile(null);
         setOrg(null);
@@ -137,12 +135,12 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    // 关键修复：白屏守卫。如果不在公共页面，且数据没准备好，显示加载。
+    // 【白屏守卫】如果不是公开页面且数据未准备好，强制显示加载屏，防止 Dashboard 报错。
     if (!userProfile && (view !== AppView.LANDING && view !== AppView.AUTH)) {
       return (
-        <div className="h-full w-full flex flex-col items-center justify-center p-20">
-          <Loader2 className="animate-spin text-indigo-600 mb-4" size={32} />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Validating Environment...</p>
+        <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20">
+          <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Environment Shield Active...</p>
         </div>
       );
     }
@@ -164,11 +162,11 @@ const App: React.FC = () => {
               }}
               onNext={() => { 
                 const idx = listings.findIndex(l => l.id === selectedListing.id); 
-                if (idx < listings.length - 1) { setSelectedListing(listings[idx + 1]); } 
+                if (idx < listings.length - 1) setSelectedListing(listings[idx + 1]); 
               }} 
               uiLang={lang} 
             />
-          ) : null;
+          ) : <div className="p-20 text-center text-slate-300">Listing Session Lost.</div>;
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
@@ -180,11 +178,13 @@ const App: React.FC = () => {
           return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
       }
     } catch (err) {
+      console.error("View Crash:", err);
       return (
-        <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4">
+        <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4 h-full bg-white">
           <AlertCircle size={48} className="text-red-500" />
-          <h3 className="text-xl font-black">Runtime Crash</h3>
-          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs">Refresh Application</button>
+          <h3 className="text-xl font-black">Runtime Recovery</h3>
+          <p className="text-slate-400 text-xs">The UI component failed to mount. Let's restart the engine.</p>
+          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl transition-all active:scale-95">Reboot AMZBot</button>
         </div>
       );
     }
@@ -193,8 +193,8 @@ const App: React.FC = () => {
   if (isInitializing) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-white">
-        <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Booting Core Engine...</p>
+        <Loader2 className="animate-spin text-indigo-600 mb-4" size={48} />
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Initializing Neural Core...</p>
       </div>
     );
   }
@@ -202,11 +202,11 @@ const App: React.FC = () => {
   const showSidebar = userProfile && session && view !== AppView.LANDING && view !== AppView.AUTH;
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-slate-50 overflow-hidden">
       {showSidebar && (
         <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} lang={lang} userProfile={userProfile} session={session} onLogout={() => supabase.auth.signOut()} onLogoClick={() => setView(AppView.LANDING)} />
       )}
-      <main className={`${showSidebar ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative`}>
+      <main className={`${showSidebar ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative transition-all duration-500`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
           {view === AppView.LANDING ? <LandingPage onLogin={handleLandingLogin} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
            view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => setView(AppView.LANDING)} /> :
