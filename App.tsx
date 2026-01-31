@@ -29,9 +29,8 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
 
-  // 监听视图切换，如果是去 LandingPage，允许用户查看
-  // 但如果用户从 LandingPage 点击“登录”，我们将检查 session
-  const handleLandingLogin = () => {
+  // 1. 处理落地页的登录/开始按钮点击
+  const handleLandingAction = () => {
     if (session) {
       setView(AppView.DASHBOARD);
       setActiveTab('dashboard');
@@ -41,17 +40,13 @@ const App: React.FC = () => {
   };
 
   const fetchListings = useCallback(async (orgId: string) => {
-    if (!isSupabaseConfigured() || !orgId) {
-      setIsSyncing(false);
-      return;
-    }
+    if (!isSupabaseConfigured() || !orgId) return;
     setIsSyncing(true);
     try {
       const { data, error } = await supabase
         .from('listings')
         .select('*')
         .order('created_at', { ascending: false });
-      
       if (error) throw error;
       setListings(data || []);
     } catch (e) {
@@ -66,7 +61,6 @@ const App: React.FC = () => {
       setIsInitializing(false);
       return;
     }
-
     try {
       let { data: profile, error: profileErr } = await supabase
         .from('user_profiles')
@@ -88,11 +82,9 @@ const App: React.FC = () => {
         setOrg(orgData);
         fetchListings(profile.org_id);
       }
-
       setUserProfile(profile);
       
-      // 只有在 AUTH 页面登录成功时，才强制重定向到 Dashboard
-      // 如果用户已经在查看 LandingPage，我们不强制跳走，除非他点登录
+      // 只有在 AUTH 页面且拿到身份时，才自动跳转 Dashboard
       if (view === AppView.AUTH) {
         setView(AppView.DASHBOARD);
         setActiveTab('dashboard');
@@ -107,18 +99,14 @@ const App: React.FC = () => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
-      if (cur) {
-        fetchIdentity(cur.user.id, cur);
-      } else {
-        setIsInitializing(false);
-      }
+      if (cur) fetchIdentity(cur.user.id, cur);
+      else setIsInitializing(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
-      if (newSession) {
-        fetchIdentity(newSession.user.id, newSession);
-      } else {
+      if (newSession) fetchIdentity(newSession.user.id, newSession);
+      else {
         setUserProfile(null);
         setOrg(null);
         setListings([]);
@@ -153,45 +141,39 @@ const App: React.FC = () => {
     setView(AppView.LISTING_DETAIL);
   };
 
-  const handleDeleteListingFromDetail = async (id: string) => {
-    if (!isSupabaseConfigured()) return;
-    const currentIndex = listings.findIndex(l => l.id === id);
-    let nextListingToSelect: Listing | null = null;
-    if (currentIndex > -1) {
-      if (currentIndex < listings.length - 1) nextListingToSelect = listings[currentIndex + 1];
-    }
-    try {
-      await supabase.from('listings').delete().eq('id', id);
-      setListings(prev => prev.filter(l => l.id !== id));
-      if (nextListingToSelect) handleSelectListing(nextListingToSelect);
-      else {
-        setView(AppView.LISTINGS);
-        setSelectedListing(null);
-      }
-    } catch (e) {
-      throw e;
-    }
-  };
-
   const renderContent = () => {
+    // 增加 userProfile 校验逻辑，防止组件在数据未就绪时崩溃
+    if (!userProfile && (view !== AppView.LANDING && view !== AppView.AUTH)) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center p-20">
+          <Loader2 className="animate-spin text-indigo-600 mb-4" size={32} />
+          <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Syncing Identity...</p>
+        </div>
+      );
+    }
+
     try {
       switch(view) {
         case AppView.LISTINGS:
-          return <ListingsManager key="list-view-fixed" onSelectListing={handleSelectListing} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} isInitialLoading={isSyncing} />;
+          return <ListingsManager onSelectListing={handleSelectListing} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} isInitialLoading={isSyncing} />;
         case AppView.LISTING_DETAIL:
           return selectedListing ? (
             <ListingDetail 
               listing={selectedListing} 
               onBack={() => setView(AppView.LISTINGS)} 
               onUpdate={(u) => { setListings(prev => prev.map(l => l.id === u.id ? u : l)); setSelectedListing(u); }} 
-              onDelete={handleDeleteListingFromDetail}
+              onDelete={async (id) => {
+                await supabase.from('listings').delete().eq('id', id);
+                setListings(prev => prev.filter(l => l.id !== id));
+                setView(AppView.LISTINGS);
+              }}
               onNext={() => { 
                 const idx = listings.findIndex(l => l.id === selectedListing.id); 
                 if (idx < listings.length - 1) handleSelectListing(listings[idx + 1]); 
               }} 
               uiLang={lang} 
             />
-          ) : <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} />;
+          ) : null;
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
@@ -205,8 +187,9 @@ const App: React.FC = () => {
     } catch (err) {
       return (
         <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4">
-          <AlertCircle size={48} className="text-red-500" /><h3 className="text-xl font-black">Framework Load Error</h3>
-          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs">Reload App</button>
+          <AlertCircle size={48} className="text-red-500" />
+          <h3 className="text-xl font-black">Interface Crash</h3>
+          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs">Reboot System</button>
         </div>
       );
     }
@@ -230,7 +213,7 @@ const App: React.FC = () => {
       )}
       <main className={`${showSidebar ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
-          {view === AppView.LANDING ? <LandingPage onLogin={handleLandingLogin} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
+          {view === AppView.LANDING ? <LandingPage onLogin={handleLandingAction} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
            view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => setView(AppView.LANDING)} /> :
            renderContent()}
         </div>
