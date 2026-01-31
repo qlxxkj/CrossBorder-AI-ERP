@@ -1,5 +1,7 @@
 {
-  "name": "Copy of CrossBorder AI ERP",
-  "description": "An e-commerce ERP dashboard for Amazon sellers featuring automated listing collection and AI-powered listing optimization.",
-  "requestFramePermissions": []
+  "name": "AMZBot - CrossBorder AI ERP",
+  "description": "Professional Amazon seller dashboard with 18-marketplace localization and advanced AI image studio.",
+  "requestFramePermissions": [
+    "camera"
+  ]
 }

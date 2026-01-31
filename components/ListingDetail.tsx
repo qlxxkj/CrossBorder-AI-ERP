@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Globe, Sparkles, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { Listing, OptimizedData, UILanguage, SourcingRecord } from '../types';
 import { ListingTopBar } from './ListingTopBar';
 import { ListingImageSection } from './ListingImageSection';
@@ -10,9 +10,9 @@ import { ImageEditor } from './ImageEditor';
 import { SourcingModal } from './SourcingModal';
 import { SourcingFormModal } from './SourcingFormModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { optimizeListingWithAI } from '../services/geminiService';
-import { optimizeListingWithOpenAI } from '../services/openaiService';
-import { optimizeListingWithDeepSeek } from '../services/deepseekService';
+import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
+import { translateListingWithOpenAI } from '../services/openaiService';
+import { translateListingWithDeepSeek } from '../services/deepseekService';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
 import { calculateMarketLogistics } from './LogisticsEditor';
 
@@ -34,6 +34,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [activeMarket, setActiveMarket] = useState('US');
   const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translateProgress, setTranslateProgress] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [processingUrls, setProcessingUrls] = useState<Set<string>>(new Set());
@@ -48,8 +50,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   useEffect(() => { 
     setLocalListing(listing); 
     setPreviewImage(listing.optimized?.optimized_main_image || listing.cleaned?.main_image || ''); 
-    localStorage.setItem('amzbot_preferred_engine', engine);
-  }, [listing.id, engine]);
+  }, [listing.id]);
 
   const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
@@ -64,9 +65,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         updated_at: new Date().toISOString()
       }).eq('id', targetListing.id);
       if (error) throw error;
-    } catch (e) {
-      console.error("Critical Sync Error:", e);
-    } finally { setIsSaving(false); }
+    } catch (e) { console.error("Sync Error:", e); } 
+    finally { setIsSaving(false); }
   };
 
   const updateFields = (updates: Record<string, any>, shouldSync: boolean = false) => {
@@ -74,7 +74,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const next = JSON.parse(JSON.stringify(prev));
       Object.entries(updates).forEach(([field, value]) => {
         if (activeMarket === 'US') {
-          // 主站点逻辑：映射至 optimized 字段
           if (['main_image', 'other_images', 'optimized_main_image', 'optimized_other_images'].includes(field)) {
             const optKey = field.startsWith('optimized') ? field : (field === 'main_image' ? 'optimized_main_image' : 'optimized_other_images');
             next.optimized = { ...(next.optimized || {}), [optKey]: value };
@@ -82,7 +81,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             next.optimized = { ...(next.optimized || {}), [field]: value };
           }
         } else {
-          // 多站点翻译逻辑
           const trans = { ...(next.translations || {}) };
           trans[activeMarket] = { ...(trans[activeMarket] || {}), [field]: value };
           next.translations = trans;
@@ -94,7 +92,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  // 标准化图像核心算法：1600x1600, 纯白底, 内容 1500px 等比居中
+  // 1600px 标准化算法：1600x1600, 白底, 1500px 居中
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     return new Promise(async (resolve) => {
@@ -114,28 +112,24 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           canvas.height = 1600;
           const ctx = canvas.getContext('2d')!;
           
-          // 1. 强制绘制白色背景
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, 1600, 1600);
           
-          // 2. 比例缩放计算 (内容限制在 1500px 内)
           const limit = 1500;
           const scale = Math.min(limit / img.width, limit / img.height);
-          const drawW = img.width * scale;
-          const drawH = img.height * scale;
-          
-          // 3. 居中坐标计算
-          const offsetX = (1600 - drawW) / 2;
-          const offsetY = (1600 - drawH) / 2;
+          const dw = img.width * scale;
+          const dh = img.height * scale;
+          const dx = (1600 - dw) / 2;
+          const dy = (1600 - dh) / 2;
           
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+          ctx.drawImage(img, dx, dy, dw, dh);
           
           canvas.toBlob(async (outBlob) => {
             if (!outBlob) return resolve(imgUrl);
             const fd = new FormData();
-            fd.append('file', outBlob, `standardized_${Date.now()}.jpg`);
+            fd.append('file', outBlob, `std_${Date.now()}.jpg`);
             try {
               const res = await fetch(TARGET_API, { method: 'POST', body: fd });
               const data = await res.json();
@@ -150,89 +144,51 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  const handleStandardizeOne = async (url: string) => {
-    if (processingUrls.has(url)) return;
-    setProcessingUrls(prev => new Set(prev).add(url));
+  const translateSite = async (marketCode: string) => {
+    if (isTranslating || !localListing.optimized) return;
+    setIsTranslating(true);
     try {
-      const newUrl = await processAndUploadImage(url);
-      if (newUrl === url) return;
-
-      const next = JSON.parse(JSON.stringify(localListing));
-      const isMain = (next.optimized?.optimized_main_image || next.cleaned.main_image) === url;
+      const mkt = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
+      if (!mkt) return;
       
-      if (isMain) {
-        next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
-      } else {
-        const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
-        const idx = others.indexOf(url);
-        if (idx > -1) {
-          others[idx] = newUrl;
-          next.optimized = { ...(next.optimized || {}), optimized_other_images: others };
-        }
-      }
-      if (previewImage === url) setPreviewImage(newUrl);
-      setLocalListing(next);
-      onUpdate(next);
-      await syncToSupabase(next);
-    } finally { 
-      setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; }); 
-    }
-  };
+      const trans = engine === 'openai' 
+        ? await translateListingWithOpenAI(localListing.optimized, mkt.name) 
+        : engine === 'deepseek' 
+          ? await translateListingWithDeepSeek(localListing.optimized, mkt.name) 
+          : await translateListingWithAI(localListing.optimized, mkt.name);
 
-  const handleStandardizeAll = async () => {
-    if (isProcessingImages) return;
-    setIsProcessingImages(true);
-    const m = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image || "";
-    const o = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
-    const all = [m, ...o].filter(Boolean) as string[];
-    all.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
-    
-    try {
-      const results = await Promise.all([
-        m ? processAndUploadImage(m) : Promise.resolve(""),
-        ...o.map(u => processAndUploadImage(u))
-      ]);
-      const newMain = results[0];
-      const newOthers = results.slice(1).filter(Boolean);
       const next = JSON.parse(JSON.stringify(localListing));
-      next.optimized = { 
-        ...(next.optimized || {}), 
-        optimized_main_image: newMain || next.optimized?.optimized_main_image, 
-        optimized_other_images: newOthers 
-      };
-      if (previewImage === m && newMain) setPreviewImage(newMain);
+      next.translations = { ...(next.translations || {}), [marketCode]: trans };
       setLocalListing(next);
       onUpdate(next);
       await syncToSupabase(next);
-    } finally { 
-      setIsProcessingImages(false); 
-      setProcessingUrls(new Set()); 
-    }
+    } finally { setIsTranslating(false); }
   };
 
-  const handleAIEditSave = (url: string) => {
-    const next = JSON.parse(JSON.stringify(localListing));
-    const isMain = (next.optimized?.optimized_main_image || next.cleaned.main_image) === editingImageUrl;
-    if (isMain) { 
-      next.optimized = { ...(next.optimized || {}), optimized_main_image: url }; 
-    } else {
-      const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
-      const idx = others.indexOf(editingImageUrl);
-      if (idx > -1) { 
-        others[idx] = url; 
-        next.optimized = { ...(next.optimized || {}), optimized_other_images: others }; 
-      }
+  const translateAllMarkets = async () => {
+    if (isTranslating || !localListing.optimized) return;
+    setIsTranslating(true);
+    setTranslateProgress(0);
+    const targets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
+    let current = JSON.parse(JSON.stringify(localListing));
+    
+    for (let i = 0; i < targets.length; i++) {
+      const mkt = targets[i];
+      try {
+        const trans = engine === 'openai' 
+          ? await translateListingWithOpenAI(current.optimized, mkt.name) 
+          : engine === 'deepseek' 
+            ? await translateListingWithDeepSeek(current.optimized, mkt.name) 
+            : await translateListingWithAI(current.optimized, mkt.name);
+            
+        current.translations = { ...(current.translations || {}), [mkt.code]: trans };
+        setLocalListing({ ...current });
+        setTranslateProgress(Math.round(((i + 1) / targets.length) * 100));
+        await syncToSupabase(current);
+      } catch (e) { console.error(`Failed ${mkt.code}`, e); }
     }
-    setPreviewImage(url);
-    setLocalListing(next);
-    onUpdate(next);
-    syncToSupabase(next);
-    setShowImageEditor(false);
-  };
-
-  const handleRecalculateLogistics = () => {
-    const newLogs = calculateMarketLogistics(localListing, activeMarket);
-    updateFields(newLogs, true);
+    setIsTranslating(false);
+    setTranslateProgress(0);
   };
 
   return (
@@ -240,101 +196,99 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       <ListingTopBar onBack={onBack} engine={engine} setEngine={setEngine} onOptimize={async () => {
         setIsOptimizing(true);
         try {
-          const opt = engine === 'openai' ? await optimizeListingWithOpenAI(localListing.cleaned) : engine === 'deepseek' ? await optimizeListingWithDeepSeek(localListing.cleaned) : await optimizeListingWithAI(localListing.cleaned);
+          const opt = engine === 'openai' ? await translateListingWithOpenAI(localListing.cleaned as any, "English") : engine === 'deepseek' ? await translateListingWithDeepSeek(localListing.cleaned as any, "English") : await optimizeListingWithAI(localListing.cleaned);
           const next = { ...localListing, optimized: { ...opt, optimized_main_image: localListing.optimized?.optimized_main_image, optimized_other_images: localListing.optimized?.optimized_other_images }, status: 'optimized' as const };
           setLocalListing(next); onUpdate(next); await syncToSupabase(next);
         } finally { setIsOptimizing(false); }
       }} isOptimizing={isOptimizing} onSave={() => syncToSupabase(localListing)} onDelete={() => onDelete(localListing.id)} isSaving={isSaving} onNext={onNext} uiLang={uiLang} />
       
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pb-20">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
-             <ListingImageSection 
-               listing={localListing} 
-               previewImage={previewImage} 
-               setPreviewImage={setPreviewImage} 
-               updateField={(f, v) => updateFields({[f]: v}, true)} 
-               updateFields={(fs) => updateFields(fs, true)} 
-               isSaving={isSaving} 
-               isProcessing={isProcessingImages} 
-               processingUrls={processingUrls} 
-               onStandardizeAll={handleStandardizeAll} 
-               onStandardizeOne={handleStandardizeOne} 
-               onRestoreAll={() => {
-                  const next = JSON.parse(JSON.stringify(localListing));
-                  if (next.optimized) { delete next.optimized.optimized_main_image; delete next.optimized.optimized_other_images; }
-                  setLocalListing(next); setPreviewImage(next.cleaned.main_image || ''); onUpdate(next); syncToSupabase(next);
-               }} 
-               setShowEditor={(show) => { if (show) setEditingImageUrl(previewImage); setShowImageEditor(show); }} 
-               fileInputRef={fileInputRef} 
-             />
-             <ListingSourcingSection 
-               listing={localListing} 
-               updateField={(f, v) => updateFields({[f]: v}, true)} 
-               setShowModal={setShowSourcingModal} 
-               setShowForm={setShowSourcingForm} 
-               setEditingRecord={setEditingSourceRecord} 
-             />
+             <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={(f, v) => updateFields({[f]: v}, true)} updateFields={(fs) => updateFields(fs, true)} isSaving={isSaving} isProcessing={isProcessingImages} processingUrls={processingUrls} onStandardizeAll={async () => {
+               setIsProcessingImages(true);
+               const m = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image || "";
+               const o = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
+               const results = await Promise.all([m ? processAndUploadImage(m) : Promise.resolve(""), ...o.map(u => processAndUploadImage(u))]);
+               const next = JSON.parse(JSON.stringify(localListing)) as Listing;
+               // Fix: Cast the assigned object to OptimizedData and provide fallback required fields to satisfy TypeScript
+               next.optimized = { 
+                 optimized_title: localListing.optimized?.optimized_title || '',
+                 optimized_features: localListing.optimized?.optimized_features || [],
+                 optimized_description: localListing.optimized?.optimized_description || '',
+                 search_keywords: localListing.optimized?.search_keywords || '',
+                 ...(next.optimized || {}), 
+                 optimized_main_image: results[0] || next.optimized?.optimized_main_image, 
+                 optimized_other_images: results.slice(1) 
+               } as OptimizedData;
+               setLocalListing(next); onUpdate(next); await syncToSupabase(next); setIsProcessingImages(false);
+             }} onStandardizeOne={async (url) => {
+               const newUrl = await processAndUploadImage(url);
+               const next = JSON.parse(JSON.stringify(localListing)) as Listing;
+               // Fix: Explicitly handle next.optimized casting and fallback to ensure type safety for required fields
+               const currentOptimized = (next.optimized || {
+                 optimized_title: '',
+                 optimized_features: [],
+                 optimized_description: '',
+                 search_keywords: ''
+               }) as OptimizedData;
+               
+               if ((next.optimized?.optimized_main_image || next.cleaned.main_image) === url) {
+                 next.optimized = { ...currentOptimized, optimized_main_image: newUrl };
+               } else { 
+                 const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])]; 
+                 const idx = others.indexOf(url); 
+                 if (idx > -1) { 
+                   others[idx] = newUrl; 
+                   next.optimized = { ...currentOptimized, optimized_other_images: others }; 
+                 } 
+               }
+               setLocalListing(next); onUpdate(next); await syncToSupabase(next); setPreviewImage(newUrl);
+             }} onRestoreAll={() => {
+                const next = JSON.parse(JSON.stringify(localListing));
+                if (next.optimized) { delete next.optimized.optimized_main_image; delete next.optimized.optimized_other_images; }
+                setLocalListing(next); setPreviewImage(next.cleaned.main_image || ''); onUpdate(next); syncToSupabase(next);
+             }} setShowEditor={(show) => { if (show) setEditingImageUrl(previewImage); setShowImageEditor(show); }} fileInputRef={fileInputRef} />
+             <ListingSourcingSection listing={localListing} updateField={(f, v) => updateFields({[f]: v}, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
           </div>
           
-          <div className="lg:col-span-8">
+          <div className="lg:col-span-8 space-y-6">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
-                <div className="px-8 py-6 bg-slate-50/50 flex flex-wrap gap-4 border-b border-slate-100 items-center justify-between">
-                   <div className="flex gap-2 p-1.5 bg-white border border-slate-200 rounded-2xl">
-                     <button onClick={() => setActiveMarket('US')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'bg-white text-slate-400'}`}>🇺🇸 Master</button>
-                     {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').slice(0, 7).map(m => (
-                        <button key={m.code} onClick={() => setActiveMarket(m.code)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-400 border border-slate-100'}`}>{m.flag} {m.code}</button>
-                     ))}
+                <div className="px-8 py-6 bg-slate-50/50 flex flex-wrap gap-3 border-b border-slate-100 items-center justify-between">
+                   <div className="flex flex-wrap gap-2">
+                     <button onClick={() => setActiveMarket('US')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'bg-white text-slate-400 border border-slate-200'}`}>🇺🇸 Master</button>
+                     {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
+                        const isTranslated = !!localListing.translations?.[m.code];
+                        return (
+                          <button key={m.code} onClick={() => { setActiveMarket(m.code); if (!isTranslated) translateSite(m.code); }} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : isTranslated ? 'bg-white text-slate-500 border border-slate-200' : 'bg-white text-slate-300 border-2 border-dashed border-slate-200 opacity-60'}`}>
+                            {m.flag} {m.code}
+                            {activeMarket === m.code && <RefreshCw size={10} onClick={(e) => { e.stopPropagation(); translateSite(m.code); }} className="hover:rotate-180 transition-transform" />}
+                          </button>
+                        );
+                     })}
                    </div>
+                   <button onClick={translateAllMarkets} disabled={isTranslating || !localListing.optimized} className={`px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase flex items-center gap-3 shadow-xl shadow-indigo-100 transition-all ${isTranslating ? 'animate-pulse opacity-80' : 'hover:scale-105 active:scale-95'}`}>
+                      {isTranslating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                      {isTranslating ? `Translating ${translateProgress}%` : 'Translate All'}
+                   </button>
                 </div>
-                <ListingEditorArea 
-                  listing={localListing} 
-                  activeMarket={activeMarket} 
-                  updateField={(f, v) => updateFields({[f]: v})} 
-                  onSync={() => syncToSupabase(localListing)} 
-                  onRecalculate={handleRecalculateLogistics} 
-                  uiLang={uiLang} 
-                />
+                <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={(f, v) => updateFields({[f]: v})} onSync={() => syncToSupabase(localListing)} onRecalculate={() => updateFields(calculateMarketLogistics(localListing, activeMarket), true)} uiLang={uiLang} />
              </div>
           </div>
         </div>
       </div>
 
       {showImageEditor && (
-        <ImageEditor 
-          imageUrl={editingImageUrl} 
-          onClose={() => setShowImageEditor(false)} 
-          onSave={handleAIEditSave} 
-          uiLang={uiLang} 
-        />
+        <ImageEditor imageUrl={editingImageUrl} onClose={() => setShowImageEditor(false)} onSave={(url) => {
+          const next = JSON.parse(JSON.stringify(localListing));
+          if ((next.optimized?.optimized_main_image || next.cleaned.main_image) === editingImageUrl) next.optimized = { ...(next.optimized || {}), optimized_main_image: url };
+          else { const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])]; const idx = others.indexOf(editingImageUrl); if (idx > -1) { others[idx] = url; next.optimized = { ...(next.optimized || {}), optimized_other_images: others }; } }
+          setPreviewImage(url); setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowImageEditor(false);
+        }} uiLang={uiLang} />
       )}
       
-      {showSourcingModal && (
-        <SourcingModal 
-          productImage={previewImage} 
-          onClose={() => setShowSourcingModal(false)} 
-          onAddLink={(rec) => {
-            const next = [...(localListing.sourcing_data || []), rec];
-            updateFields({ sourcing_data: next }, true);
-            setShowSourcingModal(false);
-          }} 
-        />
-      )}
-
-      {showSourcingForm && (
-        <SourcingFormModal 
-          initialData={editingSourceRecord} 
-          onClose={() => setShowSourcingForm(false)} 
-          onSave={(rec) => {
-            const current = localListing.sourcing_data || [];
-            const next = editingSourceRecord 
-              ? current.map(s => s.id === editingSourceRecord.id ? rec : s)
-              : [...current, rec];
-            updateFields({ sourcing_data: next }, true);
-            setShowSourcingForm(false);
-          }} 
-        />
-      )}
+      {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={(rec) => { updateFields({ sourcing_data: [...(localListing.sourcing_data || []), rec] }, true); setShowSourcingModal(false); }} />}
+      {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={(rec) => { const cur = localListing.sourcing_data || []; const next = editingSourceRecord ? cur.map(s => s.id === editingSourceRecord.id ? rec : s) : [...cur, rec]; updateFields({ sourcing_data: next }, true); setShowSourcingForm(false); }} />}
     </div>
   );
 };
