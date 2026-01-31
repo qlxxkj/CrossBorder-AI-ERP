@@ -35,6 +35,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   useEffect(() => {
     const init = async () => {
+      if (!imageUrl) return;
       setIsProcessing(true);
       try {
         const proxied = imageUrl.startsWith('http') ? `${CORS_PROXY}${encodeURIComponent(imageUrl)}` : imageUrl;
@@ -167,6 +168,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
         const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
         if (u) onSave(u);
+      } catch (e) {
+        alert("Save failed");
       } finally { setIsProcessing(false); }
     }, 'image/jpeg', 0.96);
   };

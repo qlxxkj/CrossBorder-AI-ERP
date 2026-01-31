@@ -39,38 +39,7 @@ export const getLocalizedUnit = (unit: string | undefined, market: string) => {
     const fr: Record<string, string> = { 'kg': 'Kilogrammes', 'kilogram': 'Kilogrammes', 'cm': 'Centimètres', 'centimeter': 'Centimètres', 'lb': 'Livres', 'oz': 'Onces' };
     return fr[u] || unit;
   }
-   // 5. 意大利站
-  if (market === 'IT') {
-    const it: Record<string, string> = { 'kg': 'Chilogrammi', 'kilogram': 'Chilogrammi', 'cm': 'Centimetri', 'centimeter': 'Centimetri', 'lb': 'Libbre' };
-    return it[u] || unit;
-  }
   
-  // 6. 波兰站
-  if (market === 'PL') {
-    const pl: Record<string, string> = { 'kg': 'Kilogramy', 'kilogram': 'Kilogramy', 'cm': 'Centymetry', 'centimeter': 'Centymetry' };
-    return pl[u] || unit;
-  }
-  
-  // 7. 墨西哥、西班牙站
-  if (['MX', 'ES'].includes(market)) {
-    const es: Record<string, string> = { 'kg': 'Kilogramos', 'cm': 'Centímetros', 'lb': 'Libras', 'in': 'Pulgadas' };
-    return es[u] || unit;
-  }
-  
-  // 8. 巴西站
-  if (market === 'BR') {
-    const pt: Record<string, string> = { 'kg': 'Quilogramas', 'cm': 'Centímetros', 'lb': 'Libras' };
-    return pt[u] || unit;
-  }
-  
-  // 9. 阿拉伯语站点
-  if (['EG', 'SA', 'AE'].includes(market)) {
-    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية' };
-    return ar[u] || unit;
-  }
-  if (market === 'NL') { return { 'kg': 'Kilogram', 'cm': 'Centimeter' }[u] || unit; }
-  if (market === 'SE') { return { 'kg': 'Kilogram', 'cm': 'Centimeter' }[u] || unit; }
-  // 10. 标准美式英语及兜底
   const latin: Record<string, string> = { 'kg': 'Kilograms', 'kilogram': 'Kilograms', 'cm': 'Centimeters', 'centimeter': 'Centimeters', 'lb': 'Pounds', 'pound': 'Pounds', 'in': 'Inches', 'oz': 'Ounces', 'g': 'Grams' };
   if (latin[u]) return latin[u];
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
@@ -94,22 +63,35 @@ export const calculateMarketLogistics = (listing: Listing, targetMkt: string) =>
   const nH = parse(sourceH);
   
   let finalW = "", finalL = "", finalWd = "", finalH = "";
-   if (isMetric) {
+  if (isMetric) {
     if (sourceUnitW.includes('lb') || sourceUnitW.includes('pound')) finalW = nW > 0 ? (nW * 0.453592).toFixed(2) : "";
-    else if (sourceUnitW.includes('oz') || sourceUnitW.includes('ounce')) finalW = nW > 0 ? (nW * 0.0283495).toFixed(2) : ""; 
-    else if (sourceUnitW.includes('g') && !sourceUnitW.includes('k')) finalW = nW > 0 ? (nW / 1000).toFixed(2) : "";
     else finalW = nW > 0 ? nW.toFixed(2) : "";
-    if (sourceUnitS.includes('in') || sourceUnitS.includes('inch')) { finalL = nL > 0 ? (nL * 2.54).toFixed(2) : ""; finalWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : ""; finalH = nH > 0 ? (nH * 2.54).toFixed(2) : ""; }
+    if (sourceUnitS.includes('in') || sourceUnitS.includes('inch')) { 
+        finalL = nL > 0 ? (nL * 2.54).toFixed(2) : ""; 
+        finalWd = nWd > 0 ? (nWd * 2.54).toFixed(2) : ""; 
+        finalH = nH > 0 ? (nH * 2.54).toFixed(2) : ""; 
+    }
     else { finalL = nL > 0 ? nL.toFixed(2) : ""; finalWd = nWd > 0 ? nWd.toFixed(2) : ""; finalH = nH > 0 ? nH.toFixed(2) : ""; }
   } else {
     if (sourceUnitW.includes('kg') || sourceUnitW.includes('kilogram')) finalW = nW > 0 ? (nW / 0.453592).toFixed(2) : "";
-    else if (sourceUnitW.includes('g')) finalW = nW > 0 ? (nW / 453.592).toFixed(2) : "";
     else finalW = nW > 0 ? nW.toFixed(2) : "";
-    if (sourceUnitS.includes('cm') || sourceUnitS.includes('centimeter')) { finalL = nL > 0 ? (nL / 2.54).toFixed(2) : ""; finalWd = nWd > 0 ? (nWd / 2.54).toFixed(2) : ""; finalH = nH > 0 ? (nH / 2.54).toFixed(2) : ""; }
+    if (sourceUnitS.includes('cm') || sourceUnitS.includes('centimeter')) { 
+        finalL = nL > 0 ? (nL / 2.54).toFixed(2) : ""; 
+        finalWd = nWd > 0 ? (nWd / 2.54).toFixed(2) : ""; 
+        finalH = nH > 0 ? (nH / 2.54).toFixed(2) : ""; 
+    }
     else { finalL = nL > 0 ? nL.toFixed(2) : ""; finalWd = nWd > 0 ? nWd.toFixed(2) : ""; finalH = nH > 0 ? nH.toFixed(2) : ""; }
   }
-  return { optimized_weight_value: finalW, optimized_weight_unit: getLocalizedUnit(isMetric ? 'kg' : 'lb', targetMkt), optimized_length: finalL, optimized_width: finalWd, optimized_height: finalH, optimized_size_unit: getLocalizedUnit(isMetric ? 'cm' : 'in', targetMkt) };
 
+  return { 
+    optimized_weight_value: finalW, 
+    optimized_weight_unit: getLocalizedUnit(isMetric ? 'kg' : 'lb', targetMkt), 
+    optimized_length: finalL, 
+    optimized_width: finalWd, 
+    optimized_height: finalH, 
+    optimized_size_unit: getLocalizedUnit(isMetric ? 'cm' : 'in', targetMkt) 
+  };
+};
 
 export const calculateMarketPrice = (listing: Listing, targetMkt: string, rates: ExchangeRate[], adjs: PriceAdjustment[]) => {
   if (targetMkt === 'US') return { optimized_price: listing.optimized?.optimized_price || listing.cleaned.price || 0 };
@@ -131,7 +113,7 @@ export const calculateMarketPrice = (listing: Listing, targetMkt: string, rates:
   
   return { 
     optimized_price: targetMkt === 'JP' ? Math.round(finalPrice) : parseFloat(finalPrice.toFixed(2)),
-    optimized_shipping: 0 // Typically zero out for international if base included it
+    optimized_shipping: 0 
   };
 };
 
