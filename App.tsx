@@ -13,7 +13,7 @@ import { BillingCenter } from './components/BillingCenter';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SystemManagement } from './components/SystemManagement';
 import { AppView, Listing, UILanguage, UserProfile, Organization } from './types';
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -29,9 +29,13 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
 
-  // 使用 Ref 追踪当前视图，避免 fetchIdentity 闭包问题
-  const viewRef = useRef(view);
-  useEffect(() => { viewRef.current = view; }, [view]);
+  // 核心修复：自动重定向逻辑
+  useEffect(() => {
+    if (session && (view === AppView.LANDING || view === AppView.AUTH)) {
+      setView(AppView.DASHBOARD);
+      setActiveTab('dashboard');
+    }
+  }, [session, view]);
 
   const fetchListings = useCallback(async (orgId: string) => {
     if (!isSupabaseConfigured() || !orgId) {
@@ -69,7 +73,6 @@ const App: React.FC = () => {
 
       if (profileErr) throw profileErr;
 
-      // 如果没有 Profile，则创建
       if (!profile) {
         const newOrgId = crypto.randomUUID();
         await supabase.from('organizations').insert([{ id: newOrgId, name: `Org_${userId.slice(0, 5)}`, owner_id: userId, plan_type: 'Free', credits_total: 100, credits_used: 0 }]);
@@ -84,12 +87,6 @@ const App: React.FC = () => {
       }
 
       setUserProfile(profile);
-      
-      // 强制跳转逻辑：如果当前在落地页或登录页，且已拿到身份，则跳转
-      if (viewRef.current === AppView.LANDING || viewRef.current === AppView.AUTH) {
-        setView(AppView.DASHBOARD);
-        setActiveTab('dashboard');
-      }
     } catch (err) {
       console.error("Identity failure:", err);
     } finally {
@@ -98,7 +95,6 @@ const App: React.FC = () => {
   }, [fetchListings]);
 
   useEffect(() => {
-    // 初始 Session 检查
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
       if (cur) {
@@ -108,11 +104,8 @@ const App: React.FC = () => {
       }
     });
 
-    // 监听状态变化
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-      console.log("Auth Event:", event);
       setSession(newSession);
-      
       if (newSession) {
         fetchIdentity(newSession.user.id, newSession);
       } else {
