@@ -104,7 +104,7 @@ const App: React.FC = () => {
       }
     });
     return () => subscription.unsubscribe();
-  }, [fetchIdentity]);
+  }, [fetchIdentity, view]);
 
   const handleLandingLogin = () => {
     if (session && userProfile) {
@@ -135,12 +135,12 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    // 【白屏守卫】如果不是公开页面且数据未准备好，强制显示加载屏，防止 Dashboard 报错。
+    // 【白屏守卫】如果不是公开页面且核心数据未准备好，强制显示加载屏
     if (!userProfile && (view !== AppView.LANDING && view !== AppView.AUTH)) {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20">
           <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Environment Shield Active...</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Neural Environment Synchronizing...</p>
         </div>
       );
     }
@@ -162,11 +162,13 @@ const App: React.FC = () => {
               }}
               onNext={() => { 
                 const idx = listings.findIndex(l => l.id === selectedListing.id); 
-                if (idx < listings.length - 1) setSelectedListing(listings[idx + 1]); 
+                if (idx < listings.length - 1) {
+                  setSelectedListing(listings[idx + 1]);
+                }
               }} 
               uiLang={lang} 
             />
-          ) : <div className="p-20 text-center text-slate-300">Listing Session Lost.</div>;
+          ) : <div className="p-20 text-center text-slate-300 font-black uppercase tracking-widest">Listing Reference Invalid.</div>;
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
@@ -183,8 +185,8 @@ const App: React.FC = () => {
         <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4 h-full bg-white">
           <AlertCircle size={48} className="text-red-500" />
           <h3 className="text-xl font-black">Runtime Recovery</h3>
-          <p className="text-slate-400 text-xs">The UI component failed to mount. Let's restart the engine.</p>
-          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl transition-all active:scale-95">Reboot AMZBot</button>
+          <p className="text-slate-400 text-xs">The application encountered a critical view exception.</p>
+          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Reboot AMZBot</button>
         </div>
       );
     }

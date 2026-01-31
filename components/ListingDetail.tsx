@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Loader2, Languages, RefreshCw, Zap } from 'lucide-react';
-import { Listing, OptimizedData, CleanedData, UILanguage, ExchangeRate, SourcingRecord } from '../types';
+import { Loader2 } from 'lucide-react';
+import { Listing, OptimizedData, UILanguage, SourcingRecord } from '../types';
 import { ListingTopBar } from './ListingTopBar';
 import { ListingImageSection } from './ListingImageSection';
 import { ListingSourcingSection } from './ListingSourcingSection';
@@ -10,10 +10,11 @@ import { ImageEditor } from './ImageEditor';
 import { SourcingModal } from './SourcingModal';
 import { SourcingFormModal } from './SourcingFormModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
-import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
-import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
+import { optimizeListingWithAI } from '../services/geminiService';
+import { optimizeListingWithOpenAI } from '../services/openaiService';
+import { optimizeListingWithDeepSeek } from '../services/deepseekService';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
+import { calculateMarketLogistics } from './LogisticsEditor';
 
 interface ListingDetailProps {
   listing: Listing;
@@ -47,7 +48,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   useEffect(() => { 
     setLocalListing(listing); 
     setPreviewImage(listing.optimized?.optimized_main_image || listing.cleaned?.main_image || ''); 
-  }, [listing.id]);
+    localStorage.setItem('amzbot_preferred_engine', engine);
+  }, [listing.id, engine]);
 
   const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
@@ -63,7 +65,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       }).eq('id', targetListing.id);
       if (error) throw error;
     } catch (e) {
-      console.error("Supabase Save Error:", e);
+      console.error("Critical Sync Error:", e);
     } finally { setIsSaving(false); }
   };
 
@@ -72,6 +74,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const next = JSON.parse(JSON.stringify(prev));
       Object.entries(updates).forEach(([field, value]) => {
         if (activeMarket === 'US') {
+          // 主站点逻辑：映射至 optimized 字段
           if (['main_image', 'other_images', 'optimized_main_image', 'optimized_other_images'].includes(field)) {
             const optKey = field.startsWith('optimized') ? field : (field === 'main_image' ? 'optimized_main_image' : 'optimized_other_images');
             next.optimized = { ...(next.optimized || {}), [optKey]: value };
@@ -79,6 +82,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             next.optimized = { ...(next.optimized || {}), [field]: value };
           }
         } else {
+          // 多站点翻译逻辑
           const trans = { ...(next.translations || {}) };
           trans[activeMarket] = { ...(trans[activeMarket] || {}), [field]: value };
           next.translations = trans;
@@ -90,7 +94,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  // 标准化算法实现：1600x1600, 白色背景, 内容 1500px 比例缩放并居中
+  // 标准化图像核心算法：1600x1600, 纯白底, 内容 1500px 等比居中
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     return new Promise(async (resolve) => {
@@ -110,17 +114,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           canvas.height = 1600;
           const ctx = canvas.getContext('2d')!;
           
-          // 1. 填充白色底
+          // 1. 强制绘制白色背景
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, 1600, 1600);
           
-          // 2. 缩放逻辑 (限制在 1500px 内)
+          // 2. 比例缩放计算 (内容限制在 1500px 内)
           const limit = 1500;
           const scale = Math.min(limit / img.width, limit / img.height);
           const drawW = img.width * scale;
           const drawH = img.height * scale;
           
-          // 3. 居中绘制
+          // 3. 居中坐标计算
           const offsetX = (1600 - drawW) / 2;
           const offsetY = (1600 - drawH) / 2;
           
@@ -131,7 +135,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           canvas.toBlob(async (outBlob) => {
             if (!outBlob) return resolve(imgUrl);
             const fd = new FormData();
-            fd.append('file', outBlob, `std_${Date.now()}.jpg`);
+            fd.append('file', outBlob, `standardized_${Date.now()}.jpg`);
             try {
               const res = await fetch(TARGET_API, { method: 'POST', body: fd });
               const data = await res.json();
@@ -191,7 +195,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const newMain = results[0];
       const newOthers = results.slice(1).filter(Boolean);
       const next = JSON.parse(JSON.stringify(localListing));
-      next.optimized = { ...(next.optimized || {}), optimized_main_image: newMain || next.optimized?.optimized_main_image, optimized_other_images: newOthers };
+      next.optimized = { 
+        ...(next.optimized || {}), 
+        optimized_main_image: newMain || next.optimized?.optimized_main_image, 
+        optimized_other_images: newOthers 
+      };
       if (previewImage === m && newMain) setPreviewImage(newMain);
       setLocalListing(next);
       onUpdate(next);
@@ -205,13 +213,26 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const handleAIEditSave = (url: string) => {
     const next = JSON.parse(JSON.stringify(localListing));
     const isMain = (next.optimized?.optimized_main_image || next.cleaned.main_image) === editingImageUrl;
-    if (isMain) { next.optimized = { ...(next.optimized || {}), optimized_main_image: url }; }
-    else {
+    if (isMain) { 
+      next.optimized = { ...(next.optimized || {}), optimized_main_image: url }; 
+    } else {
       const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
       const idx = others.indexOf(editingImageUrl);
-      if (idx > -1) { others[idx] = url; next.optimized = { ...(next.optimized || {}), optimized_other_images: others }; }
+      if (idx > -1) { 
+        others[idx] = url; 
+        next.optimized = { ...(next.optimized || {}), optimized_other_images: others }; 
+      }
     }
-    setPreviewImage(url); setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowImageEditor(false);
+    setPreviewImage(url);
+    setLocalListing(next);
+    onUpdate(next);
+    syncToSupabase(next);
+    setShowImageEditor(false);
+  };
+
+  const handleRecalculateLogistics = () => {
+    const newLogs = calculateMarketLogistics(localListing, activeMarket);
+    updateFields(newLogs, true);
   };
 
   return (
@@ -224,32 +245,96 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           setLocalListing(next); onUpdate(next); await syncToSupabase(next);
         } finally { setIsOptimizing(false); }
       }} isOptimizing={isOptimizing} onSave={() => syncToSupabase(localListing)} onDelete={() => onDelete(localListing.id)} isSaving={isSaving} onNext={onNext} uiLang={uiLang} />
+      
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
-             <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={(f, v) => updateFields({[f]: v}, true)} updateFields={(fs) => updateFields(fs, true)} isSaving={isSaving} isProcessing={isProcessingImages} processingUrls={processingUrls} onStandardizeAll={handleStandardizeAll} onStandardizeOne={handleStandardizeOne} onRestoreAll={() => {
-                const next = JSON.parse(JSON.stringify(localListing));
-                if (next.optimized) { delete next.optimized.optimized_main_image; delete next.optimized.optimized_other_images; }
-                setLocalListing(next); setPreviewImage(next.cleaned.main_image || ''); onUpdate(next); syncToSupabase(next);
-             }} setShowEditor={(show) => { if (show) setEditingImageUrl(previewImage); setShowImageEditor(show); }} fileInputRef={fileInputRef} />
-             <ListingSourcingSection listing={localListing} updateField={(f, v) => updateFields({[f]: v}, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
+             <ListingImageSection 
+               listing={localListing} 
+               previewImage={previewImage} 
+               setPreviewImage={setPreviewImage} 
+               updateField={(f, v) => updateFields({[f]: v}, true)} 
+               updateFields={(fs) => updateFields(fs, true)} 
+               isSaving={isSaving} 
+               isProcessing={isProcessingImages} 
+               processingUrls={processingUrls} 
+               onStandardizeAll={handleStandardizeAll} 
+               onStandardizeOne={handleStandardizeOne} 
+               onRestoreAll={() => {
+                  const next = JSON.parse(JSON.stringify(localListing));
+                  if (next.optimized) { delete next.optimized.optimized_main_image; delete next.optimized.optimized_other_images; }
+                  setLocalListing(next); setPreviewImage(next.cleaned.main_image || ''); onUpdate(next); syncToSupabase(next);
+               }} 
+               setShowEditor={(show) => { if (show) setEditingImageUrl(previewImage); setShowImageEditor(show); }} 
+               fileInputRef={fileInputRef} 
+             />
+             <ListingSourcingSection 
+               listing={localListing} 
+               updateField={(f, v) => updateFields({[f]: v}, true)} 
+               setShowModal={setShowSourcingModal} 
+               setShowForm={setShowSourcingForm} 
+               setEditingRecord={setEditingSourceRecord} 
+             />
           </div>
+          
           <div className="lg:col-span-8">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
                 <div className="px-8 py-6 bg-slate-50/50 flex flex-wrap gap-4 border-b border-slate-100 items-center justify-between">
                    <div className="flex gap-2 p-1.5 bg-white border border-slate-200 rounded-2xl">
                      <button onClick={() => setActiveMarket('US')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'bg-white text-slate-400'}`}>🇺🇸 Master</button>
-                     {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').slice(0, 5).map(m => (
+                     {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').slice(0, 7).map(m => (
                         <button key={m.code} onClick={() => setActiveMarket(m.code)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-400 border border-slate-100'}`}>{m.flag} {m.code}</button>
                      ))}
                    </div>
                 </div>
-                <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={(f, v) => updateFields({[f]: v})} onSync={() => syncToSupabase(localListing)} onRecalculate={() => {}} uiLang={uiLang} />
+                <ListingEditorArea 
+                  listing={localListing} 
+                  activeMarket={activeMarket} 
+                  updateField={(f, v) => updateFields({[f]: v})} 
+                  onSync={() => syncToSupabase(localListing)} 
+                  onRecalculate={handleRecalculateLogistics} 
+                  uiLang={uiLang} 
+                />
              </div>
           </div>
         </div>
       </div>
-      {showImageEditor && <ImageEditor imageUrl={editingImageUrl} onClose={() => setShowImageEditor(false)} onSave={handleAIEditSave} uiLang={uiLang} />}
+
+      {showImageEditor && (
+        <ImageEditor 
+          imageUrl={editingImageUrl} 
+          onClose={() => setShowImageEditor(false)} 
+          onSave={handleAIEditSave} 
+          uiLang={uiLang} 
+        />
+      )}
+      
+      {showSourcingModal && (
+        <SourcingModal 
+          productImage={previewImage} 
+          onClose={() => setShowSourcingModal(false)} 
+          onAddLink={(rec) => {
+            const next = [...(localListing.sourcing_data || []), rec];
+            updateFields({ sourcing_data: next }, true);
+            setShowSourcingModal(false);
+          }} 
+        />
+      )}
+
+      {showSourcingForm && (
+        <SourcingFormModal 
+          initialData={editingSourceRecord} 
+          onClose={() => setShowSourcingForm(false)} 
+          onSave={(rec) => {
+            const current = localListing.sourcing_data || [];
+            const next = editingSourceRecord 
+              ? current.map(s => s.id === editingSourceRecord.id ? rec : s)
+              : [...current, rec];
+            updateFields({ sourcing_data: next }, true);
+            setShowSourcingForm(false);
+          }} 
+        />
+      )}
     </div>
   );
 };
