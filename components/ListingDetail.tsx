@@ -11,8 +11,9 @@ import { SourcingModal } from './SourcingModal';
 import { SourcingFormModal } from './SourcingFormModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
-import { translateListingWithOpenAI } from '../services/openaiService';
-import { translateListingWithDeepSeek } from '../services/deepseekService';
+// Fix: Import correct optimization services from OpenAI and DeepSeek to resolve type mismatches and logic errors.
+import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
+import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
 import { calculateMarketLogistics } from './LogisticsEditor';
 
@@ -50,7 +51,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   useEffect(() => { 
     setLocalListing(listing); 
     setPreviewImage(listing.optimized?.optimized_main_image || listing.cleaned?.main_image || ''); 
-  }, [listing.id]);
+    localStorage.setItem('amzbot_preferred_engine', engine);
+  }, [listing.id, engine]);
 
   const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
@@ -92,7 +94,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  // 1600px 标准化算法：1600x1600, 白底, 1500px 居中
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     return new Promise(async (resolve) => {
@@ -191,13 +192,38 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setTranslateProgress(0);
   };
 
+  const getValidOptimizedData = (data: Partial<OptimizedData> | undefined): OptimizedData => {
+    return {
+      optimized_title: data?.optimized_title || '',
+      optimized_features: data?.optimized_features || [],
+      optimized_description: data?.optimized_description || '',
+      search_keywords: data?.search_keywords || '',
+      ...data
+    } as OptimizedData;
+  };
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-inter text-slate-900">
       <ListingTopBar onBack={onBack} engine={engine} setEngine={setEngine} onOptimize={async () => {
         setIsOptimizing(true);
         try {
-          const opt = engine === 'openai' ? await translateListingWithOpenAI(localListing.cleaned as any, "English") : engine === 'deepseek' ? await translateListingWithDeepSeek(localListing.cleaned as any, "English") : await optimizeListingWithAI(localListing.cleaned);
-          const next = { ...localListing, optimized: { ...opt, optimized_main_image: localListing.optimized?.optimized_main_image, optimized_other_images: localListing.optimized?.optimized_other_images }, status: 'optimized' as const };
+          // Fix: Use correct optimization services instead of translation services to ensure the correct return type and required fields are populated.
+          const opt = engine === 'openai' 
+            ? await optimizeListingWithOpenAI(localListing.cleaned) 
+            : engine === 'deepseek' 
+              ? await optimizeListingWithDeepSeek(localListing.cleaned) 
+              : await optimizeListingWithAI(localListing.cleaned);
+          
+          // Fix: Explicitly type 'next' as Listing and ensure it satisfies the full OptimizedData interface to fix TS error.
+          const next: Listing = { 
+            ...localListing, 
+            optimized: { 
+              ...opt, 
+              optimized_main_image: localListing.optimized?.optimized_main_image, 
+              optimized_other_images: localListing.optimized?.optimized_other_images 
+            }, 
+            status: 'optimized' as const 
+          };
           setLocalListing(next); onUpdate(next); await syncToSupabase(next);
         } finally { setIsOptimizing(false); }
       }} isOptimizing={isOptimizing} onSave={() => syncToSupabase(localListing)} onDelete={() => onDelete(localListing.id)} isSaving={isSaving} onNext={onNext} uiLang={uiLang} />
@@ -211,37 +237,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                const o = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
                const results = await Promise.all([m ? processAndUploadImage(m) : Promise.resolve(""), ...o.map(u => processAndUploadImage(u))]);
                const next = JSON.parse(JSON.stringify(localListing)) as Listing;
-               // Fix: Cast the assigned object to OptimizedData and provide fallback required fields to satisfy TypeScript
-               next.optimized = { 
-                 optimized_title: localListing.optimized?.optimized_title || '',
-                 optimized_features: localListing.optimized?.optimized_features || [],
-                 optimized_description: localListing.optimized?.optimized_description || '',
-                 search_keywords: localListing.optimized?.search_keywords || '',
-                 ...(next.optimized || {}), 
-                 optimized_main_image: results[0] || next.optimized?.optimized_main_image, 
-                 optimized_other_images: results.slice(1) 
-               } as OptimizedData;
+               const currentOpt = getValidOptimizedData(next.optimized);
+               next.optimized = { ...currentOpt, optimized_main_image: results[0] || currentOpt.optimized_main_image, optimized_other_images: results.slice(1) };
                setLocalListing(next); onUpdate(next); await syncToSupabase(next); setIsProcessingImages(false);
              }} onStandardizeOne={async (url) => {
                const newUrl = await processAndUploadImage(url);
                const next = JSON.parse(JSON.stringify(localListing)) as Listing;
-               // Fix: Explicitly handle next.optimized casting and fallback to ensure type safety for required fields
-               const currentOptimized = (next.optimized || {
-                 optimized_title: '',
-                 optimized_features: [],
-                 optimized_description: '',
-                 search_keywords: ''
-               }) as OptimizedData;
-               
-               if ((next.optimized?.optimized_main_image || next.cleaned.main_image) === url) {
-                 next.optimized = { ...currentOptimized, optimized_main_image: newUrl };
+               const currentOpt = getValidOptimizedData(next.optimized);
+               if ((currentOpt.optimized_main_image || next.cleaned.main_image) === url) {
+                 next.optimized = { ...currentOpt, optimized_main_image: newUrl };
                } else { 
-                 const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])]; 
-                 const idx = others.indexOf(url); 
-                 if (idx > -1) { 
-                   others[idx] = newUrl; 
-                   next.optimized = { ...currentOptimized, optimized_other_images: others }; 
-                 } 
+                 const others = [...(currentOpt.optimized_other_images || next.cleaned.other_images || [])]; 
+                 const idx = others.indexOf(url); if (idx > -1) { others[idx] = newUrl; next.optimized = { ...currentOpt, optimized_other_images: others }; } 
                }
                setLocalListing(next); onUpdate(next); await syncToSupabase(next); setPreviewImage(newUrl);
              }} onRestoreAll={() => {
