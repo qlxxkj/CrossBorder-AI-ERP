@@ -137,6 +137,23 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     try { const res = await dropper.open(); setStrokeColor(res.sRGBHex); } catch (e) {}
   };
 
+  const handleStandardize = () => {
+    if (!canvasRef.current) return;
+    const w = canvasRef.current.width; const h = canvasRef.current.height;
+    const scale = Math.min(1500 / w, 1500 / h);
+    const dw = w * scale; const dh = h * scale;
+    const dx = (1600 - dw) / 2; const dy = (1600 - dh) / 2;
+    const temp = document.createElement('canvas');
+    temp.width = 1600; temp.height = 1600;
+    const tCtx = temp.getContext('2d')!;
+    tCtx.fillStyle = '#FFFFFF'; tCtx.fillRect(0,0,1600,1600);
+    tCtx.drawImage(canvasRef.current, dx, dy, dw, dh);
+    canvasRef.current.width = 1600; canvasRef.current.height = 1600;
+    canvasRef.current.getContext('2d')!.drawImage(temp, 0, 0);
+    tempCanvasRef.current!.width = 1600; tempCanvasRef.current!.height = 1600;
+    setZoom(Math.min((window.innerWidth-450)/1600, (window.innerHeight-250)/1600, 1));
+  };
+
   const handleFinalSave = async () => {
     if (!canvasRef.current) return;
     setIsProcessing(true);
@@ -168,6 +185,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent italic">AI Pro Media Studio</span>
         </div>
         <div className="flex items-center gap-3">
+          <button onClick={handleStandardize} className="px-5 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 border border-white/10 transition-all"><Maximize2 size={14}/> 1600px Standardize</button>
           <button onClick={handleFinalSave} disabled={isProcessing} className="px-8 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl">
             {isProcessing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Commit Sync
           </button>

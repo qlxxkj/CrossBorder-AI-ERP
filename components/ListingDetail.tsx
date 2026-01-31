@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Loader2, Globe, Sparkles, RefreshCw, CheckCircle2, ChevronDown, ChevronUp, Plus } from 'lucide-react';
-import { Listing, OptimizedData, UILanguage, SourcingRecord } from '../types';
+import { Listing, OptimizedData, UILanguage, SourcingRecord, ExchangeRate, PriceAdjustment } from '../types';
 import { ListingTopBar } from './ListingTopBar';
 import { ListingImageSection } from './ListingImageSection';
 import { ListingSourcingSection } from './ListingSourcingSection';
@@ -14,7 +14,7 @@ import { optimizeListingWithAI, translateListingWithAI } from '../services/gemin
 import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
 import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
 import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
-import { calculateMarketLogistics } from './LogisticsEditor';
+import { calculateMarketLogistics, calculateMarketPrice } from './LogisticsEditor';
 
 interface ListingDetailProps {
   listing: Listing;
@@ -46,13 +46,26 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [editingSourceRecord, setEditingSourceRecord] = useState<SourcingRecord | null>(null);
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [previewImage, setPreviewImage] = useState<string>('');
-  const [isFolded, setIsFolded] = useState(true);
+  
+  const [rates, setRates] = useState<ExchangeRate[]>([]);
+  const [adjustments, setAdjustments] = useState<PriceAdjustment[]>([]);
 
   useEffect(() => { 
     setLocalListing(listing); 
     setPreviewImage(listing.optimized?.optimized_main_image || listing.cleaned?.main_image || ''); 
     localStorage.setItem('amzbot_preferred_engine', engine);
+    fetchCalculations();
   }, [listing.id, engine]);
+
+  const fetchCalculations = async () => {
+    if (!isSupabaseConfigured()) return;
+    const [rRes, aRes] = await Promise.all([
+      supabase.from('exchange_rates').select('*'),
+      supabase.from('price_adjustments').select('*')
+    ]);
+    if (rRes.data) setRates(rRes.data);
+    if (aRes.data) setAdjustments(aRes.data);
+  };
 
   const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
@@ -94,9 +107,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  // 1600px 物理级别标准化核心算法
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
+    setProcessingUrls(prev => new Set(prev).add(imgUrl));
     return new Promise(async (resolve) => {
       try {
         const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
@@ -129,7 +142,10 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           ctx.drawImage(img, dx, dy, dw, dh);
           
           canvas.toBlob(async (outBlob) => {
-            if (!outBlob) return resolve(imgUrl);
+            if (!outBlob) {
+              setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+              return resolve(imgUrl);
+            }
             const fd = new FormData();
             fd.append('file', outBlob, `std_1600_${Date.now()}.jpg`);
             try {
@@ -137,12 +153,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               const data = await res.json();
               const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
               const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
+              setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
               resolve(finalUrl || imgUrl);
-            } catch (e) { resolve(imgUrl); }
+            } catch (e) { 
+              setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+              resolve(imgUrl); 
+            }
           }, 'image/jpeg', 0.96);
         };
-        img.onerror = () => resolve(imgUrl);
-      } catch (e) { resolve(imgUrl); }
+        img.onerror = () => {
+          setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+          resolve(imgUrl);
+        };
+      } catch (e) { 
+        setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+        resolve(imgUrl); 
+      }
     });
   };
 
@@ -159,9 +185,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           ? await translateListingWithDeepSeek(localListing.optimized, mkt.name) 
           : await translateListingWithAI(localListing.optimized, mkt.name);
 
-      // 自动触发物流换算
       const logistics = calculateMarketLogistics(localListing, marketCode);
-      const enrichedTrans = { ...trans, ...logistics };
+      const priceData = calculateMarketPrice(localListing, marketCode, rates, adjustments);
+      const enrichedTrans = { ...trans, ...logistics, ...priceData };
 
       const next = JSON.parse(JSON.stringify(localListing));
       next.translations = { ...(next.translations || {}), [marketCode]: enrichedTrans };
@@ -188,9 +214,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             ? await translateListingWithDeepSeek(current.optimized, mkt.name) 
             : await translateListingWithAI(current.optimized, mkt.name);
             
-        // 自动触发物流换算
         const logistics = calculateMarketLogistics(current, mkt.code);
-        const enrichedTrans = { ...trans, ...logistics };
+        const priceData = calculateMarketPrice(current, mkt.code, rates, adjustments);
+        const enrichedTrans = { ...trans, ...logistics, ...priceData };
 
         current.translations = { ...(current.translations || {}), [mkt.code]: enrichedTrans };
         setLocalListing({ ...current });
@@ -210,8 +236,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       ...data
     } as OptimizedData;
   };
-
-  const marketsToShow = isFolded ? AMAZON_MARKETPLACES.slice(0, 8) : AMAZON_MARKETPLACES;
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-inter text-slate-900">
@@ -260,7 +284,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 <div className="px-8 py-6 bg-slate-50/50 flex flex-wrap gap-2 border-b border-slate-100 items-center justify-between">
                    <div className="flex flex-wrap gap-1.5 flex-1">
                      <button onClick={() => setActiveMarket('US')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'bg-white text-slate-400 border border-slate-200'}`}>🇺🇸 Master</button>
-                     {marketsToShow.filter(m => m.code !== 'US').map(m => {
+                     {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
                         const isTranslated = !!localListing.translations?.[m.code];
                         return (
                           <button key={m.code} onClick={() => { setActiveMarket(m.code); if (!isTranslated) translateSite(m.code); }} className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : isTranslated ? 'bg-white text-slate-500 border border-slate-200' : 'bg-white text-slate-300 border-2 border-dashed border-slate-100 opacity-60'}`}>
@@ -269,9 +293,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                           </button>
                         );
                      })}
-                     <button onClick={() => setIsFolded(!isFolded)} className="px-3 py-2.5 rounded-xl text-[10px] font-black text-slate-400 border border-dashed border-slate-200 hover:bg-slate-100 transition-all">
-                       {isFolded ? <Plus size={14} /> : <ChevronUp size={14} />}
-                     </button>
                    </div>
                    <button onClick={translateAllMarkets} disabled={isTranslating || !localListing.optimized} className={`px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase flex items-center gap-3 shadow-xl shadow-indigo-100 transition-all ${isTranslating ? 'animate-pulse opacity-80' : 'hover:scale-105 active:scale-95'}`}>
                       {isTranslating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
