@@ -163,7 +163,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = w; tempCanvas.height = h;
-    tempCanvas.getContext('2d')!.drawImage(canvas, x, y, w, h, 0, 0, w, h);
+    const tCtx = tempCanvas.getContext('2d')!;
+    tCtx.drawImage(canvas, x, y, w, h, 0, 0, w, h);
     
     canvas.width = w; canvas.height = h;
     canvas.getContext('2d')!.drawImage(tempCanvas, 0, 0);
@@ -406,7 +407,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     return { x: (cx - rect.left) / zoom, y: (cy - rect.top) / zoom };
   };
 
-  // 核心修复：上传编辑后的图片并回传新 URL
+  // 保存图片逻辑：合并所有编辑层并上传图床
   const handleFinalSave = async () => {
     const sourceCanvas = canvasRef.current;
     if (!sourceCanvas) return;
@@ -415,38 +416,79 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const finalCanvas = document.createElement('canvas');
     finalCanvas.width = sourceCanvas.width; finalCanvas.height = sourceCanvas.height;
     const fCtx = finalCanvas.getContext('2d')!;
+    
+    // 1. 绘制主体图片
     fCtx.drawImage(sourceCanvas, 0, 0);
     
+    // 2. 绘制所有悬浮对象 (Shapes, Text)
     objects.forEach(obj => {
-      fCtx.save(); fCtx.globalAlpha = obj.opacity;
-      const cX = obj.x + obj.width / 2; const cY = obj.y + obj.height / 2;
-      fCtx.translate(cX, cY); fCtx.rotate(obj.rotation); fCtx.translate(-cX, -cY);
-      fCtx.strokeStyle = obj.stroke; fCtx.fillStyle = obj.fill; fCtx.lineWidth = obj.strokeWidth;
-      if (obj.type === 'rect') { if (obj.fill !== 'transparent') fCtx.fillRect(obj.x, obj.y, obj.width, obj.height); if (obj.stroke !== 'transparent') fCtx.strokeRect(obj.x, obj.y, obj.width, obj.height); }
-      else if (obj.type === 'circle') { fCtx.beginPath(); fCtx.ellipse(cX, cY, obj.width/2, obj.height/2, 0, 0, Math.PI*2); if (obj.fill !== 'transparent') fCtx.fill(); if (obj.stroke !== 'transparent') fCtx.stroke(); }
-      else if (obj.type === 'line') { fCtx.beginPath(); fCtx.moveTo(obj.x, obj.y); fCtx.lineTo(obj.x+obj.width, obj.y+obj.height); fCtx.stroke(); }
-      else if (obj.type === 'text') { fCtx.font = `bold ${obj.fontSize}px Inter`; fCtx.fillText(obj.text || "", obj.x, obj.y+obj.height); }
+      fCtx.save();
+      fCtx.globalAlpha = obj.opacity;
+      const cX = obj.x + obj.width / 2;
+      const cY = obj.y + obj.height / 2;
+      fCtx.translate(cX, cY);
+      fCtx.rotate(obj.rotation);
+      fCtx.translate(-cX, -cY);
+      
+      fCtx.strokeStyle = obj.stroke;
+      fCtx.fillStyle = obj.fill;
+      fCtx.lineWidth = obj.strokeWidth;
+      
+      if (obj.type === 'rect') {
+        if (obj.fill !== 'transparent') fCtx.fillRect(obj.x, obj.y, obj.width, obj.height);
+        if (obj.stroke !== 'transparent') fCtx.strokeRect(obj.x, obj.y, obj.width, obj.height);
+      } else if (obj.type === 'circle') {
+        fCtx.beginPath();
+        fCtx.ellipse(cX, cY, obj.width/2, obj.height/2, 0, 0, Math.PI*2);
+        if (obj.fill !== 'transparent') fCtx.fill();
+        if (obj.stroke !== 'transparent') fCtx.stroke();
+      } else if (obj.type === 'line') {
+        fCtx.beginPath();
+        fCtx.moveTo(obj.x, obj.y);
+        fCtx.lineTo(obj.x+obj.width, obj.y+obj.height);
+        fCtx.stroke();
+      } else if (obj.type === 'text') {
+        fCtx.font = `bold ${obj.fontSize}px Inter`;
+        fCtx.fillText(obj.text || "", obj.x, obj.y+obj.height);
+      }
       fCtx.restore();
     });
 
     finalCanvas.toBlob(async (blob) => {
-      if (!blob) { setIsProcessing(false); return; }
+      if (!blob) {
+        setIsProcessing(false);
+        return;
+      }
+      
       const fd = new FormData();
       fd.append('file', blob, `edited_${Date.now()}.jpg`);
+      
       try {
         const res = await fetch(TARGET_API, { method: 'POST', body: fd });
         if (!res.ok) throw new Error("Sync upload failed");
+        
         const data = await res.json();
         const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-        const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-        if (u) onSave(u);
-        else throw new Error("Empty URL");
-      } catch (e) { alert("Failed to sync final image."); } 
-      finally { setIsProcessing(false); }
+        
+        const finalUrl = rawSrc 
+          ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) 
+          : null;
+          
+        if (finalUrl) {
+          onSave(finalUrl);
+        } else {
+          throw new Error("No URL returned from hosting service");
+        }
+      } catch (e) { 
+        console.error("Save & Sync failed:", e);
+        alert(uiLang === 'zh' ? "图片保存并上传失败，请检查网络。" : "Failed to sync final image."); 
+      } finally {
+        setIsProcessing(false); 
+      }
     }, 'image/jpeg', 0.92);
   };
 
-  // 编辑器内的 1600 标准化操作
+  // 编辑器内部的标准化 1600px 操作
   const handleStandardizeAction = () => {
     const canvas = canvasRef.current; if (!canvas) return;
     const oldW = canvas.width; const oldH = canvas.height;
@@ -455,16 +497,30 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const drawW = oldW * scale; const drawH = oldH * scale;
     const offX = (1600 - drawW) / 2; const offY = (1600 - drawH) / 2;
 
-    const temp = document.createElement('canvas'); temp.width = 1600; temp.height = 1600;
-    const tCtx = temp.getContext('2d')!; tCtx.fillStyle = '#FFFFFF'; tCtx.fillRect(0,0,1600,1600);
+    const temp = document.createElement('canvas'); 
+    temp.width = 1600; 
+    temp.height = 1600;
+    const tCtx = temp.getContext('2d')!; 
+    tCtx.fillStyle = '#FFFFFF'; 
+    tCtx.fillRect(0, 0, 1600, 1600);
     tCtx.drawImage(canvas, offX, offY, drawW, drawH);
     
-    canvas.width = 1600; canvas.height = 1600; 
+    canvas.width = 1600; 
+    canvas.height = 1600; 
     canvas.getContext('2d')!.drawImage(temp, 0, 0);
+    
     if (maskCanvasRef.current) { maskCanvasRef.current.width = 1600; maskCanvasRef.current.height = 1600; }
     if (overlayCanvasRef.current) { overlayCanvasRef.current.width = 1600; overlayCanvasRef.current.height = 1600; }
 
-    const migrated = objects.map(o => ({ ...o, x: o.x * scale + offX, y: o.y * scale + offY, width: o.width * scale, height: o.height * scale, strokeWidth: o.strokeWidth * scale, fontSize: o.fontSize ? o.fontSize * scale : o.fontSize }));
+    const migrated = objects.map(o => ({ 
+      ...o, 
+      x: o.x * scale + offX, 
+      y: o.y * scale + offY, 
+      width: o.width * scale, 
+      height: o.height * scale, 
+      strokeWidth: o.strokeWidth * scale, 
+      fontSize: o.fontSize ? o.fontSize * scale : o.fontSize 
+    }));
     setObjects(migrated);
     setZoom(Math.min((containerRef.current!.clientWidth - 100) / 1600, (containerRef.current!.clientHeight - 100) / 1600, 1));
     saveToHistory(migrated);

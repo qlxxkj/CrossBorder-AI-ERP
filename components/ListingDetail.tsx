@@ -113,13 +113,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     updateFields({ [field]: value }, shouldSync);
   };
 
-  // 核心：1500px 比例 + 1600px 居中白色画布
+  /**
+   * 图片核心处理：1500px 比例缩放 + 1600px 白色画布居中 + 图床上传
+   */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     return new Promise((resolve) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
       
+      // 使用代理绕过跨域限制，确保 Canvas 能读取图片像素数据
       const sourceUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl 
         : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
@@ -137,13 +140,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           ctx.fillStyle = '#FFFFFF'; 
           ctx.fillRect(0, 0, 1600, 1600);
           
-          // 2. 等比缩放计算：使长边刚好 1500px
-          const targetLimit = 1500;
-          const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
+          // 2. 等比缩放计算：使长边刚好为 1500px
+          const targetConstraint = 1500;
+          const scale = Math.min(targetConstraint / img.width, targetConstraint / img.height);
           const drawW = img.width * scale;
           const drawH = img.height * scale;
           
-          // 3. 居中绘制：(1600 - size) / 2
+          // 3. 计算居中坐标 (1600 - drawSize) / 2
           const offsetX = (1600 - drawW) / 2;
           const offsetY = (1600 - drawH) / 2;
           
@@ -153,16 +156,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           
           canvas.toBlob(async (blob) => {
             if (!blob) {
-              console.error("Canvas toBlob failed");
+              console.error("Canvas conversion to blob failed");
               return resolve(imgUrl);
             }
             
             const fd = new FormData();
-            fd.append('file', blob, `std_${Date.now()}.jpg`);
+            fd.append('file', blob, `processed_${Date.now()}.jpg`);
             
             try {
               const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-              if (!res.ok) throw new Error("Upload failed");
+              if (!res.ok) throw new Error(`Upload failed with status ${res.status}`);
               
               const data = await res.json();
               const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
@@ -173,18 +176,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 
               resolve(finalUrl || imgUrl);
             } catch (e) { 
-              console.error("Standardize upload error:", e);
+              console.error("Image hosting upload error:", e);
               resolve(imgUrl); 
             }
           }, 'image/jpeg', 0.95);
         } catch (e) { 
-          console.error("Canvas error:", e);
+          console.error("Canvas processing error:", e);
           resolve(imgUrl); 
         }
       };
       
       img.onerror = () => {
-        console.error("Image load failed for standardization:", imgUrl);
+        console.error("Failed to load image for processing:", imgUrl);
         resolve(imgUrl);
       };
     });
@@ -204,20 +207,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const nextListing = JSON.parse(JSON.stringify(localListing));
       const currentMain = nextListing.optimized?.optimized_main_image || nextListing.cleaned.main_image;
       
+      // 更新 optimized 字段下对应的 URL
       if (currentMain === url) {
         nextListing.optimized = { ...(nextListing.optimized || {}), optimized_main_image: newUrl };
+        if (previewImage === url) setPreviewImage(newUrl);
       } else {
         const currentOthers = [...(nextListing.optimized?.optimized_other_images || nextListing.cleaned.other_images || [])];
         const updatedOthers = currentOthers.map((u: string) => u === url ? newUrl : u);
         nextListing.optimized = { ...(nextListing.optimized || {}), optimized_other_images: updatedOthers };
+        if (previewImage === url) setPreviewImage(newUrl);
       }
       
       setLocalListing(nextListing);
-      if (previewImage === url) setPreviewImage(newUrl);
       onUpdate(nextListing);
       await syncToSupabase(nextListing);
     } catch (e) {
-      console.error("Standardize Single Failed:", e);
+      console.error("Single image standardization failed:", e);
     } finally { 
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; }); 
     }
@@ -249,6 +254,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         optimized_other_images: newOthers
       };
       
+      // 同步预览图
       if (previewImage === effectiveMain && newMain) {
         setPreviewImage(newMain);
       } else {
@@ -260,8 +266,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       onUpdate(nextListing);
       await syncToSupabase(nextListing);
     } catch (e) { 
-      console.error("Batch Standardization Failed:", e);
-      alert(uiLang === 'zh' ? "批量处理失败，请重试。" : "Batch processing failed.");
+      console.error("Batch standardize error:", e);
+      alert(uiLang === 'zh' ? "批量处理图片失败，请稍后重试。" : "Batch image processing failed.");
     } finally { 
       setIsProcessingImages(false); 
       setProcessingUrls(new Set()); 
@@ -491,6 +497,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             const nextListing = JSON.parse(JSON.stringify(localListing));
             const currentMain = nextListing.optimized?.optimized_main_image || nextListing.cleaned.main_image;
             
+            // 确保更新到 optimized 对应位置
             if (currentMain === editingImageUrl) {
               nextListing.optimized = { ...(nextListing.optimized || {}), optimized_main_image: newUrl };
             } else {
@@ -500,6 +507,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 currentOthers[idx] = newUrl;
                 nextListing.optimized = { ...(nextListing.optimized || {}), optimized_other_images: currentOthers };
               } else {
+                // 如果是新加的图或者是主图的某种情况
                 nextListing.optimized = { ...(nextListing.optimized || {}), optimized_main_image: newUrl };
               }
             }

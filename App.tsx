@@ -29,13 +29,16 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
 
-  // 核心修复：自动重定向逻辑
-  useEffect(() => {
-    if (session && (view === AppView.LANDING || view === AppView.AUTH)) {
+  // 监听视图切换，如果是去 LandingPage，允许用户查看
+  // 但如果用户从 LandingPage 点击“登录”，我们将检查 session
+  const handleLandingLogin = () => {
+    if (session) {
       setView(AppView.DASHBOARD);
       setActiveTab('dashboard');
+    } else {
+      setView(AppView.AUTH);
     }
-  }, [session, view]);
+  };
 
   const fetchListings = useCallback(async (orgId: string) => {
     if (!isSupabaseConfigured() || !orgId) {
@@ -87,12 +90,19 @@ const App: React.FC = () => {
       }
 
       setUserProfile(profile);
+      
+      // 只有在 AUTH 页面登录成功时，才强制重定向到 Dashboard
+      // 如果用户已经在查看 LandingPage，我们不强制跳走，除非他点登录
+      if (view === AppView.AUTH) {
+        setView(AppView.DASHBOARD);
+        setActiveTab('dashboard');
+      }
     } catch (err) {
       console.error("Identity failure:", err);
     } finally {
       setIsInitializing(false);
     }
-  }, [fetchListings]);
+  }, [fetchListings, view]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
@@ -220,7 +230,7 @@ const App: React.FC = () => {
       )}
       <main className={`${showSidebar ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
-          {view === AppView.LANDING ? <LandingPage onLogin={() => setView(AppView.AUTH)} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
+          {view === AppView.LANDING ? <LandingPage onLogin={handleLandingLogin} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
            view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => setView(AppView.LANDING)} /> :
            renderContent()}
         </div>
