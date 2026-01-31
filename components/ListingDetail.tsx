@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Loader2, Globe, Sparkles, RefreshCw, CheckCircle2, ChevronDown, ChevronUp, Plus } from 'lucide-react';
+import { Loader2, Globe, Sparkles, RefreshCw, CheckCircle2, Plus, ChevronRight } from 'lucide-react';
 import { Listing, OptimizedData, UILanguage, SourcingRecord, ExchangeRate, PriceAdjustment } from '../types';
 import { ListingTopBar } from './ListingTopBar';
 import { ListingImageSection } from './ListingImageSection';
@@ -52,7 +52,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   useEffect(() => { 
     setLocalListing(listing); 
-    setPreviewImage(listing.optimized?.optimized_main_image || listing.cleaned?.main_image || ''); 
+    const initialImg = listing.optimized?.optimized_main_image || listing.cleaned?.main_image || '';
+    setPreviewImage(initialImg); 
     localStorage.setItem('amzbot_preferred_engine', engine);
     fetchCalculations();
   }, [listing.id, engine]);
@@ -185,6 +186,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           ? await translateListingWithDeepSeek(localListing.optimized, mkt.name) 
           : await translateListingWithAI(localListing.optimized, mkt.name);
 
+      // 核心：翻译后自动执行换算逻辑
       const logistics = calculateMarketLogistics(localListing, marketCode);
       const priceData = calculateMarketPrice(localListing, marketCode, rates, adjustments);
       const enrichedTrans = { ...trans, ...logistics, ...priceData };
@@ -255,27 +257,62 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                setIsProcessingImages(true);
                const m = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image || "";
                const o = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
-               const results = await Promise.all([m ? processAndUploadImage(m) : Promise.resolve(""), ...o.map(u => processAndUploadImage(u))]);
+               
+               // 并行处理并上传
+               const results = await Promise.all([
+                 m ? processAndUploadImage(m) : Promise.resolve(""), 
+                 ...o.map(u => processAndUploadImage(u))
+               ]);
+
                const next = JSON.parse(JSON.stringify(localListing)) as Listing;
                const currentOpt = getValidOptimizedData(next.optimized);
-               next.optimized = { ...currentOpt, optimized_main_image: results[0] || currentOpt.optimized_main_image, optimized_other_images: results.slice(1) };
-               setLocalListing(next); onUpdate(next); await syncToSupabase(next); setIsProcessingImages(false);
+               
+               // 更新主图和附图字段
+               next.optimized = { 
+                 ...currentOpt, 
+                 optimized_main_image: results[0] || currentOpt.optimized_main_image, 
+                 optimized_other_images: results.slice(1).filter(Boolean) 
+               };
+               
+               setLocalListing(next); 
+               onUpdate(next); 
+               await syncToSupabase(next); 
+               setIsProcessingImages(false);
+               if (results[0]) setPreviewImage(results[0]);
              }} onStandardizeOne={async (url) => {
                const newUrl = await processAndUploadImage(url);
                const next = JSON.parse(JSON.stringify(localListing)) as Listing;
                const currentOpt = getValidOptimizedData(next.optimized);
+               
                if ((currentOpt.optimized_main_image || next.cleaned.main_image) === url) {
                  next.optimized = { ...currentOpt, optimized_main_image: newUrl };
                } else { 
                  const others = [...(currentOpt.optimized_other_images || next.cleaned.other_images || [])]; 
-                 const idx = others.indexOf(url); if (idx > -1) { others[idx] = newUrl; next.optimized = { ...currentOpt, optimized_other_images: others }; } 
+                 const idx = others.indexOf(url); 
+                 if (idx > -1) { 
+                   others[idx] = newUrl; 
+                   next.optimized = { ...currentOpt, optimized_other_images: others }; 
+                 } 
                }
-               setLocalListing(next); onUpdate(next); await syncToSupabase(next); setPreviewImage(newUrl);
+               setLocalListing(next); 
+               onUpdate(next); 
+               await syncToSupabase(next); 
+               setPreviewImage(newUrl);
              }} onRestoreAll={() => {
                 const next = JSON.parse(JSON.stringify(localListing));
-                if (next.optimized) { delete next.optimized.optimized_main_image; delete next.optimized.optimized_other_images; }
-                setLocalListing(next); setPreviewImage(next.cleaned.main_image || ''); onUpdate(next); syncToSupabase(next);
-             }} setShowEditor={(show) => { if (show) setEditingImageUrl(previewImage); setShowImageEditor(show); }} fileInputRef={fileInputRef} />
+                if (next.optimized) { 
+                  delete next.optimized.optimized_main_image; 
+                  delete next.optimized.optimized_other_images; 
+                }
+                setLocalListing(next); 
+                const originalMain = next.cleaned.main_image || '';
+                setPreviewImage(originalMain); 
+                onUpdate(next); 
+                syncToSupabase(next);
+             }} setShowEditor={(show) => { 
+                if (show) setEditingImageUrl(previewImage); 
+                setShowImageEditor(show); 
+             }} fileInputRef={fileInputRef} />
              <ListingSourcingSection listing={localListing} updateField={(f, v) => updateFields({[f]: v}, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
           </div>
           

@@ -52,10 +52,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           const ctx = canvasRef.current.getContext('2d')!;
           ctx.drawImage(img, 0, 0);
           setCanvasImage(img);
-          setZoom(Math.min((window.innerWidth-450)/w, (window.innerHeight-250)/h, 1));
+          // 初始缩放适配屏幕
+          const fitZoom = Math.min((window.innerWidth-500)/w, (window.innerHeight-200)/h, 1);
+          setZoom(fitZoom);
           setIsProcessing(false);
         };
-      } catch (e) { setIsProcessing(false); }
+      } catch (e) { 
+        console.error("Editor init failed", e);
+        setIsProcessing(false); 
+      }
     };
     init();
   }, [imageUrl]);
@@ -116,6 +121,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     ctx.strokeStyle = strokeColor;
     ctx.fillStyle = strokeColor;
     ctx.lineWidth = strokeWidth;
+    ctx.globalAlpha = 1.0;
 
     if (currentTool === 'rect') {
       ctx.strokeRect(startPos.x, startPos.y, pos.x - startPos.x, pos.y - startPos.y);
@@ -141,18 +147,38 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const handleStandardize = () => {
     if (!canvasRef.current) return;
     const w = canvasRef.current.width; const h = canvasRef.current.height;
-    const scale = Math.min(1500 / w, 1500 / h);
-    const dw = w * scale; const dh = h * scale;
-    const dx = (1600 - dw) / 2; const dy = (1600 - dh) / 2;
+    
+    // 强制 1600x1600 标准算法
+    const targetLimit = 1500;
+    const scale = Math.min(targetLimit / w, targetLimit / h);
+    const dw = w * scale; 
+    const dh = h * scale;
+    const dx = (1600 - dw) / 2; 
+    const dy = (1600 - dh) / 2;
+    
     const temp = document.createElement('canvas');
-    temp.width = 1600; temp.height = 1600;
+    temp.width = 1600; 
+    temp.height = 1600;
     const tCtx = temp.getContext('2d')!;
-    tCtx.fillStyle = '#FFFFFF'; tCtx.fillRect(0,0,1600,1600);
+    
+    // 填充白底
+    tCtx.fillStyle = '#FFFFFF'; 
+    tCtx.fillRect(0, 0, 1600, 1600);
+    
+    // 绘制内容
     tCtx.drawImage(canvasRef.current, dx, dy, dw, dh);
-    canvasRef.current.width = 1600; canvasRef.current.height = 1600;
+    
+    // 重置主画布
+    canvasRef.current.width = 1600; 
+    canvasRef.current.height = 1600;
     canvasRef.current.getContext('2d')!.drawImage(temp, 0, 0);
-    tempCanvasRef.current!.width = 1600; tempCanvasRef.current!.height = 1600;
-    setZoom(Math.min((window.innerWidth-450)/1600, (window.innerHeight-250)/1600, 1));
+    
+    // 重置临时画布
+    tempCanvasRef.current!.width = 1600; 
+    tempCanvasRef.current!.height = 1600;
+    
+    // 重置缩放
+    setZoom(Math.min((window.innerWidth-500)/1600, (window.innerHeight-200)/1600, 1));
   };
 
   const handleFinalSave = async () => {
@@ -216,7 +242,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            <SideBtn active={false} onClick={pickColor} icon={<Pipette size={18}/>} label="Pick" />
            
            <div className="w-8 h-px bg-white/10 my-2"></div>
-           <button onClick={() => { if(canvasImage && canvasRef.current) canvasRef.current.getContext('2d')?.drawImage(canvasImage,0,0); }} className="p-3 text-slate-500 hover:text-white" title="Reset"><Undo size={18}/></button>
+           <button onClick={() => { if(canvasImage && canvasRef.current) { const ctx = canvasRef.current.getContext('2d')!; canvasRef.current.width = canvasImage.width; canvasRef.current.height = canvasImage.height; ctx.drawImage(canvasImage, 0, 0); } }} className="p-3 text-slate-500 hover:text-white" title="Reset"><Undo size={18}/></button>
         </div>
 
         <div className="flex-1 relative overflow-hidden bg-slate-950 flex items-center justify-center p-10">
