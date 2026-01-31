@@ -33,41 +33,26 @@ interface EditorObject {
   text?: string;
 }
 
-interface EditorState {
-  canvasData: string;
-  objects: EditorObject[];
-}
-
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 
 export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onSave, uiLang }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const maskCanvasRef = useRef<HTMLCanvasElement>(null); 
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [currentTool, setCurrentTool] = useState<Tool>('select');
   const [isProcessing, setIsProcessing] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const [lastPanPos, setLastPanPos] = useState({ x: 0, y: 0 });
   const [objects, setObjects] = useState<EditorObject[]>([]);
-  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [selection, setSelection] = useState<{x1:number, y1:number, x2:number, y2:number} | null>(null);
-  const [history, setHistory] = useState<EditorState[]>([]);
-  const [strokeColor, setStrokeColor] = useState('#000000');
-  const [fillColor, setFillColor] = useState('transparent');
-  const [strokeWidth, setStrokeWidth] = useState(5);
-
+  
   useEffect(() => {
     const init = async () => {
       setIsProcessing(true);
       const img = new Image();
       img.crossOrigin = "anonymous";
-      img.src = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
+      img.src = imageUrl.startsWith('http') ? `${CORS_PROXY}${encodeURIComponent(imageUrl)}` : imageUrl;
       img.onload = () => {
         if (!canvasRef.current) return;
         const canvas = canvasRef.current;
@@ -75,11 +60,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         canvas.height = img.height;
         const ctx = canvas.getContext('2d')!;
         ctx.drawImage(img, 0, 0);
-        setHistory([{ canvasData: canvas.toDataURL(), objects: [] }]);
         setIsProcessing(false);
         const scale = Math.min((window.innerWidth - 300) / img.width, (window.innerHeight - 200) / img.height, 1);
         setZoom(scale);
       };
+      img.onerror = () => setIsProcessing(false);
     };
     init();
   }, [imageUrl]);
@@ -87,15 +72,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const handleFinalSave = async () => {
     if (!canvasRef.current) return;
     setIsProcessing(true);
+    
     const finalCanvas = document.createElement('canvas');
     finalCanvas.width = canvasRef.current.width;
     finalCanvas.height = canvasRef.current.height;
     const fCtx = finalCanvas.getContext('2d')!;
     
-    // 1. 原始图片
     fCtx.drawImage(canvasRef.current, 0, 0);
     
-    // 2. 绘制所有对象
     objects.forEach(obj => {
       fCtx.save();
       fCtx.globalAlpha = obj.opacity;
@@ -120,15 +104,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     finalCanvas.toBlob(async (blob) => {
       if (!blob) return setIsProcessing(false);
       const fd = new FormData();
-      fd.append('file', blob, `editor_${Date.now()}.jpg`);
+      fd.append('file', blob, `ai_edit_${Date.now()}.jpg`);
       try {
         const res = await fetch(TARGET_API, { method: 'POST', body: fd });
         const data = await res.json();
         const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-        const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-        if (u) onSave(u);
+        const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
+        if (finalUrl) onSave(finalUrl);
         else throw new Error();
-      } catch (e) { alert("Save Failed"); }
+      } catch (e) { alert("Sync Error"); }
       finally { setIsProcessing(false); }
     }, 'image/jpeg', 0.92);
   };
@@ -143,7 +127,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const temp = document.createElement('canvas');
     temp.width = 1600; temp.height = 1600;
     const tCtx = temp.getContext('2d')!;
-    tCtx.fillStyle = '#FFFFFF'; tCtx.fillRect(0,0,1600,1600);
+    tCtx.fillStyle = '#FFFFFF'; tCtx.fillRect(0, 0, 1600, 1600);
     tCtx.drawImage(canvasRef.current, oX, oY, dW, dH);
     
     canvasRef.current.width = 1600; canvasRef.current.height = 1600;
@@ -151,43 +135,42 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     
     const migrated = objects.map(o => ({ ...o, x: o.x * scale + oX, y: o.y * scale + oY, width: o.width * scale, height: o.height * scale }));
     setObjects(migrated);
-    setZoom(Math.min((window.innerWidth-300)/1600, (window.innerHeight-200)/1600, 1));
+    setZoom(Math.min((window.innerWidth - 300) / 1600, (window.innerHeight - 200) / 1600, 1));
   };
 
   return (
-    <div className="fixed inset-0 z-[200] bg-slate-800 flex flex-col">
-      <div className="h-16 bg-slate-900 border-b border-slate-700 px-6 flex items-center justify-between text-white">
+    <div className="fixed inset-0 z-[200] bg-slate-900 flex flex-col font-inter">
+      <div className="h-16 bg-slate-950 border-b border-white/10 px-6 flex items-center justify-between text-white shadow-2xl">
         <div className="flex items-center gap-4">
-          <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-full"><X size={20}/></button>
-          <span className="font-black text-xs uppercase tracking-widest">AI Media Lab</span>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20}/></button>
+          <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">AI Vision Lab</span>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={handleStandardize} className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all"><Maximize2 size={14}/> 1600px Standard</button>
-          <button onClick={handleFinalSave} disabled={isProcessing} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl disabled:opacity-50">
+          <button onClick={handleStandardize} className="px-5 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 border border-white/10 transition-all"><Maximize2 size={14}/> 1600px Standard</button>
+          <button onClick={handleFinalSave} disabled={isProcessing} className="px-8 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl shadow-indigo-900/40 disabled:opacity-50 transition-all">
             {isProcessing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Apply & Sync
           </button>
         </div>
       </div>
-      <div ref={containerRef} className="flex-1 relative overflow-hidden bg-slate-800/50 flex items-center justify-center p-10">
-        <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }} className="shadow-2xl bg-white relative transition-transform duration-75">
+      <div ref={containerRef} className="flex-1 relative overflow-hidden bg-slate-900 flex items-center justify-center p-12">
+        {isProcessing && !canvasRef.current && <div className="flex flex-col items-center gap-3"><Loader2 className="animate-spin text-indigo-500" size={48} /><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Inference Engines Loading...</p></div>}
+        <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }} className="shadow-[0_0_100px_rgba(0,0,0,0.5)] bg-white relative transition-transform duration-100 ease-out">
            <canvas ref={canvasRef} className="block" />
-           <svg className="absolute inset-0 pointer-events-none" viewBox={`0 0 ${canvasRef.current?.width || 0} ${canvasRef.current?.height || 0}`}>
-             {objects.map(obj => (
-               <g key={obj.id} transform={`rotate(${obj.rotation*180/Math.PI} ${obj.x+obj.width/2} ${obj.y+obj.height/2})`}>
-                 {obj.type==='rect' && <rect x={obj.x} y={obj.y} width={obj.width} height={obj.height} fill={obj.fill} stroke={obj.stroke} strokeWidth={obj.strokeWidth} />}
-                 {obj.type==='circle' && <ellipse cx={obj.x+obj.width/2} cy={obj.y+obj.height/2} rx={obj.width/2} ry={obj.height/2} fill={obj.fill} stroke={obj.stroke} strokeWidth={obj.strokeWidth} />}
-                 {obj.type==='text' && <text x={obj.x} y={obj.y+obj.height} fill={obj.fill} className="font-black text-sm">{obj.text}</text>}
-               </g>
-             ))}
-           </svg>
         </div>
       </div>
-      <div className="h-20 bg-slate-900 border-t border-slate-700 px-6 flex items-center gap-4">
-        <button onClick={() => setCurrentTool('select')} className={`p-3 rounded-xl transition-all ${currentTool === 'select' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><MousePointer2 size={18}/></button>
-        <button onClick={() => setCurrentTool('brush')} className={`p-3 rounded-xl transition-all ${currentTool === 'brush' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><Palette size={18}/></button>
-        <button onClick={() => setCurrentTool('ai-erase')} className={`p-3 rounded-xl transition-all ${currentTool === 'ai-erase' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><Eraser size={18}/></button>
-        <button onClick={() => setCurrentTool('pan')} className={`p-3 rounded-xl transition-all ${currentTool === 'pan' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><Move size={18}/></button>
+      <div className="h-20 bg-slate-950 border-t border-white/5 px-8 flex items-center gap-6">
+        <ToolBtn active={currentTool === 'select'} onClick={() => setCurrentTool('select')} icon={<MousePointer2 size={18}/>} label="Select" />
+        <ToolBtn active={currentTool === 'brush'} onClick={() => setCurrentTool('brush')} icon={<Palette size={18}/>} label="Draw" />
+        <ToolBtn active={currentTool === 'ai-erase'} onClick={() => setCurrentTool('ai-erase')} icon={<Eraser size={18}/>} label="AI Inpaint" />
+        <ToolBtn active={currentTool === 'pan'} onClick={() => setCurrentTool('pan')} icon={<Move size={18}/>} label="Pan" />
       </div>
     </div>
   );
 };
+
+const ToolBtn = ({ active, onClick, icon, label }: any) => (
+  <button onClick={onClick} className={`flex flex-col items-center gap-1 group ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'} transition-all`}>
+    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${active ? 'bg-indigo-600/20 ring-1 ring-indigo-500' : 'bg-white/5 hover:bg-white/10'}`}>{icon}</div>
+    <span className="text-[8px] font-black uppercase tracking-tighter opacity-60 group-hover:opacity-100">{label}</span>
+  </button>
+);

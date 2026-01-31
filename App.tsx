@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { ListingsManager } from './components/ListingsManager';
@@ -29,16 +29,7 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
 
-  // 1. 处理落地页的登录/开始按钮点击
-  const handleLandingAction = () => {
-    if (session) {
-      setView(AppView.DASHBOARD);
-      setActiveTab('dashboard');
-    } else {
-      setView(AppView.AUTH);
-    }
-  };
-
+  // 获取产品列表
   const fetchListings = useCallback(async (orgId: string) => {
     if (!isSupabaseConfigured() || !orgId) return;
     setIsSyncing(true);
@@ -56,6 +47,7 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // 获取身份信息
   const fetchIdentity = useCallback(async (userId: string, currentSession: any) => {
     if (!isSupabaseConfigured()) {
       setIsInitializing(false);
@@ -82,20 +74,16 @@ const App: React.FC = () => {
         setOrg(orgData);
         fetchListings(profile.org_id);
       }
-      setUserProfile(profile);
       
-      // 只有在 AUTH 页面且拿到身份时，才自动跳转 Dashboard
-      if (view === AppView.AUTH) {
-        setView(AppView.DASHBOARD);
-        setActiveTab('dashboard');
-      }
+      setUserProfile(profile);
     } catch (err) {
-      console.error("Identity failure:", err);
+      console.error("Identity fetch failure:", err);
     } finally {
       setIsInitializing(false);
     }
-  }, [fetchListings, view]);
+  }, [fetchListings]);
 
+  // 初始化 Session 和 状态监听
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
@@ -105,8 +93,14 @@ const App: React.FC = () => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
-      if (newSession) fetchIdentity(newSession.user.id, newSession);
-      else {
+      if (newSession) {
+        fetchIdentity(newSession.user.id, newSession);
+        // 如果是在登录页操作成功的，跳转到 Dashboard
+        if (view === AppView.AUTH) {
+          setView(AppView.DASHBOARD);
+          setActiveTab('dashboard');
+        }
+      } else {
         setUserProfile(null);
         setOrg(null);
         setListings([]);
@@ -115,7 +109,17 @@ const App: React.FC = () => {
       }
     });
     return () => subscription.unsubscribe();
-  }, [fetchIdentity]);
+  }, [fetchIdentity, view]);
+
+  // 落地页“登录/开始”按钮处理
+  const handleLandingLogin = () => {
+    if (session && userProfile) {
+      setView(AppView.DASHBOARD);
+      setActiveTab('dashboard');
+    } else {
+      setView(AppView.AUTH);
+    }
+  };
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -142,12 +146,12 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    // 增加 userProfile 校验逻辑，防止组件在数据未就绪时崩溃
+    // 保护：如果未加载完用户信息且不在 Landing/Auth 页，显示全局加载
     if (!userProfile && (view !== AppView.LANDING && view !== AppView.AUTH)) {
       return (
-        <div className="flex-1 flex flex-col items-center justify-center p-20">
+        <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20">
           <Loader2 className="animate-spin text-indigo-600 mb-4" size={32} />
-          <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Syncing Identity...</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Synchronizing Workspace...</p>
         </div>
       );
     }
@@ -173,7 +177,7 @@ const App: React.FC = () => {
               }} 
               uiLang={lang} 
             />
-          ) : null;
+          ) : <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} onSelectListing={handleSelectListing} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
@@ -185,11 +189,13 @@ const App: React.FC = () => {
           return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} onSelectListing={handleSelectListing} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
       }
     } catch (err) {
+      console.error("View Render Error:", err);
       return (
-        <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4">
+        <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4 bg-white h-full">
           <AlertCircle size={48} className="text-red-500" />
-          <h3 className="text-xl font-black">Interface Crash</h3>
-          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs">Reboot System</button>
+          <h3 className="text-xl font-black">Runtime Exception</h3>
+          <p className="text-slate-400 text-sm max-w-md">An unexpected error occurred in the current view module. Try refreshing or contact support.</p>
+          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl">Reboot Application</button>
         </div>
       );
     }
@@ -198,8 +204,11 @@ const App: React.FC = () => {
   if (isInitializing) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-white">
-        <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Initial Booting...</p>
+        <div className="relative">
+          <Loader2 className="animate-spin text-indigo-600" size={48} />
+          <div className="absolute inset-0 flex items-center justify-center font-black text-[8px] text-indigo-600">AMZ</div>
+        </div>
+        <p className="mt-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">System Booting...</p>
       </div>
     );
   }
@@ -213,7 +222,7 @@ const App: React.FC = () => {
       )}
       <main className={`${showSidebar ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
-          {view === AppView.LANDING ? <LandingPage onLogin={handleLandingAction} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
+          {view === AppView.LANDING ? <LandingPage onLogin={handleLandingLogin} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
            view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => setView(AppView.LANDING)} /> :
            renderContent()}
         </div>
