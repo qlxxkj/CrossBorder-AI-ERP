@@ -247,28 +247,59 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const mCanvas = maskCanvasRef.current;
       const oCanvas = overlayCanvasRef.current;
       if (!canvas || !mCanvas || !oCanvas) return;
+      
       setIsProcessing(true);
       try {
-        const urlToFetch = imageUrl.startsWith('data:') || imageUrl.startsWith('blob:') ? imageUrl : `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
-        const response = await fetch(urlToFetch);
-        const blob = await response.blob();
-        const localUrl = URL.createObjectURL(blob);
-        const img = new Image(); img.src = localUrl;
-        img.onload = () => {
-          canvas.width = mCanvas.width = oCanvas.width = img.width;
-          canvas.height = mCanvas.height = oCanvas.height = img.height;
-          canvas.getContext('2d')?.drawImage(img, 0, 0);
-          if (containerRef.current) {
-            const scale = Math.min((containerRef.current.clientWidth - 100) / img.width, (containerRef.current.clientHeight - 100) / img.height, 0.9);
-            setZoom(scale || 1);
+        // 1. 尝试直接通过带有 crossOrigin 的方式加载
+        // 2. 如果失败（由于跨域头未配置），使用代理获取
+        const tryLoad = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = url;
+        });
+
+        let loadedImg: HTMLImageElement;
+        try {
+          // 如果已经是本地地址或 DataURL，直接加载
+          if (imageUrl.startsWith('data:') || imageUrl.startsWith('blob:')) {
+            loadedImg = await tryLoad(imageUrl);
+          } else {
+            // 尝试直接加载，可能会 CORS 失败
+            loadedImg = await tryLoad(imageUrl);
           }
-          setHistory([{ canvasData: canvas.toDataURL('image/png'), objects: [] }]);
-          setIsProcessing(false); URL.revokeObjectURL(localUrl);
-        };
-      } catch (err) { setIsProcessing(false); }
+        } catch (e) {
+          // CORS 失败，回退到代理
+          const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
+          loadedImg = await tryLoad(proxiedUrl);
+        }
+
+        canvas.width = mCanvas.width = oCanvas.width = loadedImg.width;
+        canvas.height = mCanvas.height = oCanvas.height = loadedImg.height;
+        
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(loadedImg, 0, 0);
+        
+        if (containerRef.current) {
+          const scale = Math.min(
+            (containerRef.current.clientWidth - 100) / loadedImg.width, 
+            (containerRef.current.clientHeight - 100) / loadedImg.height, 
+            0.9
+          );
+          setZoom(scale || 1);
+        }
+        
+        setHistory([{ canvasData: canvas.toDataURL('image/png'), objects: [] }]);
+      } catch (err) {
+        console.error("Image Editor initialization failed:", err);
+        alert(uiLang === 'zh' ? "图片加载失败，请检查网络或重试。" : "Image loading failed.");
+      } finally {
+        setIsProcessing(false);
+      }
     };
     initCanvas();
-  }, [imageUrl]);
+  }, [imageUrl, uiLang]);
 
   const saveToHistory = useCallback((currentObjects?: EditorObject[]) => {
     if (canvasRef.current) {
@@ -474,6 +505,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const finalCanvas = document.createElement('canvas');
     finalCanvas.width = sourceCanvas.width; finalCanvas.height = sourceCanvas.height;
     const fCtx = finalCanvas.getContext('2d')!;
+    
+    // 如果想要最终保存也是 1600x1600 白色背景，可以在这里套一下逻辑，
+    // 但通常编辑器保存是基于当前画布。如果用户先点了 Standardize 按钮，这里已经是 1600 了。
+    
     fCtx.drawImage(sourceCanvas, 0, 0);
     objects.forEach(obj => {
       fCtx.save();
@@ -502,12 +537,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       fd.append('file', new File([blob], `composed_${Date.now()}.jpg`, { type: 'image/jpeg' }));
       try {
         const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+        if (!res.ok) throw new Error("Sync upload failed");
         const data = await res.json();
         const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
         const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
         if (u) onSave(u);
-        else throw new Error("Empty URL");
-      } catch (e) { alert("Failed to sync final image."); setIsProcessing(false); }
+        else throw new Error("Empty URL returned");
+      } catch (e) { 
+        alert("Failed to sync final image."); 
+      } finally {
+        setIsProcessing(false); 
+      }
     }, 'image/jpeg', 0.92);
   };
 
@@ -516,46 +556,49 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const oldWidth = canvas.width;
     const oldHeight = canvas.height;
 
-    // Scale calculations
-    const maxDim = 1500;
-    const scale = Math.min(maxDim / oldWidth, maxDim / oldHeight);
+    // 比例计算：使最长边达到 1500px
+    const targetBoundary = 1500;
+    const scale = Math.min(targetBoundary / oldWidth, targetBoundary / oldHeight);
     const drawW = oldWidth * scale;
     const drawH = oldHeight * scale;
+    
+    // 计算 1600x1600 居中偏移量
     const offsetX = (1600 - drawW) / 2;
     const offsetY = (1600 - drawH) / 2;
 
-    // 1. Transform Main Canvas (Base Image + Brush Strokes)
+    // 1. 转换主画布内容
     const tempMain = document.createElement('canvas'); 
     tempMain.width = 1600; 
     tempMain.height = 1600;
     const tMainCtx = tempMain.getContext('2d')!; 
     tMainCtx.fillStyle = '#FFFFFF'; 
     tMainCtx.fillRect(0, 0, 1600, 1600);
+    tMainCtx.imageSmoothingEnabled = true;
+    tMainCtx.imageSmoothingQuality = 'high';
     tMainCtx.drawImage(canvas, offsetX, offsetY, drawW, drawH);
     
     canvas.width = 1600; 
     canvas.height = 1600; 
     canvas.getContext('2d')!.drawImage(tempMain, 0, 0);
 
-    // 2. Transform Mask Canvas (AI Erase Regions)
+    // 2. 转换 Mask 画布
     if (maskCanvasRef.current) {
       const mTemp = document.createElement('canvas');
       mTemp.width = 1600; mTemp.height = 1600;
       const mTCtx = mTemp.getContext('2d')!;
       mTCtx.drawImage(maskCanvasRef.current, offsetX, offsetY, drawW, drawH);
-      
       maskCanvasRef.current.width = 1600;
       maskCanvasRef.current.height = 1600;
       maskCanvasRef.current.getContext('2d')!.drawImage(mTemp, 0, 0);
     }
 
-    // 3. Transform Overlay Canvas (Visual stripes for mask)
+    // 3. 转换 Overlay 画布
     if (overlayCanvasRef.current) {
         overlayCanvasRef.current.width = 1600;
         overlayCanvasRef.current.height = 1600;
     }
 
-    // 4. Migrate Floating Objects (Shapes, Text, Fills)
+    // 4. 迁移漂浮对象 (Shapes, Text)
     const migratedObjects = objects.map(obj => ({
       ...obj,
       x: obj.x * scale + offsetX,
