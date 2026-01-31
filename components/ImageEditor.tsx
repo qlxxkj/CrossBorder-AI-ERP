@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, Save, Undo, Loader2, MousePointer2, Palette, ZoomIn, ZoomOut, Move, 
   Maximize2, Sparkles, Paintbrush, Square, Circle, Type, Scissors, Pipette, 
-  Trash2, Layers
+  Trash2, Layers, Minus
 } from 'lucide-react';
 import { UILanguage } from '../types';
 
@@ -14,7 +14,7 @@ interface ImageEditorProps {
   uiLang: UILanguage;
 }
 
-type Tool = 'select' | 'brush' | 'rect' | 'circle' | 'text' | 'fill' | 'crop' | 'pan';
+type Tool = 'select' | 'brush' | 'rect' | 'circle' | 'line' | 'text' | 'rect_fill' | 'pan';
 
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
@@ -31,6 +31,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [strokeWidth, setStrokeWidth] = useState(15);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [canvasImage, setCanvasImage] = useState<HTMLImageElement | null>(null);
+  const [showShapeDropdown, setShowShapeDropdown] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -82,20 +83,24 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const pos = getPos(e);
     const tCtx = tempCanvasRef.current!.getContext('2d')!;
     tCtx.clearRect(0, 0, tempCanvasRef.current!.width, tempCanvasRef.current!.height);
+    tCtx.strokeStyle = strokeColor;
+    tCtx.fillStyle = strokeColor;
+    tCtx.lineWidth = strokeWidth;
     
     if (currentTool === 'brush') {
       const ctx = canvasRef.current!.getContext('2d')!;
       ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
     } else if (currentTool === 'rect') {
-      tCtx.strokeStyle = strokeColor;
-      tCtx.lineWidth = strokeWidth;
       tCtx.strokeRect(startPos.x, startPos.y, pos.x - startPos.x, pos.y - startPos.y);
     } else if (currentTool === 'circle') {
-      tCtx.strokeStyle = strokeColor;
-      tCtx.lineWidth = strokeWidth;
       const r = Math.sqrt(Math.pow(pos.x - startPos.x, 2) + Math.pow(pos.y - startPos.y, 2));
       tCtx.beginPath(); tCtx.arc(startPos.x, startPos.y, r, 0, 2 * Math.PI); tCtx.stroke();
+    } else if (currentTool === 'line') {
+      tCtx.beginPath(); tCtx.moveTo(startPos.x, startPos.y); tCtx.lineTo(pos.x, pos.y); tCtx.stroke();
+    } else if (currentTool === 'rect_fill') {
+      tCtx.globalAlpha = 0.5;
+      tCtx.fillRect(startPos.x, startPos.y, pos.x - startPos.x, pos.y - startPos.y);
     }
   };
 
@@ -116,10 +121,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     } else if (currentTool === 'circle') {
       const radius = Math.sqrt(Math.pow(pos.x - startPos.x, 2) + Math.pow(pos.y - startPos.y, 2));
       ctx.beginPath(); ctx.arc(startPos.x, startPos.y, radius, 0, 2 * Math.PI); ctx.stroke();
+    } else if (currentTool === 'line') {
+      ctx.beginPath(); ctx.moveTo(startPos.x, startPos.y); ctx.lineTo(pos.x, pos.y); ctx.stroke();
     } else if (currentTool === 'text') {
       const txt = prompt(uiLang === 'zh' ? "输入文本" : "Enter text");
       if (txt) { ctx.font = `bold ${strokeWidth * 3}px Inter, sans-serif`; ctx.fillText(txt, pos.x, pos.y); }
-    } else if (currentTool === 'fill') {
+    } else if (currentTool === 'rect_fill') {
       ctx.fillRect(startPos.x, startPos.y, pos.x - startPos.x, pos.y - startPos.y);
     }
   };
@@ -130,30 +137,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     try { const res = await dropper.open(); setStrokeColor(res.sRGBHex); } catch (e) {}
   };
 
-  const handleStandardize = () => {
-    if (!canvasRef.current) return;
-    const w = canvasRef.current.width; const h = canvasRef.current.height;
-    const scale = Math.min(1500 / w, 1500 / h);
-    const dw = w * scale; const dh = h * scale;
-    const dx = (1600 - dw) / 2; const dy = (1600 - dh) / 2;
-    const temp = document.createElement('canvas');
-    temp.width = 1600; temp.height = 1600;
-    const tCtx = temp.getContext('2d')!;
-    tCtx.fillStyle = '#FFFFFF'; tCtx.fillRect(0,0,1600,1600);
-    tCtx.drawImage(canvasRef.current, dx, dy, dw, dh);
-    canvasRef.current.width = 1600; canvasRef.current.height = 1600;
-    canvasRef.current.getContext('2d')!.drawImage(temp, 0, 0);
-    tempCanvasRef.current!.width = 1600; tempCanvasRef.current!.height = 1600;
-    setZoom(Math.min((window.innerWidth-450)/1600, (window.innerHeight-250)/1600, 1));
-  };
-
   const handleFinalSave = async () => {
     if (!canvasRef.current) return;
     setIsProcessing(true);
     canvasRef.current.toBlob(async (blob) => {
       if (!blob) return setIsProcessing(false);
       const fd = new FormData();
-      fd.append('file', blob, `ai_edit_${Date.now()}.jpg`);
+      fd.append('file', blob, `edit_${Date.now()}.jpg`);
       try {
         const res = await fetch(TARGET_API, { method: 'POST', body: fd });
         const data = await res.json();
@@ -161,7 +151,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
         if (u) onSave(u);
       } finally { setIsProcessing(false); }
-    }, 'image/jpeg', 0.95);
+    }, 'image/jpeg', 0.96);
+  };
+
+  const ShapeToolIcon = () => {
+    if (currentTool === 'circle') return <Circle size={18} />;
+    if (currentTool === 'line') return <Minus size={18} />;
+    return <Square size={18} />;
   };
 
   return (
@@ -169,10 +165,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between text-white">
         <div className="flex items-center gap-4">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20}/></button>
-          <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent italic">AI Media Studio PRO</span>
+          <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent italic">AI Pro Media Studio</span>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={handleStandardize} className="px-5 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 border border-white/10 transition-all"><Maximize2 size={14}/> 1600px Output</button>
           <button onClick={handleFinalSave} disabled={isProcessing} className="px-8 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl">
             {isProcessing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Commit Sync
           </button>
@@ -180,14 +175,26 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       </div>
       
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-20 bg-slate-900 border-r border-white/5 flex flex-col items-center py-6 gap-5">
+        <div className="w-20 bg-slate-900 border-r border-white/5 flex flex-col items-center py-6 gap-4">
            <SideBtn active={currentTool === 'select'} onClick={() => setCurrentTool('select')} icon={<MousePointer2 size={18}/>} label="Move" />
            <SideBtn active={currentTool === 'brush'} onClick={() => setCurrentTool('brush')} icon={<Paintbrush size={18}/>} label="Brush" />
-           <SideBtn active={currentTool === 'rect'} onClick={() => setCurrentTool('rect')} icon={<Square size={18}/>} label="Shape" />
+           
+           <div className="relative">
+             <SideBtn active={['rect', 'circle', 'line'].includes(currentTool)} onClick={() => setShowShapeDropdown(!showShapeDropdown)} icon={<ShapeToolIcon />} label="Shape" />
+             {showShapeDropdown && (
+               <div className="absolute left-full top-0 ml-2 bg-slate-800 border border-slate-700 rounded-xl p-2 flex flex-col gap-2 shadow-2xl z-50 animate-in slide-in-from-left-2">
+                 <button onClick={() => { setCurrentTool('rect'); setShowShapeDropdown(false); }} className="p-3 hover:bg-white/10 rounded-lg text-slate-300 hover:text-white"><Square size={16}/></button>
+                 <button onClick={() => { setCurrentTool('circle'); setShowShapeDropdown(false); }} className="p-3 hover:bg-white/10 rounded-lg text-slate-300 hover:text-white"><Circle size={16}/></button>
+                 <button onClick={() => { setCurrentTool('line'); setShowShapeDropdown(false); }} className="p-3 hover:bg-white/10 rounded-lg text-slate-300 hover:text-white"><Minus size={16}/></button>
+               </div>
+             )}
+           </div>
+
            <SideBtn active={currentTool === 'text'} onClick={() => setCurrentTool('text')} icon={<Type size={18}/>} label="Text" />
-           <SideBtn active={currentTool === 'fill'} onClick={() => setCurrentTool('fill')} icon={<Layers size={18}/>} label="AI Marker" />
+           <SideBtn active={currentTool === 'rect_fill'} onClick={() => setCurrentTool('rect_fill')} icon={<Layers size={18}/>} label="Fill" />
            <SideBtn active={false} onClick={pickColor} icon={<Pipette size={18}/>} label="Pick" />
-           <div className="w-8 h-px bg-white/10 my-1"></div>
+           
+           <div className="w-8 h-px bg-white/10 my-2"></div>
            <button onClick={() => { if(canvasImage && canvasRef.current) canvasRef.current.getContext('2d')?.drawImage(canvasImage,0,0); }} className="p-3 text-slate-500 hover:text-white" title="Reset"><Undo size={18}/></button>
         </div>
 
@@ -205,7 +212,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               <div className="flex justify-between text-[8px] font-black text-slate-600 uppercase"><span>Fine</span><span>{strokeWidth}px</span><span>Bold</span></div>
            </div>
            <div className="space-y-4">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Color Hub</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Color Palette</label>
               <div className="grid grid-cols-5 gap-2">
                  {['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#000000', '#ffffff', '#ff8800', '#00ffee', '#8800ff'].map(c => (
                    <button key={c} onClick={() => setStrokeColor(c)} style={{backgroundColor: c}} className={`aspect-square rounded-lg border-2 transition-all ${strokeColor === c ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-60'}`} />
@@ -214,7 +221,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            </div>
            <div className="p-5 bg-indigo-600/10 border border-indigo-500/20 rounded-2xl">
               <p className="text-[9px] font-bold text-indigo-400 leading-relaxed uppercase">
-                Pro Tip: Use 'AI Marker' (Fill) to select unwanted backgrounds for smart replacement, then standardize to 1600px.
+                Tool Tip: Use 'Fill' to choose a color, then drag a rectangle on the image to mask unwanted areas instantly.
               </p>
            </div>
         </div>
