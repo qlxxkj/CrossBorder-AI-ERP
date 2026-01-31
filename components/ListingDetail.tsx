@@ -32,7 +32,6 @@ const LANG_NAME_MAP: Record<string, string> = {
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 const CORS_PROXY = 'https://corsproxy.io/?';
-const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onDelete, onNext, uiLang }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -114,24 +113,36 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
-      img.src = `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
-      img.onload = async () => {
+      
+      // 处理已经是 DataURL 的情况
+      if (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) {
+        img.src = imgUrl;
+      } else {
+        img.src = `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
+      }
+
+      img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
           canvas.width = 1600; 
           canvas.height = 1600;
           const ctx = canvas.getContext('2d')!;
+          
+          // 填充纯白背景
           ctx.fillStyle = '#FFFFFF'; 
           ctx.fillRect(0, 0, 1600, 1600);
+          
+          // 计算缩放：使较长的一边达到 1500px，从而在 1600px 画布中留出边距
           const maxDim = 1500;
           const scale = Math.min(maxDim / img.width, maxDim / img.height);
           const drawW = img.width * scale;
           const drawH = img.height * scale;
           const offsetX = (1600 - drawW) / 2;
           const offsetY = (1600 - drawH) / 2;
+          
           ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
           
           canvas.toBlob(async (blob) => {
@@ -139,14 +150,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             const fd = new FormData();
             fd.append('file', blob, `std_${Date.now()}.jpg`);
             try {
-              const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
+              // 注意：POST 请求不建议通过 corsproxy.io 转发，直接请求图床
+              const res = await fetch(TARGET_API, { method: 'POST', body: fd });
               if (!res.ok) throw new Error("Upload fail");
               const data = await res.json();
               const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
               const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
               resolve(u || imgUrl);
-            } catch (e) { resolve(imgUrl); }
-          }, 'image/jpeg', 0.9);
+            } catch (e) { 
+              console.error("Standardize upload failed, using original:", e);
+              resolve(imgUrl); 
+            }
+          }, 'image/jpeg', 0.95);
         } catch (e) { resolve(imgUrl); }
       };
       img.onerror = () => resolve(imgUrl);
@@ -158,25 +173,31 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     setProcessingUrls(prev => new Set(prev).add(url));
     try {
       const newUrl = await processAndUploadImage(url);
+      let updatedListing: Listing | null = null;
+
       setLocalListing(prev => {
         const next = JSON.parse(JSON.stringify(prev));
         const currentMain = next.optimized?.optimized_main_image || next.cleaned.main_image;
         
-        // 修正：更精准的字段定位
         if (currentMain === url) {
           next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
-          if (previewImage === url) setPreviewImage(newUrl);
         } else {
           const currentOthers = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
           const updatedOthers = currentOthers.map((u: string) => u === url ? newUrl : u);
           next.optimized = { ...(next.optimized || {}), optimized_other_images: updatedOthers };
-          if (previewImage === url) setPreviewImage(newUrl);
         }
         
-        onUpdate(next);
-        syncToSupabase(next);
+        updatedListing = next;
         return next;
       });
+
+      // 确保预览图也同步更新
+      if (previewImage === url) setPreviewImage(newUrl);
+      
+      if (updatedListing) {
+        onUpdate(updatedListing);
+        syncToSupabase(updatedListing);
+      }
     } catch (e) { 
       console.error("Standardize failed:", e);
     } finally { 
@@ -195,12 +216,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     all.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
     
     try {
-      // 分开处理主图和附图，确保不偏移
+      // 并行处理所有图片，保持顺序
       const [newMain, ...newOthers] = await Promise.all([
         effectiveMain ? processAndUploadImage(effectiveMain) : Promise.resolve(""),
         ...effectiveOthers.map(u => processAndUploadImage(u))
       ]);
       
+      let finalListing: Listing | null = null;
       setLocalListing(prev => {
         const next = JSON.parse(JSON.stringify(prev));
         next.optimized = { 
@@ -208,18 +230,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           optimized_main_image: newMain || next.optimized?.optimized_main_image,
           optimized_other_images: newOthers
         };
-        
-        // 更新预览状态
-        if (previewImage === effectiveMain) setPreviewImage(newMain);
-        else {
-          const idx = effectiveOthers.indexOf(previewImage);
-          if (idx > -1) setPreviewImage(newOthers[idx]);
-        }
-
-        onUpdate(next);
-        syncToSupabase(next);
+        finalListing = next;
         return next;
       });
+
+      // 更新预览图
+      if (previewImage === effectiveMain) setPreviewImage(newMain);
+      else {
+        const idx = effectiveOthers.indexOf(previewImage);
+        if (idx > -1) setPreviewImage(newOthers[idx]);
+      }
+
+      if (finalListing) {
+        onUpdate(finalListing);
+        syncToSupabase(finalListing);
+      }
     } catch (e) { 
       alert("Batch processing error.");
     } finally { 
@@ -250,7 +275,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     try {
       const uploadPromises = Array.from(files).map(async (file) => {
         const fd = new FormData(); fd.append('file', file as File);
-        const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
+        const res = await fetch(TARGET_API, { method: 'POST', body: fd });
         const data = await res.json();
         const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
         return rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;

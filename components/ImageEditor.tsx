@@ -41,7 +41,6 @@ interface EditorState {
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
-const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
 /**
  * Advanced Poisson Synthesis Inpainting
@@ -78,7 +77,7 @@ const performSeamlessInpaint = async (ctx: CanvasRenderingContext2D, maskCtx: Ca
       for (const nIdx of neighbors) {
         r += currentPass[nIdx * 4];
         g += currentPass[nIdx * 4 + 1];
-        b += currentPass[nIdx * 4 + 2];
+        r += currentPass[nIdx * 4 + 2];
         count++;
       }
 
@@ -250,8 +249,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       if (!canvas || !mCanvas || !oCanvas) return;
       setIsProcessing(true);
       try {
-        const proxyUrl = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
-        const response = await fetch(proxyUrl);
+        const urlToFetch = imageUrl.startsWith('data:') || imageUrl.startsWith('blob:') ? imageUrl : `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
+        const response = await fetch(urlToFetch);
         const blob = await response.blob();
         const localUrl = URL.createObjectURL(blob);
         const img = new Image(); img.src = localUrl;
@@ -502,7 +501,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const fd = new FormData();
       fd.append('file', new File([blob], `composed_${Date.now()}.jpg`, { type: 'image/jpeg' }));
       try {
-        const res = await fetch(IMAGE_HOSTING_API, { method: 'POST', body: fd });
+        const res = await fetch(TARGET_API, { method: 'POST', body: fd });
         const data = await res.json();
         const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
         const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
@@ -543,7 +542,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const mTemp = document.createElement('canvas');
       mTemp.width = 1600; mTemp.height = 1600;
       const mTCtx = mTemp.getContext('2d')!;
-      // Draw old mask onto new scaled/centered coordinates
       mTCtx.drawImage(maskCanvasRef.current, offsetX, offsetY, drawW, drawH);
       
       maskCanvasRef.current.width = 1600;
@@ -555,7 +553,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (overlayCanvasRef.current) {
         overlayCanvasRef.current.width = 1600;
         overlayCanvasRef.current.height = 1600;
-        // Redraw will trigger on next animation frame via redrawOverlay()
     }
 
     // 4. Migrate Floating Objects (Shapes, Text, Fills)
