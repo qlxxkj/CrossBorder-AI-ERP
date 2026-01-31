@@ -39,7 +39,38 @@ export const getLocalizedUnit = (unit: string | undefined, market: string) => {
     const fr: Record<string, string> = { 'kg': 'Kilogrammes', 'kilogram': 'Kilogrammes', 'cm': 'Centimètres', 'centimeter': 'Centimètres', 'lb': 'Livres', 'oz': 'Onces' };
     return fr[u] || unit;
   }
+    // 5. 意大利站
+  if (market === 'IT') {
+    const it: Record<string, string> = { 'kg': 'Chilogrammi', 'kilogram': 'Chilogrammi', 'cm': 'Centimetri', 'centimeter': 'Centimetri', 'lb': 'Libbre' };
+    return it[u] || unit;
+  }
   
+  // 6. 波兰站
+  if (market === 'PL') {
+    const pl: Record<string, string> = { 'kg': 'Kilogramy', 'kilogram': 'Kilogramy', 'cm': 'Centymetry', 'centimeter': 'Centymetry' };
+    return pl[u] || unit;
+  }
+  
+  // 7. 墨西哥、西班牙站
+  if (['MX', 'ES'].includes(market)) {
+    const es: Record<string, string> = { 'kg': 'Kilogramos', 'cm': 'Centímetros', 'lb': 'Libras', 'in': 'Pulgadas' };
+    return es[u] || unit;
+  }
+  
+  // 8. 巴西站
+  if (market === 'BR') {
+    const pt: Record<string, string> = { 'kg': 'Quilogramas', 'cm': 'Centímetros', 'lb': 'Libras' };
+    return pt[u] || unit;
+  }
+  
+  // 9. 阿拉伯语站点
+  if (['EG', 'SA', 'AE'].includes(market)) {
+    const ar: Record<string, string> = { 'kg': 'كيلوجرام', 'cm': 'سنتيمتر', 'lb': 'رطل', 'in': 'بوصة', 'oz': 'أوقية' };
+    return ar[u] || unit;
+  }
+  if (market === 'NL') { return { 'kg': 'Kilogram', 'cm': 'Centimeter' }[u] || unit; }
+  if (market === 'SE') { return { 'kg': 'Kilogram', 'cm': 'Centimeter' }[u] || unit; }
+  // 10. 标准美式英语及兜底
   const latin: Record<string, string> = { 'kg': 'Kilograms', 'kilogram': 'Kilograms', 'cm': 'Centimeters', 'centimeter': 'Centimeters', 'lb': 'Pounds', 'pound': 'Pounds', 'in': 'Inches', 'oz': 'Ounces', 'g': 'Grams' };
   if (latin[u]) return latin[u];
   return unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
