@@ -119,12 +119,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const img = new Image();
       img.crossOrigin = "anonymous";
       
-      // Handle local or proxied URLs
-      if (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) {
-        img.src = imgUrl;
-      } else {
-        img.src = `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
-      }
+      const sourceUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
+        ? imgUrl 
+        : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
+
+      img.src = sourceUrl;
 
       img.onload = () => {
         try {
@@ -133,29 +132,27 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           canvas.height = 1600;
           const ctx = canvas.getContext('2d')!;
           
-          // Step 1: Fill pure white background
+          // 1. 纯白背景
           ctx.fillStyle = '#FFFFFF'; 
           ctx.fillRect(0, 0, 1600, 1600);
           
-          // Step 2: Calculate Proportional Scale to fit longest side into 1500px
-          // This fulfills the requirement of "scaling to 1500*1500" while maintaining aspect ratio
-          const maxTargetDim = 1500;
-          const scale = Math.min(maxTargetDim / img.width, maxTargetDim / img.height);
+          // 2. 等比缩放 - 确保最长边到达 1500px (即放大或缩小到 1500 边界)
+          const targetBoundary = 1500;
+          const scale = Math.min(targetBoundary / img.width, targetBoundary / img.height);
           const drawW = img.width * scale;
           const drawH = img.height * scale;
           
-          // Step 3: Center the scaled image on the 1600px canvas
+          // 3. 画布居中
           const offsetX = (1600 - drawW) / 2;
           const offsetY = (1600 - drawH) / 2;
           
-          // Use high quality image smoothing
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
           
           canvas.toBlob(async (blob) => {
             if (!blob) {
-              console.error("Canvas toBlob failed");
+              console.error("Standardize: Blob creation failed");
               return resolve(imgUrl);
             }
             
@@ -163,9 +160,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             fd.append('file', blob, `std_${Date.now()}.jpg`);
             
             try {
-              // Direct upload to hosting API (don't use CORS proxy for file uploads)
               const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-              if (!res.ok) throw new Error(`Upload API returned ${res.status}`);
+              if (!res.ok) throw new Error(`Upload failed with status ${res.status}`);
               
               const data = await res.json();
               const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
@@ -176,18 +172,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 
               resolve(finalUrl || imgUrl);
             } catch (e) { 
-              console.error("Standardize upload failed:", e);
+              console.error("Standardize: Upload error", e);
               resolve(imgUrl); 
             }
           }, 'image/jpeg', 0.95);
         } catch (e) { 
-          console.error("Standardize canvas processing error:", e);
+          console.error("Standardize: Canvas error", e);
           resolve(imgUrl); 
         }
       };
       
       img.onerror = () => {
-        console.error("Failed to load image for standardization:", imgUrl);
+        console.error("Standardize: Image load failed", imgUrl);
         resolve(imgUrl);
       };
     });
@@ -199,28 +195,30 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     
     try {
       const newUrl = await processAndUploadImage(url);
-      if (newUrl === url) return; // No change
+      if (newUrl === url) {
+        setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; });
+        return;
+      }
 
-      setLocalListing(prev => {
-        const next = JSON.parse(JSON.stringify(prev));
-        const currentMain = next.optimized?.optimized_main_image || next.cleaned.main_image;
-        
-        if (currentMain === url) {
-          next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
-          if (previewImage === url) setPreviewImage(newUrl);
-        } else {
-          const currentOthers = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
-          const updatedOthers = currentOthers.map((u: string) => u === url ? newUrl : u);
-          next.optimized = { ...(next.optimized || {}), optimized_other_images: updatedOthers };
-          if (previewImage === url) setPreviewImage(newUrl);
-        }
-        
-        onUpdate(next);
-        syncToSupabase(next);
-        return next;
-      });
+      // 先克隆当前状态
+      const nextListing = JSON.parse(JSON.stringify(localListing));
+      const currentMain = nextListing.optimized?.optimized_main_image || nextListing.cleaned.main_image;
+      
+      if (currentMain === url) {
+        nextListing.optimized = { ...(nextListing.optimized || {}), optimized_main_image: newUrl };
+      } else {
+        const currentOthers = [...(nextListing.optimized?.optimized_other_images || nextListing.cleaned.other_images || [])];
+        const updatedOthers = currentOthers.map((u: string) => u === url ? newUrl : u);
+        nextListing.optimized = { ...(nextListing.optimized || {}), optimized_other_images: updatedOthers };
+      }
+      
+      // 更新状态和持久化
+      setLocalListing(nextListing);
+      if (previewImage === url) setPreviewImage(newUrl);
+      onUpdate(nextListing);
+      await syncToSupabase(nextListing);
     } catch (e) { 
-      console.error("HandleStandardizeOne failed:", e);
+      console.error("Standardize Single Failed:", e);
     } finally { 
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; }); 
     }
@@ -237,39 +235,36 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     allToProcess.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
     
     try {
-      // Step 1: Process all images in parallel
-      const standardizeResults = await Promise.all([
+      // 批量异步处理
+      const results = await Promise.all([
         effectiveMain ? processAndUploadImage(effectiveMain) : Promise.resolve(""),
         ...effectiveOthers.map(u => processAndUploadImage(u))
       ]);
       
-      const newMain = standardizeResults[0];
-      const newOthers = standardizeResults.slice(1);
+      const newMain = results[0];
+      const newOthers = results.slice(1);
       
-      setLocalListing(prev => {
-        const next = JSON.parse(JSON.stringify(prev));
-        next.optimized = { 
-          ...(next.optimized || {}), 
-          optimized_main_image: newMain || (next.optimized?.optimized_main_image || next.cleaned.main_image),
-          optimized_other_images: newOthers
-        };
-        
-        // Step 2: Update preview if it was one of the processed images
-        if (previewImage === effectiveMain && newMain) setPreviewImage(newMain);
-        else {
-          const originalIndex = effectiveOthers.indexOf(previewImage);
-          if (originalIndex > -1 && newOthers[originalIndex]) {
-            setPreviewImage(newOthers[originalIndex]);
-          }
-        }
+      const nextListing = JSON.parse(JSON.stringify(localListing));
+      nextListing.optimized = { 
+        ...(nextListing.optimized || {}), 
+        optimized_main_image: newMain || nextListing.optimized?.optimized_main_image,
+        optimized_other_images: newOthers
+      };
+      
+      // 同步预览状态
+      if (previewImage === effectiveMain && newMain) {
+        setPreviewImage(newMain);
+      } else {
+        const idx = effectiveOthers.indexOf(previewImage);
+        if (idx > -1 && newOthers[idx]) setPreviewImage(newOthers[idx]);
+      }
 
-        onUpdate(next);
-        syncToSupabase(next);
-        return next;
-      });
+      setLocalListing(nextListing);
+      onUpdate(nextListing);
+      await syncToSupabase(nextListing);
     } catch (e) { 
-      console.error("Batch standardize error:", e);
-      alert(uiLang === 'zh' ? "批量处理图片时发生错误" : "Batch processing error.");
+      console.error("Standardize All Failed:", e);
+      alert(uiLang === 'zh' ? "批量标准化失败" : "Batch standardization failed.");
     } finally { 
       setIsProcessingImages(false); 
       setProcessingUrls(new Set()); 
@@ -278,18 +273,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleRestoreAllImages = async () => {
     if (!window.confirm(uiLang === 'zh' ? "确定要恢复所有原始图片吗？" : "Restore original images?")) return;
-    setLocalListing(prev => {
-      const next = JSON.parse(JSON.stringify(prev));
-      if (next.optimized) {
-        delete next.optimized.optimized_main_image;
-        delete next.optimized.optimized_other_images;
-      }
-      const restoredMain = next.cleaned.main_image || '';
-      setPreviewImage(restoredMain);
-      onUpdate(next);
-      syncToSupabase(next);
-      return next;
-    });
+    const nextListing = JSON.parse(JSON.stringify(localListing));
+    if (nextListing.optimized) {
+      delete nextListing.optimized.optimized_main_image;
+      delete nextListing.optimized.optimized_other_images;
+    }
+    const restoredMain = nextListing.cleaned.main_image || '';
+    setLocalListing(nextListing);
+    setPreviewImage(restoredMain);
+    onUpdate(nextListing);
+    await syncToSupabase(nextListing);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -499,27 +492,26 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           imageUrl={editingImageUrl} 
           onClose={() => setShowImageEditor(false)} 
           onSave={(newUrl) => { 
-            setLocalListing(prev => {
-              const next = JSON.parse(JSON.stringify(prev));
-              const currentMain = next.optimized?.optimized_main_image || next.cleaned.main_image;
-              
-              if (currentMain === editingImageUrl) {
-                next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
+            const nextListing = JSON.parse(JSON.stringify(localListing));
+            const currentMain = nextListing.optimized?.optimized_main_image || nextListing.cleaned.main_image;
+            
+            if (currentMain === editingImageUrl) {
+              nextListing.optimized = { ...(nextListing.optimized || {}), optimized_main_image: newUrl };
+            } else {
+              const currentOthers = [...(nextListing.optimized?.optimized_other_images || nextListing.cleaned.other_images || [])];
+              const idx = currentOthers.indexOf(editingImageUrl);
+              if (idx > -1) {
+                currentOthers[idx] = newUrl;
+                nextListing.optimized = { ...(nextListing.optimized || {}), optimized_other_images: currentOthers };
               } else {
-                const currentOthers = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
-                const idx = currentOthers.indexOf(editingImageUrl);
-                if (idx > -1) {
-                  currentOthers[idx] = newUrl;
-                  next.optimized = { ...(next.optimized || {}), optimized_other_images: currentOthers };
-                } else {
-                  next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
-                }
+                // Fallback: if not found in list, might be main that was changed via external ref
+                nextListing.optimized = { ...(nextListing.optimized || {}), optimized_main_image: newUrl };
               }
-              setPreviewImage(newUrl);
-              onUpdate(next);
-              syncToSupabase(next);
-              return next;
-            });
+            }
+            setLocalListing(nextListing);
+            setPreviewImage(newUrl);
+            onUpdate(nextListing);
+            syncToSupabase(nextListing);
             setShowImageEditor(false); 
           }} 
           uiLang={uiLang} 
