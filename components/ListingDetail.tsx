@@ -119,7 +119,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const img = new Image();
       img.crossOrigin = "anonymous";
       
-      // 这里的逻辑确保即使图片在不同域名下也能被 Canvas 处理
       const sourceUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl 
         : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
@@ -133,17 +132,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           canvas.height = 1600;
           const ctx = canvas.getContext('2d')!;
           
-          // 1. 填充纯白背景
+          // 1. 纯白背景
           ctx.fillStyle = '#FFFFFF'; 
           ctx.fillRect(0, 0, 1600, 1600);
           
-          // 2. 等比缩放计算 - 使图片长边达到 1500px
-          const targetSize = 1500;
-          const scale = Math.min(targetSize / img.width, targetSize / img.height);
+          // 2. 计算缩放：使长边刚好 1500px
+          const targetLimit = 1500;
+          const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
           const drawW = img.width * scale;
           const drawH = img.height * scale;
           
-          // 3. 计算居中偏移
+          // 3. 计算居中坐标 (1600 - drawSize) / 2
           const offsetX = (1600 - drawW) / 2;
           const offsetY = (1600 - drawH) / 2;
           
@@ -152,41 +151,24 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
           
           canvas.toBlob(async (blob) => {
-            if (!blob) {
-              console.error("Canvas conversion to blob failed");
-              return resolve(imgUrl);
-            }
-            
+            if (!blob) return resolve(imgUrl);
             const fd = new FormData();
             fd.append('file', blob, `std_${Date.now()}.jpg`);
-            
             try {
               const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-              if (!res.ok) throw new Error(`Upload failed with status ${res.status}`);
-              
+              if (!res.ok) throw new Error("Upload Fail");
               const data = await res.json();
               const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-              
-              const finalUrl = rawSrc 
-                ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) 
-                : null;
-                
+              const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
               resolve(finalUrl || imgUrl);
             } catch (e) { 
-              console.error("Upload to hosting failed:", e);
+              console.error("Hosting error:", e);
               resolve(imgUrl); 
             }
           }, 'image/jpeg', 0.95);
-        } catch (e) { 
-          console.error("Canvas processing error:", e);
-          resolve(imgUrl); 
-        }
+        } catch (e) { resolve(imgUrl); }
       };
-      
-      img.onerror = () => {
-        console.error("Failed to load image for standardization:", imgUrl);
-        resolve(imgUrl);
-      };
+      img.onerror = () => resolve(imgUrl);
     });
   };
 
@@ -196,31 +178,27 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     
     try {
       const newUrl = await processAndUploadImage(url);
-      if (newUrl === url) {
-        setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; });
-        return;
-      }
+      if (newUrl === url) return;
 
-      setLocalListing(prev => {
-        const next = JSON.parse(JSON.stringify(prev));
-        const currentMain = next.optimized?.optimized_main_image || next.cleaned.main_image;
-        
-        if (currentMain === url) {
-          next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
-          if (previewImage === url) setPreviewImage(newUrl);
-        } else {
-          const currentOthers = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
-          const updatedOthers = currentOthers.map((u: string) => u === url ? newUrl : u);
-          next.optimized = { ...(next.optimized || {}), optimized_other_images: updatedOthers };
-          if (previewImage === url) setPreviewImage(newUrl);
-        }
-        
-        onUpdate(next);
-        syncToSupabase(next);
-        return next;
-      });
-    } catch (e) { 
-      console.error("HandleStandardizeOne error:", e);
+      const nextListing = JSON.parse(JSON.stringify(localListing));
+      const currentMain = nextListing.optimized?.optimized_main_image || nextListing.cleaned.main_image;
+      
+      // 更新 optimized 对象下的对应字段
+      if (currentMain === url) {
+        nextListing.optimized = { ...(nextListing.optimized || {}), optimized_main_image: newUrl };
+        if (previewImage === url) setPreviewImage(newUrl);
+      } else {
+        const currentOthers = [...(nextListing.optimized?.optimized_other_images || nextListing.cleaned.other_images || [])];
+        const updatedOthers = currentOthers.map((u: string) => u === url ? newUrl : u);
+        nextListing.optimized = { ...(nextListing.optimized || {}), optimized_other_images: updatedOthers };
+        if (previewImage === url) setPreviewImage(newUrl);
+      }
+      
+      setLocalListing(nextListing);
+      onUpdate(nextListing);
+      await syncToSupabase(nextListing);
+    } catch (e) {
+      console.error("Standardize Single error:", e);
     } finally { 
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(url); return n; }); 
     }
@@ -233,8 +211,8 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const effectiveMain = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image || "";
     const effectiveOthers = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
     
-    const allToProcess = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
-    allToProcess.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
+    const all = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
+    all.forEach(u => setProcessingUrls(prev => new Set(prev).add(u)));
     
     try {
       const results = await Promise.all([
@@ -245,27 +223,24 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const newMain = results[0];
       const newOthers = results.slice(1);
       
-      setLocalListing(prev => {
-        const next = JSON.parse(JSON.stringify(prev));
-        next.optimized = { 
-          ...(next.optimized || {}), 
-          optimized_main_image: newMain || next.optimized?.optimized_main_image,
-          optimized_other_images: newOthers
-        };
-        
-        if (previewImage === effectiveMain && newMain) setPreviewImage(newMain);
-        else {
-          const idx = effectiveOthers.indexOf(previewImage);
-          if (idx > -1 && newOthers[idx]) setPreviewImage(newOthers[idx]);
-        }
+      const nextListing = JSON.parse(JSON.stringify(localListing));
+      nextListing.optimized = { 
+        ...(nextListing.optimized || {}), 
+        optimized_main_image: newMain || nextListing.optimized?.optimized_main_image,
+        optimized_other_images: newOthers
+      };
+      
+      if (previewImage === effectiveMain && newMain) setPreviewImage(newMain);
+      else {
+        const idx = effectiveOthers.indexOf(previewImage);
+        if (idx > -1 && newOthers[idx]) setPreviewImage(newOthers[idx]);
+      }
 
-        onUpdate(next);
-        syncToSupabase(next);
-        return next;
-      });
+      setLocalListing(nextListing);
+      onUpdate(nextListing);
+      await syncToSupabase(nextListing);
     } catch (e) { 
-      console.error("Batch standardize failed:", e);
-      alert(uiLang === 'zh' ? "批量处理失败，请重试。" : "Batch processing failed.");
+      alert("Batch standardization failed.");
     } finally { 
       setIsProcessingImages(false); 
       setProcessingUrls(new Set()); 
@@ -274,17 +249,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
   const handleRestoreAllImages = async () => {
     if (!window.confirm(uiLang === 'zh' ? "确定要恢复所有原始图片吗？" : "Restore original images?")) return;
-    setLocalListing(prev => {
-      const next = JSON.parse(JSON.stringify(prev));
-      if (next.optimized) {
-        delete next.optimized.optimized_main_image;
-        delete next.optimized.optimized_other_images;
-      }
-      setPreviewImage(next.cleaned.main_image || '');
-      onUpdate(next);
-      syncToSupabase(next);
-      return next;
-    });
+    const next = JSON.parse(JSON.stringify(localListing));
+    if (next.optimized) {
+      delete next.optimized.optimized_main_image;
+      delete next.optimized.optimized_other_images;
+    }
+    setLocalListing(next);
+    setPreviewImage(next.cleaned.main_image || '');
+    onUpdate(next);
+    await syncToSupabase(next);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -13,7 +13,7 @@ import { BillingCenter } from './components/BillingCenter';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SystemManagement } from './components/SystemManagement';
 import { AppView, Listing, UILanguage, UserProfile, Organization } from './types';
-import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -23,15 +23,14 @@ const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [org, setOrg] = useState<Organization | null>(null);
-  const [isInitializing, setIsInitializing] = useState(true); // 仅用于首次启动
+  const [isInitializing, setIsInitializing] = useState(true); 
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
 
+  // 使用 Ref 追踪当前视图，避免 fetchIdentity 闭包问题
   const viewRef = useRef(view);
-  const sessionRef = useRef<string | null>(null);
-
   useEffect(() => { viewRef.current = view; }, [view]);
 
   const fetchListings = useCallback(async (orgId: string) => {
@@ -70,6 +69,7 @@ const App: React.FC = () => {
 
       if (profileErr) throw profileErr;
 
+      // 如果没有 Profile，则创建
       if (!profile) {
         const newOrgId = crypto.randomUUID();
         await supabase.from('organizations').insert([{ id: newOrgId, name: `Org_${userId.slice(0, 5)}`, owner_id: userId, plan_type: 'Free', credits_total: 100, credits_used: 0 }]);
@@ -84,6 +84,8 @@ const App: React.FC = () => {
       }
 
       setUserProfile(profile);
+      
+      // 强制跳转逻辑：如果当前在落地页或登录页，且已拿到身份，则跳转
       if (viewRef.current === AppView.LANDING || viewRef.current === AppView.AUTH) {
         setView(AppView.DASHBOARD);
         setActiveTab('dashboard');
@@ -96,28 +98,30 @@ const App: React.FC = () => {
   }, [fetchListings]);
 
   useEffect(() => {
+    // 初始 Session 检查
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
       if (cur) {
-        sessionRef.current = cur.user.id;
         fetchIdentity(cur.user.id, cur);
       } else {
         setIsInitializing(false);
       }
     });
 
+    // 监听状态变化
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-      if (!newSession) {
-        setSession(null); setUserProfile(null); setOrg(null); setListings([]);
-        setView(AppView.LANDING); setIsInitializing(false); sessionRef.current = null;
-        return;
-      }
-      if (newSession.user.id === sessionRef.current) {
-        setSession(newSession); return;
-      }
-      sessionRef.current = newSession.user.id;
+      console.log("Auth Event:", event);
       setSession(newSession);
-      fetchIdentity(newSession.user.id, newSession);
+      
+      if (newSession) {
+        fetchIdentity(newSession.user.id, newSession);
+      } else {
+        setUserProfile(null);
+        setOrg(null);
+        setListings([]);
+        setView(AppView.LANDING);
+        setIsInitializing(false);
+      }
     });
     return () => subscription.unsubscribe();
   }, [fetchIdentity]);
@@ -148,37 +152,20 @@ const App: React.FC = () => {
 
   const handleDeleteListingFromDetail = async (id: string) => {
     if (!isSupabaseConfigured()) return;
-    
-    // Find next listing to navigate to before deletion
     const currentIndex = listings.findIndex(l => l.id === id);
     let nextListingToSelect: Listing | null = null;
-    
     if (currentIndex > -1) {
-      if (currentIndex < listings.length - 1) {
-        nextListingToSelect = listings[currentIndex + 1];
-      } else if (currentIndex > 0) {
-        // If last one, maybe go to previous? Or just go back to list
-        // User asked for "next", but if no next, we fall back to list logic
-      }
+      if (currentIndex < listings.length - 1) nextListingToSelect = listings[currentIndex + 1];
     }
-
     try {
-      const { error } = await supabase.from('listings').delete().eq('id', id);
-      if (error) throw error;
-
-      // Update local state
-      const newListings = listings.filter(l => l.id !== id);
-      setListings(newListings);
-
-      if (nextListingToSelect) {
-        handleSelectListing(nextListingToSelect);
-      } else {
-        // No next listing, go back to list
+      await supabase.from('listings').delete().eq('id', id);
+      setListings(prev => prev.filter(l => l.id !== id));
+      if (nextListingToSelect) handleSelectListing(nextListingToSelect);
+      else {
         setView(AppView.LISTINGS);
         setSelectedListing(null);
       }
     } catch (e) {
-      console.error("Detail delete error:", e);
       throw e;
     }
   };

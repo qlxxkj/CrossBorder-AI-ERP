@@ -249,32 +249,43 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       if (!canvas || !mCanvas || !oCanvas) return;
       
       setIsProcessing(true);
-      try {
-        // 1. 尝试直接通过带有 crossOrigin 的方式加载
-        // 2. 如果失败（由于跨域头未配置），使用代理获取
-        const tryLoad = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+      
+      const tryLoadImage = (url: string, timeout = 10000): Promise<HTMLImageElement> => {
+        return new Promise((resolve, reject) => {
           const img = new Image();
           img.crossOrigin = "anonymous";
-          img.onload = () => resolve(img);
-          img.onerror = reject;
+          const timer = setTimeout(() => {
+            img.src = "";
+            reject(new Error("Image load timeout"));
+          }, timeout);
+          
+          img.onload = () => {
+            clearTimeout(timer);
+            resolve(img);
+          };
+          img.onerror = () => {
+            clearTimeout(timer);
+            reject(new Error("Image load failed"));
+          };
           img.src = url;
         });
+      };
 
+      try {
         let loadedImg: HTMLImageElement;
         try {
-          // 如果已经是本地地址或 DataURL，直接加载
-          if (imageUrl.startsWith('data:') || imageUrl.startsWith('blob:')) {
-            loadedImg = await tryLoad(imageUrl);
-          } else {
-            // 尝试直接加载，可能会 CORS 失败
-            loadedImg = await tryLoad(imageUrl);
-          }
+          // 优先直接带 CORS 加载
+          loadedImg = await tryLoadImage(imageUrl);
         } catch (e) {
-          // CORS 失败，回退到代理
-          const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
-          loadedImg = await tryLoad(proxiedUrl);
+          console.warn("Direct load failed, trying proxy...");
+          // 回退代理
+          const proxiedUrl = (imageUrl.startsWith('data:') || imageUrl.startsWith('blob:')) 
+            ? imageUrl 
+            : `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
+          loadedImg = await tryLoadImage(proxiedUrl);
         }
 
+        // 同步所有 Canvas 尺寸
         canvas.width = mCanvas.width = oCanvas.width = loadedImg.width;
         canvas.height = mCanvas.height = oCanvas.height = loadedImg.height;
         
@@ -291,15 +302,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         }
         
         setHistory([{ canvasData: canvas.toDataURL('image/png'), objects: [] }]);
-      } catch (err) {
-        console.error("Image Editor initialization failed:", err);
-        alert(uiLang === 'zh' ? "图片加载失败，请检查网络或重试。" : "Image loading failed.");
+      } catch (err: any) {
+        console.error("Editor init failure:", err);
+        alert(uiLang === 'zh' ? "图片实验室初始化失败，请检查网络或更换图片。" : "Failed to initialize image lab.");
+        onClose();
       } finally {
         setIsProcessing(false);
       }
     };
     initCanvas();
-  }, [imageUrl, uiLang]);
+  }, [imageUrl, uiLang, onClose]);
 
   const saveToHistory = useCallback((currentObjects?: EditorObject[]) => {
     if (canvasRef.current) {
@@ -506,9 +518,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     finalCanvas.width = sourceCanvas.width; finalCanvas.height = sourceCanvas.height;
     const fCtx = finalCanvas.getContext('2d')!;
     
-    // 如果想要最终保存也是 1600x1600 白色背景，可以在这里套一下逻辑，
-    // 但通常编辑器保存是基于当前画布。如果用户先点了 Standardize 按钮，这里已经是 1600 了。
-    
     fCtx.drawImage(sourceCanvas, 0, 0);
     objects.forEach(obj => {
       fCtx.save();
@@ -556,17 +565,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const oldWidth = canvas.width;
     const oldHeight = canvas.height;
 
-    // 比例计算：使最长边达到 1500px
-    const targetBoundary = 1500;
-    const scale = Math.min(targetBoundary / oldWidth, targetBoundary / oldHeight);
+    // 1500px 比例 + 1600px 居中
+    const limitSize = 1500;
+    const scale = Math.min(limitSize / oldWidth, limitSize / oldHeight);
     const drawW = oldWidth * scale;
     const drawH = oldHeight * scale;
     
-    // 计算 1600x1600 居中偏移量
     const offsetX = (1600 - drawW) / 2;
     const offsetY = (1600 - drawH) / 2;
 
-    // 1. 转换主画布内容
     const tempMain = document.createElement('canvas'); 
     tempMain.width = 1600; 
     tempMain.height = 1600;
@@ -581,7 +588,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     canvas.height = 1600; 
     canvas.getContext('2d')!.drawImage(tempMain, 0, 0);
 
-    // 2. 转换 Mask 画布
     if (maskCanvasRef.current) {
       const mTemp = document.createElement('canvas');
       mTemp.width = 1600; mTemp.height = 1600;
@@ -592,13 +598,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       maskCanvasRef.current.getContext('2d')!.drawImage(mTemp, 0, 0);
     }
 
-    // 3. 转换 Overlay 画布
     if (overlayCanvasRef.current) {
         overlayCanvasRef.current.width = 1600;
         overlayCanvasRef.current.height = 1600;
     }
 
-    // 4. 迁移漂浮对象 (Shapes, Text)
     const migratedObjects = objects.map(obj => ({
       ...obj,
       x: obj.x * scale + offsetX,
