@@ -38,7 +38,7 @@ const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 
 // 请填入您部署的 Cloudflare Worker URL
-const CF_WORKER_PROXY = 'https://amzbot-img-proxy.a8926764.workers.dev'; 
+const CF_WORKER_PROXY = 'https://amzbot-proxy.a8926764.workers.dev'; 
 
 export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onSave, uiLang }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
