@@ -53,7 +53,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [canvasImage, setCanvasImage] = useState<HTMLImageElement | null>(null);
   const [showShapeMenu, setShowShapeMenu] = useState(false);
 
-  // 1. 终极安全加载策略
+  // 1. 终极加载策略：使用 Blob 绕过跨域污染导致的导出空白问题
   useEffect(() => {
     const loadSecureImage = async () => {
       if (!imageUrl) { setIsProcessing(false); return; }
@@ -63,7 +63,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           ? imageUrl : `${CORS_PROXY}${encodeURIComponent(imageUrl)}?t=${Date.now()}`;
         
         const response = await fetch(proxied);
-        if (!response.ok) throw new Error("Load failed");
+        if (!response.ok) throw new Error("Secure Fetch failed");
         const blob = await response.blob();
         const localUrl = URL.createObjectURL(blob);
         
@@ -71,15 +71,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         img.src = localUrl;
         
         img.onload = async () => {
-          await img.decode(); // 强制物理像素就绪
+          await img.decode(); // 物理像素预解码
           setCanvasImage(img);
-          // 初始居中适配
-          const scale = Math.min((window.innerWidth - 400) / img.width, (window.innerHeight - 200) / img.height, 1);
+          // 初始比例适配
+          const scale = Math.min((window.innerWidth - 450) / img.width, (window.innerHeight - 250) / img.height, 1);
           setZoom(scale);
+          setOffset({ x: 0, y: 0 });
           setIsProcessing(false);
         };
       } catch (e) {
-        console.error("Editor init crash:", e);
+        console.error("Editor System Crash:", e);
         setIsProcessing(false);
       }
     };
@@ -95,13 +96,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!canvasRef.current || !canvasImage) return;
     const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true })!;
     
+    // 设置物理像素尺寸
     canvasRef.current.width = canvasImage.width;
     canvasRef.current.height = canvasImage.height;
     
-    // 绘制底图
+    // 绘制底图（物理全图）
     ctx.drawImage(canvasImage, 0, 0);
 
-    // 绘制矢量层
+    // 顺序绘制标注图层
     elements.forEach(el => {
       ctx.save();
       ctx.strokeStyle = el.color;
@@ -152,7 +154,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     });
   };
 
-  // 3. 交互坐标转换
+  // 3. 交互逻辑：坐标转换、缩放、平移
   const getPos = (e: any) => {
     if (!canvasRef.current) return { x: 0, y: 0 };
     const rect = canvasRef.current.getBoundingClientRect();
@@ -170,7 +172,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const handleStart = (e: React.MouseEvent) => {
     const pos = getPos(e);
     
-    // 平移逻辑
+    // 平移触发条件：Hand工具或Select工具且未点中元素
     if (currentTool === 'hand' || currentTool === 'select') {
       setIsPanning(true);
       setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y });
@@ -194,7 +196,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     };
 
     if (currentTool === 'text') {
-      const t = prompt("Text Content:");
+      const t = prompt("Input Text / 输入文本:");
       if (!t) { setIsDragging(false); return; }
       newEl.text = t;
       setElements([...elements, newEl]);
@@ -227,7 +229,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setIsPanning(false);
   };
 
-  // 4. 标准化物理引擎实现
+  // 4. 标准化物理引擎：物理 1600x1600 + 1500 居中
   const handleStandardize = async () => {
     if (!canvasRef.current) return;
     setIsProcessing(true);
@@ -239,11 +241,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       buffer.height = 1600;
       const bctx = buffer.getContext('2d')!;
       
-      // 填充纯白背景
+      // 1. 物理纯白底
       bctx.fillStyle = '#FFFFFF';
       bctx.fillRect(0, 0, 1600, 1600);
       
-      // 计算长边 1500px 的居中比例
+      // 2. 1500 居中算法
       const source = canvasRef.current!;
       const scale = Math.min(1500 / source.width, 1500 / source.height);
       const dw = source.width * scale;
@@ -258,13 +260,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       buffer.toBlob(async (blob) => {
         if (!blob) return setIsProcessing(false);
         const fd = new FormData();
-        fd.append('file', blob, `std1600_edit_${Date.now()}.jpg`);
+        fd.append('file', blob, `manual_std1600_${Date.now()}.jpg`);
         try {
           const res = await fetch(TARGET_API, { method: 'POST', body: fd });
           const data = await res.json();
           const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
           const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
           if (u) onSave(u);
+        } catch (e) {
+          alert("Network sync error.");
         } finally { setIsProcessing(false); }
       }, 'image/jpeg', 0.98);
     }, 100);
@@ -278,13 +282,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       canvasRef.current!.toBlob(async (blob) => {
         if (!blob) return setIsProcessing(false);
         const fd = new FormData();
-        fd.append('file', blob, `edited_${Date.now()}.jpg`);
+        fd.append('file', blob, `edited_v4.6_${Date.now()}.jpg`);
         try {
           const res = await fetch(TARGET_API, { method: 'POST', body: fd });
           const data = await res.json();
           const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
           const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
           if (u) onSave(u);
+        } catch (e) {
+          alert("Sync error.");
         } finally { setIsProcessing(false); }
       }, 'image/jpeg', 0.96);
     }, 100);
@@ -292,17 +298,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   return (
     <div className="fixed inset-0 z-[200] bg-slate-950 flex flex-col font-inter overflow-hidden">
-      {/* 顶部固定菜单 */}
-      <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between text-white shrink-0 z-50">
+      {/* 顶部固定导航 */}
+      <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between text-white shrink-0 z-50 shadow-2xl">
         <div className="flex items-center gap-6">
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X size={24}/></button>
-          <span className="font-black text-xs uppercase tracking-widest text-indigo-400">Media Studio Pro v4.6</span>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-all"><X size={24}/></button>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-black text-xs italic">AI</div>
+            <span className="font-black text-xs uppercase tracking-widest text-slate-400">Media Studio Pro v4.6</span>
+          </div>
         </div>
         <div className="flex items-center gap-4">
           <button onClick={handleStandardize} disabled={isProcessing} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all">
             <Maximize2 size={14}/> Standardize 1600
           </button>
-          <button onClick={handleFinalSave} disabled={isProcessing} className="px-10 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl shadow-indigo-500/20">
+          <button onClick={handleFinalSave} disabled={isProcessing} className="px-10 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl shadow-indigo-500/20 active:scale-95 transition-all">
             {isProcessing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Commit Sync
           </button>
         </div>
@@ -322,7 +331,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            <button onClick={() => { if(selectedId) setElements(elements.filter(el => el.id !== selectedId)); setSelectedId(null); }} className="p-3 text-slate-500 hover:text-red-500 mt-auto"><Trash2 size={20}/></button>
         </div>
 
-        {/* 可拖拽工作区 */}
+        {/* 可视化拖拽平移区 */}
         <div 
           className="flex-1 relative bg-slate-950 cursor-grab active:cursor-grabbing overflow-hidden"
           onWheel={handleWheel}
@@ -349,32 +358,37 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
              <canvas ref={canvasRef} className="block" />
           </div>
 
-          {/* 缩放指示器 */}
-          <div className="absolute bottom-8 right-8 px-4 py-2 bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full text-[10px] font-black text-white/50">
-            {Math.round(zoom * 100)}%
+          <div className="absolute bottom-8 right-8 px-5 py-2.5 bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full text-[10px] font-black text-white/50 shadow-2xl">
+            {Math.round(zoom * 100)}% ZOOM
           </div>
         </div>
 
-        {/* 右侧固定属性面板 */}
-        <div className="w-72 bg-slate-900 border-l border-white/5 p-8 space-y-8 shrink-0 z-50 overflow-y-auto">
-           <div className="space-y-4">
+        {/* 右侧固定属性板 */}
+        <div className="w-72 bg-slate-900 border-l border-white/5 p-8 space-y-10 shrink-0 z-50 overflow-y-auto">
+           <div className="space-y-5">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Brush Width</label>
-              <input type="range" min="1" max="100" value={strokeWidth} onChange={e => setStrokeWidth(parseInt(e.target.value))} className="w-full accent-indigo-500" />
+              <input type="range" min="1" max="100" value={strokeWidth} onChange={e => setStrokeWidth(parseInt(e.target.value))} className="w-full accent-indigo-500 bg-slate-800 rounded-full appearance-none h-1.5" />
               <div className="flex justify-between text-[8px] font-black text-slate-600 uppercase"><span>Fine</span><span>{strokeWidth}px</span><span>Bold</span></div>
            </div>
+
+           <div className="space-y-5">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Text Size</label>
+              <input type="range" min="12" max="250" value={fontSize} onChange={e => setFontSize(parseInt(e.target.value))} className="w-full accent-blue-500 bg-slate-800 rounded-full appearance-none h-1.5" />
+              <div className="flex justify-between text-[8px] font-black text-slate-600 uppercase"><span>Small</span><span>{fontSize}px</span><span>Large</span></div>
+           </div>
            
-           <div className="space-y-4">
+           <div className="space-y-5">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Color Matrix</label>
               <div className="grid grid-cols-5 gap-2">
                  {['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#000000', '#ffffff', '#ff8800', '#6366f1'].map(c => (
-                   <button key={c} onClick={() => setStrokeColor(c)} style={{backgroundColor: c}} className={`aspect-square rounded-lg border-2 transition-all ${strokeColor === c ? 'border-white scale-110' : 'border-transparent'}`} />
+                   <button key={c} onClick={() => setStrokeColor(c)} style={{backgroundColor: c}} className={`aspect-square rounded-lg border-2 transition-all ${strokeColor === c ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-60'}`} />
                  ))}
               </div>
            </div>
 
            <div className="pt-8 border-t border-white/5">
-              <p className="text-[9px] font-medium text-slate-500 leading-relaxed uppercase">
-                Tip: Scroll to zoom, <br/>Drag with Left-Click to pan.
+              <p className="text-[9px] font-medium text-slate-500 leading-relaxed uppercase opacity-50">
+                Tip: Scroll to zoom. <br/>Drag with Left-Click to pan workspace.
               </p>
            </div>
         </div>

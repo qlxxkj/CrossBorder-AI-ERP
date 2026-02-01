@@ -108,6 +108,86 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
+  const translateSite = async (marketCode: string) => {
+    if (!localListing.optimized || isTranslating) return;
+    setIsTranslating(true);
+    try {
+      const market = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
+      const targetLang = market?.name || marketCode;
+      
+      let translation;
+      if (engine === 'openai') {
+        translation = await translateListingWithOpenAI(localListing.optimized, targetLang);
+      } else if (engine === 'deepseek') {
+        translation = await translateListingWithDeepSeek(localListing.optimized, targetLang);
+      } else {
+        translation = await translateListingWithAI(localListing.optimized, targetLang);
+      }
+
+      const logistics = calculateMarketLogistics(localListing, marketCode);
+      const priceData = calculateMarketPrice(localListing, marketCode, rates, adjustments);
+
+      const next: Listing = {
+        ...localListing,
+        translations: {
+          ...(localListing.translations || {}),
+          [marketCode]: { ...translation, ...logistics, ...priceData } as OptimizedData
+        }
+      };
+      
+      setLocalListing(next);
+      onUpdate(next);
+      await syncToSupabase(next);
+    } catch (e) {
+      console.error(`Translation error for ${marketCode}:`, e);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const translateAllMarkets = async () => {
+    if (!localListing.optimized || isTranslating) return;
+    const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
+    setIsTranslating(true);
+    setTranslateStatus({ current: 0, total: marketsToTranslate.length });
+
+    try {
+      let currentListing = JSON.parse(JSON.stringify(localListing)) as Listing;
+
+      for (let i = 0; i < marketsToTranslate.length; i++) {
+        const m = marketsToTranslate[i];
+        setTranslateStatus({ current: i + 1, total: marketsToTranslate.length });
+        
+        const targetLang = m.name;
+        let translation;
+        if (engine === 'openai') {
+          translation = await translateListingWithOpenAI(localListing.optimized, targetLang);
+        } else if (engine === 'deepseek') {
+          translation = await translateListingWithDeepSeek(localListing.optimized, targetLang);
+        } else {
+          translation = await translateListingWithAI(localListing.optimized, targetLang);
+        }
+
+        const logistics = calculateMarketLogistics(currentListing, m.code);
+        const priceData = calculateMarketPrice(currentListing, m.code, rates, adjustments);
+
+        currentListing.translations = {
+          ...(currentListing.translations || {}),
+          [m.code]: { ...translation, ...logistics, ...priceData } as OptimizedData
+        };
+      }
+
+      setLocalListing(currentListing);
+      onUpdate(currentListing);
+      await syncToSupabase(currentListing);
+    } catch (e) {
+      console.error("Batch translation error:", e);
+    } finally {
+      setIsTranslating(false);
+      setTranslateStatus({ current: 0, total: 0 });
+    }
+  };
+
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
@@ -117,7 +197,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
           ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
         
-        // 核心修复：通过 Fetch 获取原始 Blob，绕过画布污染
+        // 核心方案：通过 Fetch 获取 Blob 彻底解决跨域“污染”导致导出失败的问题
         const response = await fetch(proxied);
         const blob = await response.blob();
         const localObjUrl = URL.createObjectURL(blob);
@@ -131,7 +211,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         canvas.height = 1600;
         const ctx = canvas.getContext('2d')!;
         
-        // 1. 强制填充白色物理背景
+        // 1. 物理纯白底色
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, 1600, 1600);
         
@@ -238,6 +318,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
              }} />
              <ListingSourcingSection listing={localListing} updateField={(f, v) => updateFields({[f]: v}, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
           </div>
+          
           <div className="lg:col-span-8 space-y-6">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
                 <div className="px-8 py-6 bg-slate-50/50 flex flex-wrap gap-2 border-b border-slate-100 items-center justify-between">
@@ -246,12 +327,17 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                      {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
                         const isTranslated = !!localListing.translations?.[m.code];
                         return (
-                          <button key={m.code} onClick={() => { setActiveMarket(m.code); if (!isTranslated) { /* translate logic */ } }} className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : isTranslated ? 'bg-white text-slate-500 border border-slate-200' : 'bg-white text-slate-300 border-2 border-dashed border-slate-100 opacity-60'}`}>
+                          <button key={m.code} onClick={() => { setActiveMarket(m.code); if (!isTranslated) translateSite(m.code); }} className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : isTranslated ? 'bg-white text-slate-500 border border-slate-200' : 'bg-white text-slate-300 border-2 border-dashed border-slate-100 opacity-60'}`}>
                             {m.flag} {m.code}
+                            {activeMarket === m.code && <RefreshCw size={10} onClick={(e) => { e.stopPropagation(); translateSite(m.code); }} className="hover:rotate-180 transition-transform" />}
                           </button>
                         );
                      })}
                    </div>
+                   <button onClick={translateAllMarkets} disabled={isTranslating || !localListing.optimized} className={`px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase flex items-center gap-3 shadow-xl shadow-indigo-100 transition-all ${isTranslating ? 'animate-pulse opacity-80' : 'hover:scale-105 active:scale-95'}`}>
+                      {isTranslating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                      {isTranslating ? `Translating ${translateStatus.current}/${translateStatus.total}` : 'Translate All'}
+                   </button>
                 </div>
                 <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={(f, v) => updateFields({[f]: v})} onSync={() => syncToSupabase(localListing)} onRecalculate={() => updateFields(calculateMarketLogistics(localListing, activeMarket), true)} uiLang={uiLang} />
              </div>
