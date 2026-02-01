@@ -35,7 +35,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [elements, setElements] = useState<Element[]>([]);
   const [currentTool, setCurrentTool] = useState<Tool>('brush');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(true); // 初始处于加载状态
   const [zoom, setZoom] = useState(1);
   const [strokeColor, setStrokeColor] = useState('#ff0000');
   const [strokeWidth, setStrokeWidth] = useState(15);
@@ -48,22 +48,30 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   useEffect(() => {
     const init = async () => {
-      if (!imageUrl) return;
+      if (!imageUrl) { setIsProcessing(false); return; }
       setIsProcessing(true);
       try {
-        const proxied = imageUrl.startsWith('http') ? `${CORS_PROXY}${encodeURIComponent(imageUrl)}` : imageUrl;
-        const res = await fetch(proxied);
-        const blob = await res.blob();
+        const proxied = (imageUrl.startsWith('data:') || imageUrl.startsWith('blob:')) 
+          ? imageUrl : `${CORS_PROXY}${encodeURIComponent(imageUrl)}`;
+        
         const img = new Image();
         img.crossOrigin = "anonymous";
-        img.src = URL.createObjectURL(blob);
+        img.src = proxied;
+        
         img.onload = () => {
           setCanvasImage(img);
           const fitZoom = Math.min((window.innerWidth-600)/img.width, (window.innerHeight-300)/img.height, 1);
           setZoom(fitZoom);
           setIsProcessing(false);
         };
-      } catch (e) { setIsProcessing(false); }
+        img.onerror = () => {
+          console.error("Image load failed");
+          setIsProcessing(false);
+        };
+      } catch (e) { 
+        console.error("Editor Boot Error:", e);
+        setIsProcessing(false); 
+      }
     };
     init();
   }, [imageUrl]);
@@ -80,6 +88,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     ctx.drawImage(canvasImage, 0, 0);
 
     elements.forEach(el => {
+      ctx.save();
       ctx.strokeStyle = el.color;
       ctx.fillStyle = el.color;
       ctx.lineWidth = el.size;
@@ -105,22 +114,25 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.font = `bold ${el.size * 3}px Inter, sans-serif`;
         ctx.fillText(el.text || '', el.x, el.y);
       } else if (el.type === 'erase') {
+        // 物理擦除层
         ctx.globalCompositeOperation = 'destination-out';
-        ctx.beginPath();
-        ctx.arc(el.x, el.y, el.size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalCompositeOperation = 'source-over';
+        if (el.points) {
+           ctx.beginPath();
+           ctx.moveTo(el.points[0].x, el.points[0].y);
+           el.points.forEach(p => ctx.lineTo(p.x, p.y));
+           ctx.stroke();
+        }
       }
 
       if (el.id === selectedId) {
-        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
         ctx.setLineDash([5, 5]);
         ctx.strokeStyle = '#6366f1';
         ctx.lineWidth = 2;
         if (el.type === 'rect' || el.type === 'rect_fill') ctx.strokeRect(el.x - 5, el.y - 5, (el.w || 0) + 10, (el.h || 0) + 10);
         else ctx.strokeRect(el.x - 20, el.y - 20, 40, 40);
-        ctx.restore();
       }
+      ctx.restore();
     });
   };
 
@@ -149,7 +161,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
     setIsDragging(true);
     const id = Math.random().toString(36).substr(2, 9);
-    const newEl: Element = { id, type: currentTool, x: pos.x, y: pos.y, w: 0, h: 0, color: strokeColor, size: strokeWidth, points: currentTool === 'brush' ? [pos] : [] };
+    const newEl: Element = { id, type: currentTool, x: pos.x, y: pos.y, w: 0, h: 0, color: strokeColor, size: strokeWidth, points: ['brush', 'erase'].includes(currentTool) ? [pos] : [] };
     
     if (currentTool === 'text') {
       const t = prompt(uiLang === 'zh' ? "输入文字内容" : "Enter text content");
@@ -170,21 +182,24 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setElements(elements.map(el => {
       if (el.id !== selectedId) return el;
       if (currentTool === 'select') return { ...el, x: pos.x - dragStart.x, y: pos.y - dragStart.y };
-      if (el.type === 'brush') return { ...el, points: [...(el.points || []), pos] };
+      if (['brush', 'erase'].includes(el.type)) return { ...el, points: [...(el.points || []), pos] };
       return { ...el, w: pos.x - el.x, h: pos.y - el.y };
     }));
   };
 
   const handleEnd = () => setIsDragging(false);
 
+  // 编辑器内标准化
   const handleStandardize = () => {
     if (!canvasRef.current) return;
     setIsProcessing(true);
-    // 强制物理解码并合成
+    
     const buffer = document.createElement('canvas');
     buffer.width = 1600;
     buffer.height = 1600;
     const bCtx = buffer.getContext('2d')!;
+    
+    // 背景
     bCtx.fillStyle = '#FFFFFF';
     bCtx.fillRect(0,0,1600,1600);
     
@@ -198,25 +213,33 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     bCtx.drawImage(canvasRef.current, dx, dy, dw, dh);
     
     const img = new Image();
-    img.src = buffer.toDataURL('image/jpeg', 0.95);
+    img.src = buffer.toDataURL('image/jpeg', 0.98);
     img.onload = () => {
       setCanvasImage(img);
-      setElements([]); // 清空图层，因为已合成
+      setElements([]); // 合成后重置图层
       setZoom(Math.min((window.innerWidth-600)/1600, (window.innerHeight-300)/1600, 1));
       setIsProcessing(false);
     };
   };
 
   const pickColor = async () => {
-    if (!(window as any).EyeDropper) return;
+    if (!(window as any).EyeDropper) {
+       alert(uiLang === 'zh' ? '当前浏览器不支持吸色器 API' : 'Browser does not support EyeDropper API');
+       return;
+    }
     const dropper = new (window as any).EyeDropper();
-    try { const res = await dropper.open(); setStrokeColor(res.sRGBHex); } catch (e) {}
+    try { 
+      const res = await dropper.open(); 
+      setStrokeColor(res.sRGBHex); 
+    } catch (e) {}
   };
 
   const handleFinalSave = async () => {
     if (!canvasRef.current) return;
     setIsProcessing(true);
     setSelectedId(null);
+    
+    // 延迟确保选中框消失
     setTimeout(() => {
       canvasRef.current!.toBlob(async (blob) => {
         if (!blob) return setIsProcessing(false);
@@ -228,7 +251,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
           const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
           if (u) onSave(u);
-        } finally { setIsProcessing(false); }
+        } catch (e) {
+          alert("Commit failed, network error.");
+        } finally { 
+          setIsProcessing(false); 
+        }
       }, 'image/jpeg', 0.96);
     }, 100);
   };
@@ -246,7 +273,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-all"><X size={24}/></button>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-black text-xs italic">AI</div>
-            <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent">Layered Studio v3.0</span>
+            <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent">AI Media Studio v3.2</span>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -263,7 +290,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            <SideBtn active={currentTool === 'select'} onClick={() => setCurrentTool('select')} icon={<MousePointer2 size={18}/>} label="Move" />
            <SideBtn active={currentTool === 'brush'} onClick={() => setCurrentTool('brush')} icon={<Paintbrush size={18}/>} label="Brush" />
            
-           <div className="relative group/menu">
+           <div className="relative">
              <SideBtn active={['rect', 'circle', 'line'].includes(currentTool)} onClick={() => setShowShapeMenu(!showShapeMenu)} icon={<ShapeIcon />} label="Shapes" />
              {showShapeMenu && (
                <div className="absolute left-full top-0 ml-4 bg-slate-800 border border-slate-700 rounded-2xl p-2 shadow-2xl z-[210] flex flex-col gap-1 min-w-[50px] animate-in slide-in-from-left-2 duration-200">
@@ -280,17 +307,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            
            <div className="w-10 h-px bg-white/10 my-2"></div>
            <SideBtn active={false} onClick={pickColor} icon={<Pipette size={18} className="text-amber-400"/>} label="Pipette" />
-           <button onClick={() => { setElements(elements.filter(el => el.id !== selectedId)); setSelectedId(null); }} disabled={!selectedId} className="p-3 text-slate-500 hover:text-red-500 disabled:opacity-20 transition-all"><Trash2 size={20}/></button>
+           <button onClick={() => { if(selectedId) setElements(elements.filter(el => el.id !== selectedId)); setSelectedId(null); }} disabled={!selectedId} className="p-3 text-slate-500 hover:text-red-500 disabled:opacity-20 transition-all"><Trash2 size={20}/></button>
         </div>
 
         {/* 画布主视口 */}
         <div className="flex-1 relative overflow-hidden bg-slate-950 flex items-center justify-center p-10 custom-scrollbar">
-          {(isProcessing || !canvasImage) && (
+          {isProcessing && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/40 backdrop-blur-sm">
               <Loader2 className="animate-spin text-indigo-500 mb-4" size={48} />
-              <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Synching Pixel Data...</p>
+              <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">{uiLang === 'zh' ? '正在同步像素数据...' : 'Synching Pixel Data...'}</p>
             </div>
           )}
+          
           <div 
             onMouseDown={handleStart} 
             onMouseMove={handleMove} 
@@ -314,13 +342,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         {/* 右侧属性面板 */}
         <div className="w-80 bg-slate-900 border-l border-white/5 p-8 space-y-10 overflow-y-auto custom-scrollbar">
            <div className="space-y-5">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">Brush & Text Size</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">{uiLang === 'zh' ? '工具粗细' : 'Brush & Text Size'}</label>
               <input type="range" min="1" max="100" value={strokeWidth} onChange={e => setStrokeWidth(parseInt(e.target.value))} className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-full appearance-none cursor-pointer" />
               <div className="flex justify-between text-[8px] font-black text-slate-600 uppercase"><span>Fine</span><span>{strokeWidth}px</span><span>Bold</span></div>
            </div>
            
            <div className="space-y-5">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">Color Matrix</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">{uiLang === 'zh' ? '预置调色板' : 'Color Matrix'}</label>
               <div className="grid grid-cols-5 gap-3">
                  {['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#000000', '#ffffff', '#ff8800', '#6366f1'].map(c => (
                    <button key={c} onClick={() => setStrokeColor(c)} style={{backgroundColor: c}} className={`aspect-square rounded-xl border-4 transition-all ${strokeColor === c ? 'border-white scale-110 shadow-xl' : 'border-transparent opacity-60 hover:opacity-100'}`} />
@@ -334,7 +362,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                 <span className="text-[10px] font-black uppercase tracking-widest">Workflow Tip</span>
               </div>
               <p className="text-[10px] font-bold text-slate-400 leading-relaxed uppercase">
-                {uiLang === 'zh' ? '使用“AI擦除”涂抹不需要的区域，保存时将触发 3D 纹理修复。使用“1600px 标准化”确保最终主图符合亚马逊合规性要求。' : 'Use "AI Erase" to mask unwanted parts. Standardize 1600px ensures Amazon compliance instantly.'}
+                {uiLang === 'zh' ? '使用“AI擦除”涂抹不需要的区域，保存时将触发物理深度合并。使用“1600px 标准化”确保最终主图符合合规性。' : 'Use "AI Erase" to mask unwanted parts. Standardize 1600px ensures Amazon compliance instantly.'}
               </p>
            </div>
         </div>

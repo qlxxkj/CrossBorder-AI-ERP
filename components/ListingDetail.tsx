@@ -108,67 +108,67 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
+  // 物理 1600px 核心引擎修复
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => new Set(prev).add(imgUrl));
+    
     return new Promise(async (resolve) => {
       try {
         const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
           ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
         
-        const response = await fetch(proxied);
-        const blob = await response.blob();
         const img = new Image();
         img.crossOrigin = "anonymous";
-        img.src = URL.createObjectURL(blob);
+        img.src = proxied;
+
+        // 使用原生 decode 确保图片二进制就绪
+        await img.decode();
         
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = 1600; 
-          canvas.height = 1600;
-          const ctx = canvas.getContext('2d')!;
-          
-          // 1. 强制填充物理背景
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(0, 0, 1600, 1600);
-          
-          // 2. 比例计算 - 长边缩放至 1500
-          const targetLimit = 1500;
-          const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
-          const dw = img.width * scale;
-          const dh = img.height * scale;
-          const dx = (1600 - dw) / 2;
-          const dy = (1600 - dh) / 2;
-          
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(img, dx, dy, dw, dh);
-          
-          canvas.toBlob(async (outBlob) => {
-            if (!outBlob) {
-              setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-              return resolve(imgUrl);
-            }
-            const fd = new FormData();
-            fd.append('file', outBlob, `std_1600_${Date.now()}.jpg`);
-            try {
-              const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-              const data = await res.json();
-              const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-              const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-              setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-              resolve(finalUrl || imgUrl);
-            } catch (e) { 
-              setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-              resolve(imgUrl); 
-            }
-          }, 'image/jpeg', 0.96);
-        };
-        img.onerror = () => {
-          setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-          resolve(imgUrl);
-        };
+        const canvas = document.createElement('canvas');
+        canvas.width = 1600; 
+        canvas.height = 1600;
+        const ctx = canvas.getContext('2d')!;
+        
+        // 1. 强制物理背景填充
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, 1600, 1600);
+        
+        // 2. 长边 1500px 居中算法
+        const targetLimit = 1500;
+        const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
+        const dw = img.width * scale;
+        const dh = img.height * scale;
+        const dx = (1600 - dw) / 2;
+        const dy = (1600 - dh) / 2;
+        
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, dx, dy, dw, dh);
+        
+        // 3. 导出并上传
+        canvas.toBlob(async (outBlob) => {
+          if (!outBlob) {
+            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+            return resolve(imgUrl);
+          }
+          const fd = new FormData();
+          fd.append('file', outBlob, `std1600_${Date.now()}.jpg`);
+          try {
+            const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+            const data = await res.json();
+            const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+            const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
+            
+            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+            resolve(finalUrl || imgUrl);
+          } catch (e) { 
+            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+            resolve(imgUrl); 
+          }
+        }, 'image/jpeg', 0.98);
       } catch (e) { 
+        console.error("Standardization Crash:", e);
         setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
         resolve(imgUrl); 
       }
