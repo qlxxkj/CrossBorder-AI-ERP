@@ -29,7 +29,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   const normalizeUrl = (raw: any): string => {
-    // 兼容数组格式、嵌套格式及相对路径
     const src = Array.isArray(raw) && raw[0]?.src ? raw[0].src : (raw.url || raw.data?.url || raw.src || raw);
     if (!src || typeof src !== 'string') return "";
     return src.startsWith('http') ? src : `${IMAGE_HOST_DOMAIN}${src.startsWith('/') ? '' : '/'}${src}`;
@@ -40,7 +39,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
-      // 使用更强的 Fetch 模式获取图片并标准化
       const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(imgUrl)}&_t=${Date.now()}`;
       const resp = await fetch(proxiedUrl);
       if (!resp.ok) throw new Error("CORS Proxy Error");
@@ -64,14 +62,18 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       const dw = img.width * scale, dh = img.height * scale;
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
-      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
+      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.92));
       if (!blob) throw new Error("Processing Error");
 
       const fd = new FormData();
       fd.append('file', blob, `std_${Date.now()}.jpg`);
       
-      const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-      const data = await res.json();
+      // 使用代理上传解决跨域拦截
+      const uploadUrl = `${CORS_PROXY}${encodeURIComponent(TARGET_API)}`;
+      const uploadRes = await fetch(uploadUrl, { method: 'POST', body: fd });
+      if (!uploadRes.ok) throw new Error("Sync Failed");
+      
+      const data = await uploadRes.json();
       const finalUrl = normalizeUrl(data);
       URL.revokeObjectURL(localSource);
       return finalUrl || imgUrl;
@@ -93,13 +95,13 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         newOthers.push(await processAndUploadImage(u));
       }
       
-      // 关键：构建全新的 optimized 对象，确保触发引用更新
       const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
       nextOpt.optimized_main_image = newMain || effectiveMain;
       nextOpt.optimized_other_images = newOthers;
       
       onUpdateListing({ optimized: nextOpt });
       if (newMain) setPreviewImage(newMain);
+      alert("Pixels Synced to 1600 HD.");
     } finally {
       setIsProcessing(false);
     }
@@ -125,14 +127,11 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
 
   const handleSetAsMain = (targetUrl: string) => {
     if (targetUrl === effectiveMain) return;
-    
     const currentOthers = [...effectiveOthers];
     const filteredOthers = currentOthers.filter(u => u !== targetUrl);
-    
     const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
     nextOpt.optimized_main_image = targetUrl;
     nextOpt.optimized_other_images = [effectiveMain, ...filteredOthers].filter(Boolean);
-
     onUpdateListing({ optimized: nextOpt });
     setPreviewImage(targetUrl);
   };
@@ -144,7 +143,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+      const uploadUrl = `${CORS_PROXY}${encodeURIComponent(TARGET_API)}`;
+      const res = await fetch(uploadUrl, { method: 'POST', body: fd });
       const data = await res.json();
       const url = normalizeUrl(data);
       if (url) {
@@ -162,19 +162,22 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const activeDisplayImage = hoverImage || previewImage;
 
   return (
-    <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
-      <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
+    <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
+      <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group">
          {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 gap-3">
             <Loader2 className="animate-spin text-indigo-600" size={32} />
-            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Syncing...</span>
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Processing...</span>
          </div>}
          <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
-         <div className="absolute bottom-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={() => onUpdateListing({ optimized: undefined })} className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center gap-2 hover:bg-slate-200 border border-slate-200"><RefreshCcw size={12} /> Restore</button>
-            <button onClick={handleStandardizeAll} disabled={isProcessing} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 hover:bg-indigo-700 shadow-indigo-200 transition-all"><Maximize2 size={12} /> Standardize All</button>
-            <button onClick={() => openEditor(previewImage)} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all"><Wand2 size={12} /> Studio</button>
+         
+         {/* 按钮设为常驻显示，并优化布局 */}
+         <div className="absolute bottom-4 left-4 right-4 flex justify-center gap-2">
+            <button onClick={() => onUpdateListing({ optimized: undefined })} className="px-3 py-2 bg-white/90 backdrop-blur-md text-slate-500 rounded-xl text-[9px] font-black uppercase shadow-lg flex items-center gap-1.5 hover:bg-slate-100 border border-white transition-all"><RefreshCcw size={12} /> Restore</button>
+            <button onClick={handleStandardizeAll} disabled={isProcessing} className="px-3 py-2 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase shadow-xl flex items-center gap-1.5 hover:bg-indigo-700 transition-all"><Maximize2 size={12} /> Standardize All</button>
+            <button onClick={() => openEditor(previewImage)} className="px-3 py-2 bg-white/90 backdrop-blur-md text-indigo-600 rounded-xl text-[9px] font-black uppercase shadow-lg flex items-center gap-1.5 border border-white hover:bg-indigo-50 transition-all"><Wand2 size={12} /> Studio</button>
          </div>
       </div>
+
       <div className="flex flex-wrap gap-2">
          {allImages.map((img, i) => {
            const isSelfProcessing = processingUrls.has(img);
@@ -184,10 +187,10 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
                 <img src={img} className="w-full h-full object-cover" />
                 <div className={`absolute inset-0 bg-black/40 flex flex-col justify-between p-1 transition-opacity ${isSelfProcessing ? 'opacity-100' : 'opacity-0 group-hover/thumb:opacity-100'}`}>
                    <div className="flex justify-between w-full">
-                      <button onClick={(e) => { e.stopPropagation(); handleSetAsMain(img); }} className={`p-1 rounded-lg text-white transition-colors ${isMain ? 'bg-amber-500 shadow-lg' : 'bg-white/20 hover:bg-amber-400'}`}><Star size={10} fill={isMain ? "currentColor" : "none"} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); handleSetAsMain(img); }} className={`p-1 rounded-lg text-white transition-colors ${isMain ? 'bg-amber-500 shadow-lg' : 'bg-white/20 hover:bg-amber-400'}`} title="Set as Main"><Star size={10} fill={isMain ? "currentColor" : "none"} /></button>
                       <button onClick={(e) => { e.stopPropagation(); onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: effectiveOthers.filter(u => u !== img) } as any }); }} className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white"><Trash2 size={10} /></button>
                    </div>
-                   <button onClick={(e) => { e.stopPropagation(); handleStandardizeOne(img); }} className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg shadow-lg self-start">
+                   <button onClick={(e) => { e.stopPropagation(); handleStandardizeOne(img); }} className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg shadow-lg self-start hover:bg-indigo-400 transition-colors">
                      {isSelfProcessing ? <Loader2 size={10} className="animate-spin" /> : <Maximize2 size={10} />}
                    </button>
                 </div>
