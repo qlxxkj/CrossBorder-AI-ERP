@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Listing, OptimizedData, UILanguage, SourcingRecord } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Listing, UILanguage, SourcingRecord } from '../types';
 import { ListingTopBar } from './ListingTopBar';
 import { ListingImageSection } from './ListingImageSection';
 import { ListingSourcingSection } from './ListingSourcingSection';
@@ -22,18 +22,11 @@ interface ListingDetailProps {
   uiLang: UILanguage;
 }
 
-const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
-const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
-const CORS_PROXY = 'https://corsproxy.io/?';
-
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onDelete, onNext, uiLang }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMarket, setActiveMarket] = useState('US');
   const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isProcessingImages, setIsProcessingImages] = useState(false);
-  const [processingUrls, setProcessingUrls] = useState<Set<string>>(new Set());
   const [showImageEditor, setShowImageEditor] = useState(false);
   const [editingImageUrl, setEditingImageUrl] = useState<string>(''); 
   const [showSourcingModal, setShowSourcingModal] = useState(false);
@@ -66,92 +59,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     finally { setIsSaving(false); }
   };
 
-  const updateFields = (updates: Record<string, any>, shouldSync: boolean = false) => {
-    setLocalListing(prev => {
-      const next = JSON.parse(JSON.stringify(prev));
-      Object.entries(updates).forEach(([field, value]) => {
-        if (activeMarket === 'US') {
-          if (['main_image', 'other_images', 'optimized_main_image', 'optimized_other_images'].includes(field)) {
-            const optKey = field.startsWith('optimized') ? field : (field === 'main_image' ? 'optimized_main_image' : 'optimized_other_images');
-            next.optimized = { ...(next.optimized || {}), [optKey]: value };
-          } else {
-            next.optimized = { ...(next.optimized || {}), [field]: value };
-          }
-        } else {
-          const trans = { ...(next.translations || {}) };
-          trans[activeMarket] = { ...(trans[activeMarket] || {}), [field]: value };
-          next.translations = trans;
-        }
-      });
-      onUpdate(next);
-      if (shouldSync) syncToSupabase(next);
-      return next;
-    });
-  };
-
-  const processAndUploadImage = async (imgUrl: string): Promise<string> => {
-    if (!imgUrl) return "";
-    setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
-    
-    return new Promise(async (resolve) => {
-      try {
-        const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
-          ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
-        
-        const response = await fetch(proxied);
-        const blob = await response.blob();
-        const localObjUrl = URL.createObjectURL(blob);
-        
-        const img = new Image();
-        img.src = localObjUrl;
-        await img.decode();
-        
-        const canvas = document.createElement('canvas');
-        canvas.width = 1600; 
-        canvas.height = 1600;
-        const ctx = canvas.getContext('2d')!;
-        
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, 1600, 1600);
-        
-        const targetLimit = 1500;
-        const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
-        const dw = img.width * scale;
-        const dh = img.height * scale;
-        const dx = (1600 - dw) / 2;
-        const dy = (1600 - dh) / 2;
-        
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, dx, dy, dw, dh);
-        
-        URL.revokeObjectURL(localObjUrl); 
-
-        canvas.toBlob(async (outBlob) => {
-          if (!outBlob) {
-            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-            return resolve(imgUrl);
-          }
-          const fd = new FormData();
-          fd.append('file', outBlob, `std1600_${Date.now()}.jpg`);
-          try {
-            const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-            const data = await res.json();
-            const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-            const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-            resolve(finalUrl || imgUrl);
-          } catch (e) { 
-            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-            resolve(imgUrl); 
-          }
-        }, 'image/jpeg', 0.98);
-      } catch (e) {
-        console.error("Standardization Crash:", e);
-        setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-        resolve(imgUrl);
-      }
-    });
+  const updateListingData = (updates: Partial<Listing>) => {
+    const next = { ...localListing, ...updates };
+    setLocalListing(next);
+    onUpdate(next);
+    syncToSupabase(next);
   };
 
   return (
@@ -161,68 +73,36 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         try {
           const opt = engine === 'openai' ? await optimizeListingWithOpenAI(localListing.cleaned) : engine === 'deepseek' ? await optimizeListingWithDeepSeek(localListing.cleaned) : await optimizeListingWithAI(localListing.cleaned);
           const next: Listing = { ...localListing, optimized: { ...opt, optimized_main_image: localListing.optimized?.optimized_main_image, optimized_other_images: localListing.optimized?.optimized_other_images }, status: 'optimized' as const };
-          setLocalListing(next); onUpdate(next); await syncToSupabase(next);
+          updateListingData(next);
         } finally { setIsOptimizing(false); }
       }} isOptimizing={isOptimizing} onSave={() => syncToSupabase(localListing)} onDelete={() => onDelete(localListing.id)} isSaving={isSaving} onNext={onNext} uiLang={uiLang} />
       
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pb-20">
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
-             <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={(f, v) => updateFields({[f]: v}, true)} updateFields={(fs) => updateFields(fs, true)} isSaving={isSaving} isProcessing={isProcessingImages} processingUrls={processingUrls} onStandardizeAll={async () => {
-               setIsProcessingImages(true);
-               const mainUrl = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image || "";
-               const otherUrls = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
-               const processedMain = mainUrl ? await processAndUploadImage(mainUrl) : "";
-               const processedOthers = [];
-               for (const u of otherUrls) { processedOthers.push(await processAndUploadImage(u)); }
-               const next = JSON.parse(JSON.stringify(localListing));
-               next.optimized = { ...(next.optimized || {}), optimized_main_image: processedMain || next.optimized?.optimized_main_image, optimized_other_images: processedOthers };
-               setLocalListing(next); onUpdate(next); await syncToSupabase(next); setIsProcessingImages(false);
-               if (processedMain) setPreviewImage(processedMain);
-             }} onStandardizeOne={async (url) => {
-               const newUrl = await processAndUploadImage(url);
-               const next = JSON.parse(JSON.stringify(localListing));
-               if ((next.optimized?.optimized_main_image || next.cleaned.main_image) === url) {
-                 next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
-               } else { 
-                 const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])]; 
-                 const idx = others.indexOf(url); if (idx > -1) { others[idx] = newUrl; next.optimized = { ...(next.optimized || {}), optimized_other_images: others }; } 
-               }
-               setLocalListing(next); onUpdate(next); await syncToSupabase(next); setPreviewImage(newUrl);
-             }} onRestoreAll={() => {
-                const next = JSON.parse(JSON.stringify(localListing));
-                if (next.optimized) { delete next.optimized.optimized_main_image; delete next.optimized.optimized_other_images; }
-                setLocalListing(next); setPreviewImage(next.cleaned.main_image || ''); onUpdate(next); syncToSupabase(next);
-             }} setShowEditor={(show) => { 
-                if (show) setEditingImageUrl(previewImage); 
-                setShowImageEditor(show); 
-             }} fileInputRef={fileInputRef} onAddImage={async (e) => {
-               const file = e.target.files?.[0]; if (!file) return;
-               setIsProcessingImages(true);
-               try {
-                 const fd = new FormData(); fd.append('file', file);
-                 const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-                 const data = await res.json();
-                 const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-                 const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-                 if (url) {
-                   const next = JSON.parse(JSON.stringify(localListing));
-                   const currentOthers = next.optimized?.optimized_other_images || next.cleaned.other_images || [];
-                   next.optimized = { ...(next.optimized || {}), optimized_other_images: [...currentOthers, url] };
-                   setLocalListing(next); onUpdate(next); await syncToSupabase(next); setPreviewImage(url);
-                 }
-               } finally { setIsProcessingImages(false); if (e.target) e.target.value = ''; }
-             }} />
-             <ListingSourcingSection listing={localListing} updateField={(f, v) => updateFields({[f]: v}, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
+             <ListingImageSection 
+               listing={localListing} 
+               previewImage={previewImage} 
+               setPreviewImage={setPreviewImage} 
+               onUpdateListing={updateListingData}
+               isSaving={isSaving}
+               openEditor={(url) => { setEditingImageUrl(url); setShowImageEditor(true); }}
+             />
+             <ListingSourcingSection 
+               listing={localListing} 
+               updateField={(f, v) => updateListingData({ [f]: v })} 
+               setShowModal={setShowSourcingModal} 
+               setShowForm={setShowSourcingForm} 
+               setEditingRecord={setEditingSourceRecord} 
+             />
           </div>
-          
           <div className="lg:col-span-8 space-y-6">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
                 <ListingEditorArea 
                   listing={localListing} 
                   activeMarket={activeMarket} 
                   setActiveMarket={setActiveMarket}
-                  updateField={(f, v) => updateFields({[f]: v})} 
+                  updateListing={updateListingData}
                   onSync={() => syncToSupabase(localListing)} 
                   engine={engine}
                   uiLang={uiLang} 
@@ -237,12 +117,14 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           const next = JSON.parse(JSON.stringify(localListing));
           if ((next.optimized?.optimized_main_image || next.cleaned.main_image) === editingImageUrl) next.optimized = { ...(next.optimized || {}), optimized_main_image: url };
           else { const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])]; const idx = others.indexOf(editingImageUrl); if (idx > -1) { others[idx] = url; next.optimized = { ...(next.optimized || {}), optimized_other_images: others }; } }
-          setPreviewImage(url); setLocalListing(next); onUpdate(next); syncToSupabase(next); setShowImageEditor(false);
+          setPreviewImage(url);
+          updateListingData(next);
+          setShowImageEditor(false);
         }} uiLang={uiLang} />
       )}
       
-      {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={(rec) => { updateFields({ sourcing_data: [...(localListing.sourcing_data || []), rec] }, true); setShowSourcingModal(false); }} />}
-      {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={(rec) => { const cur = localListing.sourcing_data || []; const next = editingSourceRecord ? cur.map(s => s.id === editingSourceRecord.id ? rec : s) : [...cur, rec]; updateFields({ sourcing_data: next }, true); setShowSourcingForm(false); }} />}
+      {showSourcingModal && <SourcingModal productImage={previewImage} onClose={() => setShowSourcingModal(false)} onAddLink={(rec) => { updateListingData({ sourcing_data: [...(localListing.sourcing_data || []), rec] }); setShowSourcingModal(false); }} />}
+      {showSourcingForm && <SourcingFormModal initialData={editingSourceRecord} onClose={() => setShowSourcingForm(false)} onSave={(rec) => { const cur = localListing.sourcing_data || []; const next = editingSourceRecord ? cur.map(s => s.id === editingSourceRecord.id ? rec : s) : [...cur, rec]; updateListingData({ sourcing_data: next }); setShowSourcingForm(false); }} />}
     </div>
   );
 };
