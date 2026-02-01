@@ -48,6 +48,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [lastShape, setLastShape] = useState<Tool>('rect');
 
+  // 核心修复：采用 Blob 预取机制加载图片，彻底解决 Canvas 空白问题
   useEffect(() => {
     const loadSecureImage = async () => {
       if (!imageUrl) { setIsProcessing(false); return; }
@@ -63,7 +64,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const localUrl = URL.createObjectURL(blob);
         
         const img = new Image();
-        img.crossOrigin = "anonymous";
+        // 重要：此时 img.src 是本地 blob 链接，不需要 crossOrigin="anonymous"，否则会由于 blob 不支持 CORS 头而报错
         img.src = localUrl;
         
         img.onload = () => {
@@ -72,8 +73,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           setZoom(fitZoom);
           setIsProcessing(false);
         };
-        img.onerror = () => setIsProcessing(false);
-      } catch (e) { setIsProcessing(false); }
+        img.onerror = () => {
+          console.error("Image loading failed");
+          setIsProcessing(false);
+        };
+      } catch (e) { 
+        console.error("Editor init error:", e);
+        setIsProcessing(false); 
+      }
     };
     loadSecureImage();
   }, [imageUrl]);
@@ -86,10 +93,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!canvasRef.current || !canvasImage) return;
     const ctx = canvasRef.current.getContext('2d')!;
     
+    // 设置物理画布尺寸与原图一致
     canvasRef.current.width = canvasImage.width;
     canvasRef.current.height = canvasImage.height;
+    
+    // 1. 绘制底图
     ctx.drawImage(canvasImage, 0, 0);
 
+    // 2. 绘制图层
     elements.forEach(el => {
       ctx.save();
       ctx.strokeStyle = el.color;
@@ -229,6 +240,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setIsProcessing(true);
     setSelectedId(null);
     
+    // 等待一小会儿确保选中框消失
     setTimeout(() => {
       canvasRef.current!.toBlob(async (blob) => {
         if (!blob) return setIsProcessing(false);
@@ -260,7 +272,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-all"><X size={24}/></button>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-black text-xs italic">AI</div>
-            <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent">AI Media Studio Pro v4.2</span>
+            <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent">AI Media Studio Pro v4.3</span>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -271,6 +283,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       </div>
       
       <div className="flex-1 flex overflow-hidden">
+        {/* 工具栏 */}
         <div className="w-24 bg-slate-900 border-r border-white/5 flex flex-col items-center py-8 gap-6">
            <SideBtn active={currentTool === 'select'} onClick={() => setCurrentTool('select')} icon={<MousePointer2 size={18}/>} label="Move" />
            <SideBtn active={currentTool === 'brush'} onClick={() => setCurrentTool('brush')} icon={<Paintbrush size={18}/>} label="Brush" />
@@ -295,11 +308,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            <button onClick={() => { if(selectedId) setElements(elements.filter(el => el.id !== selectedId)); setSelectedId(null); }} className="p-3 text-slate-500 hover:text-red-500 transition-all"><Trash2 size={20}/></button>
         </div>
 
+        {/* 画布视口 */}
         <div className="flex-1 relative overflow-hidden bg-slate-950 flex items-center justify-center p-10 custom-scrollbar">
           {isProcessing && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/40 backdrop-blur-sm">
               <Loader2 className="animate-spin text-indigo-500 mb-4" size={48} />
-              <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">{uiLang === 'zh' ? '正在同步数据...' : 'Syncing Data...'}</p>
+              <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">{uiLang === 'zh' ? '正在同步物理像素数据...' : 'Syncing Pixel Data...'}</p>
             </div>
           )}
           
@@ -322,6 +336,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
         </div>
 
+        {/* 属性面板 */}
         <div className="w-80 bg-slate-900 border-l border-white/5 p-8 space-y-10 overflow-y-auto">
            <div className="space-y-5">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">Brush Size</label>
@@ -336,10 +351,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            </div>
            
            <div className="space-y-5">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">Color</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">Color Matrix</label>
               <div className="grid grid-cols-5 gap-3">
                  {['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#000000', '#ffffff', '#ff8800', '#6366f1'].map(c => (
-                   <button key={c} onClick={() => setStrokeColor(c)} style={{backgroundColor: c}} className={`aspect-square rounded-xl border-4 transition-all ${strokeColor === c ? 'border-white scale-110' : 'border-transparent opacity-60'}`} />
+                   <button key={c} onClick={() => setStrokeColor(c)} style={{backgroundColor: c}} className={`aspect-square rounded-xl border-4 transition-all ${strokeColor === c ? 'border-white scale-110 shadow-xl' : 'border-transparent opacity-60 hover:opacity-100'}`} />
                  ))}
               </div>
            </div>
@@ -351,7 +366,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
 const SideBtn = ({ active, onClick, icon, label }: any) => (
   <button onClick={onClick} className={`w-16 flex flex-col items-center gap-1.5 group transition-all ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/20 ring-2 ring-indigo-500' : 'bg-white/5 group-hover:bg-white/10'}`}>{icon}</div>
+    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/20 ring-2 ring-indigo-500 shadow-lg shadow-indigo-500/10' : 'bg-white/5 group-hover:bg-white/10 group-active:scale-90'}`}>{icon}</div>
     <span className="text-[9px] font-black uppercase tracking-tighter opacity-50 group-hover:opacity-100">{label}</span>
   </button>
 );

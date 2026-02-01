@@ -197,6 +197,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
           ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
         
+        // 核心修复：通过 fetch Blob 彻底绕过 Canvas 跨域“污染”导出失败
         const response = await fetch(proxied);
         const blob = await response.blob();
         const localObjUrl = URL.createObjectURL(blob);
@@ -210,6 +211,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         canvas.height = 1600;
         const ctx = canvas.getContext('2d')!;
         
+        // 强制背景颜色为白色
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, 1600, 1600);
         
@@ -224,7 +226,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, dx, dy, dw, dh);
         
-        URL.revokeObjectURL(localObjUrl); 
+        URL.revokeObjectURL(localObjUrl); // 清理内存
 
         canvas.toBlob(async (outBlob) => {
           if (!outBlob) {
@@ -247,7 +249,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           }
         }, 'image/jpeg', 0.98);
       } catch (e) {
-        console.error("Image Process Error:", e);
+        console.error("Standardization Crash:", e);
         setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
         resolve(imgUrl);
       }
