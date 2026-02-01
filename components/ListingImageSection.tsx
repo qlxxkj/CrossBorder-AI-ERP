@@ -29,7 +29,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   const normalizeUrl = (raw: any): string => {
-    const src = Array.isArray(raw) && raw[0]?.src ? raw[0].src : (raw.url || raw.data?.url || raw);
+    // 兼容数组格式、嵌套格式及相对路径
+    const src = Array.isArray(raw) && raw[0]?.src ? raw[0].src : (raw.url || raw.data?.url || raw.src || raw);
     if (!src || typeof src !== 'string') return "";
     return src.startsWith('http') ? src : `${IMAGE_HOST_DOMAIN}${src.startsWith('/') ? '' : '/'}${src}`;
   };
@@ -42,6 +43,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       // 使用更强的 Fetch 模式获取图片并标准化
       const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(imgUrl)}&_t=${Date.now()}`;
       const resp = await fetch(proxiedUrl);
+      if (!resp.ok) throw new Error("CORS Proxy Error");
       const blobSource = await resp.blob();
       const localSource = URL.createObjectURL(blobSource);
 
@@ -70,7 +72,9 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       
       const res = await fetch(TARGET_API, { method: 'POST', body: fd });
       const data = await res.json();
-      return normalizeUrl(data) || imgUrl;
+      const finalUrl = normalizeUrl(data);
+      URL.revokeObjectURL(localSource);
+      return finalUrl || imgUrl;
     } catch (e) {
       console.error("Standardize Error:", e);
       return imgUrl;
@@ -89,14 +93,12 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         newOthers.push(await processAndUploadImage(u));
       }
       
-      // 关键：构建全新的 optimized 对象，确保触发更新
-      const nextOpt = { 
-        ...(listing.optimized || {}), 
-        optimized_main_image: newMain || effectiveMain, 
-        optimized_other_images: newOthers 
-      };
+      // 关键：构建全新的 optimized 对象，确保触发引用更新
+      const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
+      nextOpt.optimized_main_image = newMain || effectiveMain;
+      nextOpt.optimized_other_images = newOthers;
       
-      onUpdateListing({ optimized: nextOpt as any });
+      onUpdateListing({ optimized: nextOpt });
       if (newMain) setPreviewImage(newMain);
     } finally {
       setIsProcessing(false);
@@ -105,7 +107,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
 
   const handleStandardizeOne = async (url: string) => {
     const newUrl = await processAndUploadImage(url);
-    const nextOpt = { ...(listing.optimized || {}) };
+    const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
     
     if (effectiveMain === url) {
       nextOpt.optimized_main_image = newUrl;
@@ -118,23 +120,20 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         nextOpt.optimized_other_images = others;
       }
     }
-    onUpdateListing({ optimized: nextOpt as any });
+    onUpdateListing({ optimized: nextOpt });
   };
 
   const handleSetAsMain = (targetUrl: string) => {
     if (targetUrl === effectiveMain) return;
     
-    // 逻辑：位置互换。将原主图放入副图数组，将点击的副图设为主图
     const currentOthers = [...effectiveOthers];
     const filteredOthers = currentOthers.filter(u => u !== targetUrl);
     
-    const nextOpt = {
-      ...(listing.optimized || {}),
-      optimized_main_image: targetUrl,
-      optimized_other_images: [effectiveMain, ...filteredOthers].filter(Boolean)
-    };
+    const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
+    nextOpt.optimized_main_image = targetUrl;
+    nextOpt.optimized_other_images = [effectiveMain, ...filteredOthers].filter(Boolean);
 
-    onUpdateListing({ optimized: nextOpt as any });
+    onUpdateListing({ optimized: nextOpt });
     setPreviewImage(targetUrl);
   };
 
@@ -149,8 +148,9 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       const data = await res.json();
       const url = normalizeUrl(data);
       if (url) {
-        const nextOthers = [...effectiveOthers, url];
-        onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: nextOthers } as any });
+        const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
+        nextOpt.optimized_other_images = [...(nextOpt.optimized_other_images || []), url];
+        onUpdateListing({ optimized: nextOpt });
         setPreviewImage(url);
       }
     } finally {
@@ -166,10 +166,10 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
          {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 gap-3">
             <Loader2 className="animate-spin text-indigo-600" size={32} />
-            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Processing...</span>
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Syncing...</span>
          </div>}
          <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
-         <div className="absolute bottom-4 right-4 flex gap-2">
+         <div className="absolute bottom-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <button onClick={() => onUpdateListing({ optimized: undefined })} className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center gap-2 hover:bg-slate-200 border border-slate-200"><RefreshCcw size={12} /> Restore</button>
             <button onClick={handleStandardizeAll} disabled={isProcessing} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 hover:bg-indigo-700 shadow-indigo-200 transition-all"><Maximize2 size={12} /> Standardize All</button>
             <button onClick={() => openEditor(previewImage)} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all"><Wand2 size={12} /> Studio</button>
