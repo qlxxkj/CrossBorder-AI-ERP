@@ -75,10 +75,9 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       fd.append('file', blob, `amz_std_${Date.now()}.jpg`);
       
       // 使用专属的 CF Worker 代理
-      const uploadUrl = CF_UPLOAD_PROXY || TARGET_API;
-      const uploadRes = await fetch(uploadUrl, { method: 'POST', body: fd });
+      const uploadRes = await fetch(CF_UPLOAD_PROXY, { method: 'POST', body: fd });
 
-      if (!uploadRes.ok) throw new Error("Proxy connection failed. Check CF Worker URL.");
+      if (!uploadRes.ok) throw new Error("Proxy connection failed.");
       
       const data = await uploadRes.json();
       const finalUrl = normalizeUrl(data);
@@ -139,8 +138,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const uploadUrl = CF_UPLOAD_PROXY || TARGET_API;
-      const res = await fetch(uploadUrl, { method: 'POST', body: fd });
+      const res = await fetch(CF_UPLOAD_PROXY, { method: 'POST', body: fd });
       const data = await res.json();
       const url = normalizeUrl(data);
       if (url) {
@@ -150,7 +148,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         setPreviewImage(url);
       }
     } catch (err) {
-      alert("Proxy Error: Could not upload. Check CF Worker deployment.");
+      alert("Proxy Error: Check CF Worker deployment.");
     } finally {
       setIsProcessing(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
