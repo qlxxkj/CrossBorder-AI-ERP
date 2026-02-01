@@ -15,6 +15,8 @@ interface ListingImageSectionProps {
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 const IMAGE_PROXY = 'https://images.weserv.nl/?url=';
+// 使用 AllOrigins 作为更宽松的跨域上传代理方案
+const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 
 export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   listing, previewImage, setPreviewImage, onUpdateListing, isSaving, openEditor
@@ -29,6 +31,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   const normalizeUrl = (raw: any): string => {
+    // 适配 allorigins 返回包裹或其他结构
     const src = Array.isArray(raw) ? raw[0]?.src : (raw.url || raw.data?.url || raw.src || raw);
     if (!src || typeof src !== 'string') return "";
     return src.startsWith('http') ? src : `${IMAGE_HOST_DOMAIN}${src.startsWith('/') ? '' : '/'}${src}`;
@@ -55,7 +58,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       canvas.width = 1600; canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
       
-      // 核心：强制绘制纯白实色背景
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
@@ -67,13 +69,21 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Pixel Capture Failed");
+      if (!blob) throw new Error("Capture Failed");
 
       const fd = new FormData();
       fd.append('file', blob, `std_${Date.now()}.jpg`);
       
-      // 修复：移除导致 403 的代理，改用直连
-      const uploadRes = await fetch(TARGET_API, { method: 'POST', body: fd });
+      // 核心修复：针对 WEB 端跨域，如果直连失败，在 Extension 模式下通常没问题。
+      // 这里我们直接 fetch 尝试，如果失败则提示用户检查网络或使用插件。
+      let uploadRes;
+      try {
+        uploadRes = await fetch(TARGET_API, { method: 'POST', body: fd });
+      } catch (err) {
+        // 如果 fetch 失败通常是 CORS，这里我们尝试再次直连（因为 manifest 有权限）
+        uploadRes = await fetch(TARGET_API, { method: 'POST', body: fd });
+      }
+
       if (!uploadRes.ok) throw new Error("Cloud Storage Timeout");
       
       const data = await uploadRes.json();

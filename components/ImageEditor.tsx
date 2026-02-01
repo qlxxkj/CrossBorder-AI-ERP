@@ -3,7 +3,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   X, Scissors, PaintBucket, Save, Loader2, MousePointer2, 
   Type, Square, Circle, Minus, Palette, Maximize2, 
-  Trash2, Hand, Eraser, Check, Square as SquareIcon
+  Trash2, Hand, Eraser, Check, Square as SquareIcon,
+  Magnet, Crop
 } from 'lucide-react';
 import { UILanguage } from '../types';
 
@@ -14,7 +15,7 @@ interface ImageEditorProps {
   uiLang: UILanguage;
 }
 
-type Tool = 'select' | 'hand' | 'brush' | 'rect' | 'circle' | 'line' | 'text' | 'select-fill';
+type Tool = 'select' | 'hand' | 'brush' | 'rect' | 'circle' | 'line' | 'text' | 'select-fill' | 'crop' | 'snap';
 
 interface EditorElement {
   id: string;
@@ -88,6 +89,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   useEffect(() => { initImage(imageUrl); }, [imageUrl, initImage]);
 
+  // 按键删除逻辑
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+        // 只有当焦点不在输入框时才执行
+        if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+          setElements(prev => prev.filter(el => el.id !== selectedId));
+          setSelectedId(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedId]);
+
   const renderToCtx = (ctx: CanvasRenderingContext2D, els: EditorElement[], targetImg: HTMLImageElement) => {
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.drawImage(targetImg, 0, 0);
@@ -109,9 +125,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           ctx.stroke();
         }
       } else if (el.type === 'rect' || el.type === 'select-fill') {
-        if (el.fillEnabled) {
-          ctx.fillRect(el.x, el.y, el.w, el.h);
-        }
+        if (el.fillEnabled) ctx.fillRect(el.x, el.y, el.w, el.h);
         ctx.strokeRect(el.x, el.y, el.w, el.h);
       } else if (el.type === 'circle') {
         const r = Math.sqrt(el.w**2 + el.h**2);
@@ -178,13 +192,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const boxW = Math.abs(el.w) || 50;
         const minX = Math.min(el.x, el.x + (el.w || 0));
         const minY = Math.min(el.y, el.y + (el.h || 0));
-        return pos.x >= minX - 20 && pos.x <= minX + boxW + 20 && pos.y >= minY - 20 && pos.y <= minY + boxH + 20;
+        return pos.x >= minX - 25 && pos.x <= minX + boxW + 25 && pos.y >= minY - 25 && pos.y <= minY + boxH + 25;
       });
       if (hit) {
         setSelectedId(hit.id);
         setIsDragging(true);
         setStrokeColor(hit.color);
         setStrokeWidth(hit.strokeWidth);
+        setFontSize(hit.fontSize || 64);
         setFillEnabled(hit.fillEnabled);
         setLayerOpacity(hit.opacity);
       } else {
@@ -275,7 +290,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const fd = new FormData();
         fd.append('file', blob, `amzbot_studio_${Date.now()}.jpg`);
         try {
-          // 移除代理直连上传，解决 403 问题
           const res = await fetch(TARGET_API, { method: 'POST', body: fd });
           const data = await res.json();
           const rawSrc = Array.isArray(data) ? data[0]?.src : (data.url || data.data?.url || data.src);
@@ -294,7 +308,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between shadow-2xl shrink-0">
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24}/></button>
-          <span className="font-black text-[10px] uppercase tracking-[0.2em] text-indigo-400">AMZBot Pixel Studio v18.8</span>
+          <span className="font-black text-[10px] uppercase tracking-[0.2em] text-indigo-400">AMZBot Pixel Studio v19.2</span>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => handleCommit(true)} className="px-5 py-2 bg-slate-800 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-700 transition-all border border-white/5"><Maximize2 size={14}/> 1600 HD</button>
@@ -322,11 +336,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
              )}
            </div>
            <SideBtn active={currentTool === 'text'} onClick={() => setCurrentTool('text')} icon={<Type size={18}/>} />
+           <div className="w-8 h-px bg-white/10 my-1"></div>
+           <SideBtn active={currentTool === 'crop'} onClick={() => setCurrentTool('crop')} icon={<Crop size={18}/>} />
+           <SideBtn active={currentTool === 'snap'} onClick={() => setCurrentTool('snap')} icon={<Magnet size={18}/>} />
+           
            <div className="mt-auto flex flex-col gap-4">
              <button 
                 onClick={() => { if(selectedId) { setElements(prev => prev.filter(x => x.id !== selectedId)); setSelectedId(null); } }} 
                 className={`p-4 rounded-xl transition-all ${selectedId ? 'bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white' : 'text-slate-700 pointer-events-none'}`} 
-                title="Delete Selected"
+                title="Delete Selected (Del)"
              >
                 <Trash2 size={20}/>
              </button>
@@ -336,7 +354,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         <div ref={containerRef} className="flex-1 bg-slate-950 relative overflow-hidden flex items-center justify-center">
           {isProcessing && <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-[1200] flex flex-col items-center justify-center gap-4">
              <Loader2 className="animate-spin text-indigo-500" size={48}/>
-             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 animate-pulse">Rendering Pixels...</p>
+             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/50">Processing Pixels...</p>
           </div>}
           
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transition: (isPanning || isDrawing || isDragging) ? 'none' : 'transform 0.1s ease-out' }} className="shadow-2xl relative bg-white">
@@ -361,8 +379,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            <div className="space-y-6">
               <label className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] border-b border-white/5 pb-2 block">Drawing Physics</label>
               <div className="space-y-3">
-                 <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase"><span>Size</span> <span>{strokeWidth}px</span></div>
+                 <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase"><span>Stroke Size</span> <span>{strokeWidth}px</span></div>
                  <input type="range" min="1" max="200" value={strokeWidth} onChange={e => { const v = parseInt(e.target.value); setStrokeWidth(v); if(selectedId) setElements(prev => prev.map(el => el.id === selectedId ? {...el, strokeWidth: v} : el)) }} className="w-full accent-indigo-500" />
+              </div>
+              <div className="space-y-3">
+                 <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase"><span>Font Size</span> <span>{fontSize}px</span></div>
+                 <input type="range" min="12" max="300" value={fontSize} onChange={e => { const v = parseInt(e.target.value); setFontSize(v); if(selectedId) setElements(prev => prev.map(el => el.id === selectedId ? {...el, fontSize: v} : el)) }} className="w-full accent-blue-500" />
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[9px] font-black text-slate-500 uppercase">Fill Shape</span>
@@ -389,6 +411,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                  <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase"><span>Opacity</span> <span>{Math.round(layerOpacity * 100)}%</span></div>
                  <input type="range" min="0.1" max="1" step="0.01" value={layerOpacity} onChange={e => { const v = parseFloat(e.target.value); setLayerOpacity(v); if(selectedId) setElements(prev => prev.map(el => el.id === selectedId ? {...el, opacity: v} : el)) }} className="w-full accent-emerald-500" />
               </div>
+           </div>
+           
+           <div className="p-4 bg-slate-800/50 rounded-2xl border border-white/5 space-y-2">
+             <p className="text-[9px] font-black text-slate-500 uppercase">Shortcuts</p>
+             <div className="flex justify-between text-[8px] font-bold text-slate-400 uppercase"><span>Del / Backsp</span> <span>Remove Layer</span></div>
+             <div className="flex justify-between text-[8px] font-bold text-slate-400 uppercase"><span>Hold Space</span> <span>Pan View</span></div>
            </div>
         </div>
       </div>
