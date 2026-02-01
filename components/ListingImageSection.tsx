@@ -29,7 +29,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   const normalizeUrl = (raw: any): string => {
-    const src = Array.isArray(raw) && raw[0]?.src ? raw[0].src : (raw.url || raw.data?.url || raw.src || raw);
+    const src = Array.isArray(raw) ? raw[0]?.src : (raw.url || raw.data?.url || raw.src || raw);
     if (!src || typeof src !== 'string') return "";
     return src.startsWith('http') ? src : `${IMAGE_HOST_DOMAIN}${src.startsWith('/') ? '' : '/'}${src}`;
   };
@@ -47,11 +47,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       
       await new Promise((resolve, reject) => {
         img.onload = resolve;
-        img.onerror = () => {
-          // 如果代理失败，尝试直连
-          img.onerror = reject;
-          img.src = cleanUrl;
-        };
+        img.onerror = () => { img.onerror = reject; img.src = cleanUrl; };
         img.src = proxiedUrl;
       });
 
@@ -59,7 +55,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       canvas.width = 1600; canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
       
-      // 1600 HD 标准化：纯白背景 + 居中
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
@@ -68,21 +63,19 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Canvas to Blob failed");
+      if (!blob) throw new Error("Processing Error");
 
       const fd = new FormData();
       fd.append('file', blob, `standard_${Date.now()}.jpg`);
       
       const uploadRes = await fetch(TARGET_API, { method: 'POST', body: fd });
-      if (!uploadRes.ok) throw new Error("Server Sync Error");
-      
       const data = await uploadRes.json();
       const finalUrl = normalizeUrl(data);
       
-      // 返回带唯一标记的 URL 强制浏览器重绘
+      // 返回带时间戳的 URL 以击穿浏览器缓存并确保 React 状态更新
       return finalUrl ? `${finalUrl}?std=${Date.now()}` : imgUrl;
     } catch (e) {
-      console.error("Standardize Pipeline Failed:", e);
+      console.error("Standardize Failed:", e);
       return imgUrl;
     } finally {
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
@@ -175,7 +168,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
          
          <div className="absolute bottom-4 left-4 right-4 flex justify-center gap-2">
             <button onClick={() => { onUpdateListing({ optimized: undefined }); setPreviewImage(listing.cleaned.main_image || ''); }} className="px-3 py-2 bg-white/90 backdrop-blur-md text-slate-500 rounded-xl text-[9px] font-black uppercase shadow-lg flex items-center gap-1.5 hover:bg-slate-100 border border-white transition-all"><RefreshCcw size={12} /> Restore</button>
-            <button onClick={handleStandardizeAll} disabled={isProcessing} className="px-3 py-2 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase shadow-xl flex items-center gap-1.5 hover:bg-indigo-700 transition-all"><Maximize2 size={12} /> Standardize All</button>
+            <button onClick={handleStandardizeAll} disabled={isProcessing} className="px-3 py-2 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase shadow-xl flex items-center gap-1.5 hover:bg-indigo-700 transition-all active:scale-95"><Maximize2 size={12} /> Standardize All</button>
             <button onClick={() => openEditor(previewImage)} className="px-3 py-2 bg-white/90 backdrop-blur-md text-indigo-600 rounded-xl text-[9px] font-black uppercase shadow-lg flex items-center gap-1.5 border border-white hover:bg-indigo-50 transition-all"><Wand2 size={12} /> Studio</button>
          </div>
       </div>
