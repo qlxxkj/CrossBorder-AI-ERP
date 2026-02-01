@@ -17,14 +17,14 @@ interface ListingImageSectionProps {
   onRestoreAll: () => void;
   setShowEditor: (show: boolean) => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
+  onAddImage: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
 export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
-  listing, previewImage, setPreviewImage, updateField, updateFields, isSaving, isProcessing, processingUrls, onStandardizeAll, onStandardizeOne, onRestoreAll, setShowEditor, fileInputRef
+  listing, previewImage, setPreviewImage, updateField, updateFields, isSaving, isProcessing, processingUrls, onStandardizeAll, onStandardizeOne, onRestoreAll, setShowEditor, fileInputRef, onAddImage
 }) => {
   const [hoverImage, setHoverImage] = useState<string | null>(null);
   
-  // Calculate effective images: Priority to Optimized, fallback to Cleaned
   const effectiveMain = listing.optimized?.optimized_main_image || listing.cleaned?.main_image || '';
   const effectiveOthers = listing.optimized?.optimized_other_images || listing.cleaned?.other_images || [];
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
@@ -37,37 +37,27 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
 
   const handleSetMain = (url: string) => {
     if (url === effectiveMain) return;
-    
-    const others = [...effectiveOthers];
-    const targetIdx = others.indexOf(url);
-    
-    if (targetIdx > -1) {
-      others[targetIdx] = effectiveMain;
-      updateFields({
-        main_image: url,
-        other_images: others
-      });
-      setPreviewImage(url);
-    }
+    const others = allImages.filter(u => u !== url);
+    updateFields({
+      optimized_main_image: url,
+      optimized_other_images: others
+    });
+    setPreviewImage(url);
   };
 
   const handleRemoveImage = (url: string) => {
-    if (effectiveMain === url) {
-      const others = [...effectiveOthers];
-      if (others.length > 0) {
-        const newMain = others[0];
-        updateFields({
-          main_image: newMain,
-          other_images: others.slice(1)
-        });
-        setPreviewImage(newMain);
-      } else {
-        updateField('main_image', '');
-        setPreviewImage('');
-      }
+    const isMain = url === effectiveMain;
+    const nextAll = allImages.filter(u => u !== url);
+    if (isMain) {
+       updateFields({
+         optimized_main_image: nextAll[0] || "",
+         optimized_other_images: nextAll.slice(1)
+       });
+       setPreviewImage(nextAll[0] || "");
     } else {
-      const others = effectiveOthers.filter(u => u !== url);
-      updateField('other_images', others);
+       updateFields({
+         optimized_other_images: nextAll.filter(u => u !== effectiveMain)
+       });
     }
   };
 
@@ -159,6 +149,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
          >
            {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Plus size={20} />}
          </button>
+         <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={onAddImage} />
       </div>
     </div>
   );

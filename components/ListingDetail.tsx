@@ -108,11 +108,91 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  // 物理 1600px 核心引擎修复
+  // Fix: Missing translateSite function for localizing a single marketplace
+  const translateSite = async (marketCode: string) => {
+    if (!localListing.optimized || isTranslating) return;
+    setIsTranslating(true);
+    try {
+      const market = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
+      const targetLang = market?.name || marketCode;
+      
+      let translation;
+      if (engine === 'openai') {
+        translation = await translateListingWithOpenAI(localListing.optimized, targetLang);
+      } else if (engine === 'deepseek') {
+        translation = await translateListingWithDeepSeek(localListing.optimized, targetLang);
+      } else {
+        translation = await translateListingWithAI(localListing.optimized, targetLang);
+      }
+
+      const logistics = calculateMarketLogistics(localListing, marketCode);
+      const priceData = calculateMarketPrice(localListing, marketCode, rates, adjustments);
+
+      const next: Listing = {
+        ...localListing,
+        translations: {
+          ...(localListing.translations || {}),
+          [marketCode]: { ...translation, ...logistics, ...priceData } as OptimizedData
+        }
+      };
+      
+      setLocalListing(next);
+      onUpdate(next);
+      await syncToSupabase(next);
+    } catch (e) {
+      console.error(`Translation error for ${marketCode}:`, e);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  // Fix: Missing translateAllMarkets function for batch localization
+  const translateAllMarkets = async () => {
+    if (!localListing.optimized || isTranslating) return;
+    const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
+    setIsTranslating(true);
+    setTranslateStatus({ current: 0, total: marketsToTranslate.length });
+
+    try {
+      let currentListing = JSON.parse(JSON.stringify(localListing)) as Listing;
+
+      for (let i = 0; i < marketsToTranslate.length; i++) {
+        const m = marketsToTranslate[i];
+        setTranslateStatus({ current: i + 1, total: marketsToTranslate.length });
+        
+        const targetLang = m.name;
+        let translation;
+        if (engine === 'openai') {
+          translation = await translateListingWithOpenAI(localListing.optimized, targetLang);
+        } else if (engine === 'deepseek') {
+          translation = await translateListingWithDeepSeek(localListing.optimized, targetLang);
+        } else {
+          translation = await translateListingWithAI(localListing.optimized, targetLang);
+        }
+
+        const logistics = calculateMarketLogistics(currentListing, m.code);
+        const priceData = calculateMarketPrice(currentListing, m.code, rates, adjustments);
+
+        currentListing.translations = {
+          ...(currentListing.translations || {}),
+          [m.code]: { ...translation, ...logistics, ...priceData } as OptimizedData
+        };
+      }
+
+      setLocalListing(currentListing);
+      onUpdate(currentListing);
+      await syncToSupabase(currentListing);
+    } catch (e) {
+      console.error("Batch translation error:", e);
+    } finally {
+      setIsTranslating(false);
+      setTranslateStatus({ current: 0, total: 0 });
+    }
+  };
+
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
-    setProcessingUrls(prev => new Set(prev).add(imgUrl));
-    
+    setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     return new Promise(async (resolve) => {
       try {
         const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
@@ -121,20 +201,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.src = proxied;
-
-        // 使用原生 decode 确保图片二进制就绪
         await img.decode();
         
         const canvas = document.createElement('canvas');
         canvas.width = 1600; 
         canvas.height = 1600;
         const ctx = canvas.getContext('2d')!;
-        
-        // 1. 强制物理背景填充
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, 1600, 1600);
         
-        // 2. 长边 1500px 居中算法
         const targetLimit = 1500;
         const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
         const dw = img.width * scale;
@@ -146,98 +221,54 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, dx, dy, dw, dh);
         
-        // 3. 导出并上传
-        canvas.toBlob(async (outBlob) => {
-          if (!outBlob) {
-            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-            return resolve(imgUrl);
-          }
+        canvas.toBlob(async (blob) => {
+          if (!blob) throw new Error("Blob creation failed");
           const fd = new FormData();
-          fd.append('file', outBlob, `std1600_${Date.now()}.jpg`);
-          try {
-            const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-            const data = await res.json();
-            const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-            const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-            
-            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-            resolve(finalUrl || imgUrl);
-          } catch (e) { 
-            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-            resolve(imgUrl); 
-          }
+          fd.append('file', blob, `std_${Date.now()}.jpg`);
+          const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+          const data = await res.json();
+          const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+          const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
+          setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+          resolve(finalUrl || imgUrl);
         }, 'image/jpeg', 0.98);
-      } catch (e) { 
-        console.error("Standardization Crash:", e);
+      } catch (e) {
+        console.error("Image Process Error:", e);
         setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-        resolve(imgUrl); 
+        resolve(imgUrl);
       }
     });
   };
 
-  const translateSite = async (marketCode: string) => {
-    if (isTranslating || !localListing.optimized) return;
-    setIsTranslating(true);
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsProcessingImages(true);
     try {
-      const mkt = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
-      if (!mkt) return;
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+      const data = await res.json();
+      const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+      const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
       
-      const trans = engine === 'openai' 
-        ? await translateListingWithOpenAI(localListing.optimized, mkt.name) 
-        : engine === 'deepseek' 
-          ? await translateListingWithDeepSeek(localListing.optimized, mkt.name) 
-          : await translateListingWithAI(localListing.optimized, mkt.name);
-
-      const logistics = calculateMarketLogistics(localListing, marketCode);
-      const priceData = calculateMarketPrice(localListing, marketCode, rates, adjustments);
-      const enrichedTrans = { ...trans, ...logistics, ...priceData };
-
-      const next = JSON.parse(JSON.stringify(localListing));
-      next.translations = { ...(next.translations || {}), [marketCode]: enrichedTrans };
-      setLocalListing(next);
-      onUpdate(next);
-      await syncToSupabase(next);
-    } finally { setIsTranslating(false); }
-  };
-
-  const translateAllMarkets = async () => {
-    if (isTranslating || !localListing.optimized) return;
-    setIsTranslating(true);
-    const targets = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
-    setTranslateStatus({ current: 0, total: targets.length });
-    
-    let current = JSON.parse(JSON.stringify(localListing));
-    
-    for (let i = 0; i < targets.length; i++) {
-      const mkt = targets[i];
-      try {
-        const trans = engine === 'openai' 
-          ? await translateListingWithOpenAI(current.optimized, mkt.name) 
-          : engine === 'deepseek' 
-            ? await translateListingWithDeepSeek(current.optimized, mkt.name) 
-            : await translateListingWithAI(current.optimized, mkt.name);
-            
-        const logistics = calculateMarketLogistics(current, mkt.code);
-        const priceData = calculateMarketPrice(current, mkt.code, rates, adjustments);
-        const enrichedTrans = { ...trans, ...logistics, ...priceData };
-
-        current.translations = { ...(current.translations || {}), [mkt.code]: enrichedTrans };
-        setLocalListing({ ...current });
-        setTranslateStatus({ current: i + 1, total: targets.length });
-        await syncToSupabase(current);
-      } catch (e) { console.error(`Failed ${mkt.code}`, e); }
+      if (url) {
+        const next = JSON.parse(JSON.stringify(localListing)) as Listing;
+        const currentOthers = next.optimized?.optimized_other_images || next.cleaned.other_images || [];
+        next.optimized = { 
+          ...(next.optimized || {}), 
+          optimized_other_images: [...currentOthers, url] 
+        } as OptimizedData;
+        setLocalListing(next);
+        onUpdate(next);
+        await syncToSupabase(next);
+        setPreviewImage(url);
+      }
+    } catch (err) { alert("Upload failed"); } 
+    finally { 
+      setIsProcessingImages(false); 
+      if (e.target) e.target.value = ''; 
     }
-    setIsTranslating(false);
-  };
-
-  const getValidOptimizedData = (data: Partial<OptimizedData> | undefined): OptimizedData => {
-    return {
-      optimized_title: data?.optimized_title || '',
-      optimized_features: data?.optimized_features || [],
-      optimized_description: data?.optimized_description || '',
-      search_keywords: data?.search_keywords || '',
-      ...data
-    } as OptimizedData;
   };
 
   return (
@@ -256,33 +287,32 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-0">
              <ListingImageSection listing={localListing} previewImage={previewImage} setPreviewImage={setPreviewImage} updateField={(f, v) => updateFields({[f]: v}, true)} updateFields={(fs) => updateFields(fs, true)} isSaving={isSaving} isProcessing={isProcessingImages} processingUrls={processingUrls} onStandardizeAll={async () => {
                setIsProcessingImages(true);
-               const m = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image || "";
-               const o = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
+               const mainUrl = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image || "";
+               const otherUrls = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
                
-               const results = await Promise.all([
-                 m ? processAndUploadImage(m) : Promise.resolve(""), 
-                 ...o.map(u => processAndUploadImage(u))
-               ]);
+               const processedMain = mainUrl ? await processAndUploadImage(mainUrl) : "";
+               const processedOthers = [];
+               for (const u of otherUrls) {
+                 processedOthers.push(await processAndUploadImage(u));
+               }
 
                const next = JSON.parse(JSON.stringify(localListing)) as Listing;
-               const currentOpt = getValidOptimizedData(next.optimized);
                next.optimized = { 
-                 ...currentOpt, 
-                 optimized_main_image: results[0] || currentOpt.optimized_main_image, 
-                 optimized_other_images: results.slice(1).filter(Boolean) 
-               };
+                 ...(next.optimized || {}), 
+                 optimized_main_image: processedMain || next.optimized?.optimized_main_image, 
+                 optimized_other_images: processedOthers 
+               } as OptimizedData;
                
                setLocalListing(next); onUpdate(next); await syncToSupabase(next); setIsProcessingImages(false);
-               if (results[0]) setPreviewImage(results[0]);
+               if (processedMain) setPreviewImage(processedMain);
              }} onStandardizeOne={async (url) => {
                const newUrl = await processAndUploadImage(url);
                const next = JSON.parse(JSON.stringify(localListing)) as Listing;
-               const currentOpt = getValidOptimizedData(next.optimized);
-               if ((currentOpt.optimized_main_image || next.cleaned.main_image) === url) {
-                 next.optimized = { ...currentOpt, optimized_main_image: newUrl };
+               if ((next.optimized?.optimized_main_image || next.cleaned.main_image) === url) {
+                 next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl } as OptimizedData;
                } else { 
-                 const others = [...(currentOpt.optimized_other_images || next.cleaned.other_images || [])]; 
-                 const idx = others.indexOf(url); if (idx > -1) { others[idx] = newUrl; next.optimized = { ...currentOpt, optimized_other_images: others }; } 
+                 const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])]; 
+                 const idx = others.indexOf(url); if (idx > -1) { others[idx] = newUrl; next.optimized = { ...(next.optimized || {}), optimized_other_images: others } as OptimizedData; } 
                }
                setLocalListing(next); onUpdate(next); await syncToSupabase(next); setPreviewImage(newUrl);
              }} onRestoreAll={() => {
@@ -292,7 +322,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
              }} setShowEditor={(show) => { 
                 if (show) setEditingImageUrl(previewImage); 
                 setShowImageEditor(show); 
-             }} fileInputRef={fileInputRef} />
+             }} fileInputRef={fileInputRef} onAddImage={handleFileUpload} />
              <ListingSourcingSection listing={localListing} updateField={(f, v) => updateFields({[f]: v}, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
           </div>
           
