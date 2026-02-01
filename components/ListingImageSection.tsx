@@ -34,18 +34,17 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
-      // 必须使用代理以避免 Canvas 跨域污染
       const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl 
         : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
       
       const img = new Image();
-      img.crossOrigin = "anonymous"; // 核心：开启跨域许可
+      img.crossOrigin = "anonymous"; // 必须设置，否则 Canvas 会被污染无法导出
       img.src = proxiedUrl;
       
       await new Promise((resolve, reject) => {
         img.onload = resolve;
-        img.onerror = () => reject(new Error("Image Load Failed"));
+        img.onerror = () => reject(new Error("Load Fail"));
       });
 
       const canvas = document.createElement('canvas');
@@ -57,7 +56,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
-      // 2. 物理缩放 (限制长边 1500px 居中)
+      // 2. 物理缩放计算 (限制长边 1500px 居中)
       const scale = Math.min(1500 / img.width, 1500 / img.height);
       const dw = img.width * scale;
       const dh = img.height * scale;
@@ -66,9 +65,9 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
-      // 3. 转换为 Blob 并上传
+      // 3. 转 Blob 上传
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Canvas Export Failed");
+      if (!blob) throw new Error("Canvas Error");
 
       const fd = new FormData();
       fd.append('file', blob, `std1600_${Date.now()}.jpg`);
@@ -81,7 +80,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; });
       return finalUrl;
     } catch (e) { 
-      console.error("Standardize Error:", e);
+      console.error("1600 Process Error:", e);
       setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; }); 
       return imgUrl; 
     }
@@ -89,13 +88,16 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
 
   const handleStandardizeAll = async () => {
     setIsProcessing(true);
+    // 处理主图
     const processedMain = effectiveMain ? await processAndUploadImage(effectiveMain) : "";
+    
+    // 处理附图
     const processedOthers = [];
     for (const u of effectiveOthers) {
       processedOthers.push(await processAndUploadImage(u));
     }
     
-    // 写入 listings 表的 optimized 字段
+    // 更新至 listings 表的 optimized 字段
     const nextOpt = { 
       ...(listing.optimized || {}), 
       optimized_main_image: processedMain || effectiveMain, 
@@ -153,7 +155,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
        onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: nextAll[0] || "", optimized_other_images: nextAll.slice(1) } as any });
        setPreviewImage(nextAll[0] || "");
     } else {
-       onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: allImages.filter(u => u !== url && u !== effectiveMain) } as any });
+       onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: effectiveOthers.filter(u => u !== url) } as any });
     }
   };
 
