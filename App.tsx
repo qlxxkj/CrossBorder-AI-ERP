@@ -40,7 +40,7 @@ const App: React.FC = () => {
       if (error) throw error;
       setListings(data || []);
     } catch (e) {
-      console.error("Fetch listings failure:", e);
+      console.error("Fetch listings error:", e);
     } finally {
       setIsSyncing(false);
     }
@@ -91,8 +91,8 @@ const App: React.FC = () => {
       setSession(newSession);
       if (newSession) {
         fetchIdentity(newSession.user.id, newSession);
-        // 如果是从登录页或落地页进入且已登录，跳转到仪表盘
-        if (view === AppView.AUTH || view === AppView.LANDING) {
+        // 如果处于 Landing 或 Auth 页面，登录后立即进入 Dashboard
+        if (view === AppView.LANDING || view === AppView.AUTH) {
           setView(AppView.DASHBOARD);
           setActiveTab('dashboard');
         }
@@ -100,7 +100,7 @@ const App: React.FC = () => {
         setUserProfile(null);
         setOrg(null);
         setListings([]);
-        // 核心修复：只有在不是正在 Auth 页面时，才退回到 Landing
+        // 核心修复：只有在不是主动进入登录页时，才回到落地页
         if (view !== AppView.AUTH) {
           setView(AppView.LANDING);
         }
@@ -143,7 +143,7 @@ const App: React.FC = () => {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20">
           <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Synchronizing Neural Workspace...</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Establishing Connection...</p>
         </div>
       );
     }
@@ -165,13 +165,11 @@ const App: React.FC = () => {
               }}
               onNext={() => { 
                 const idx = listings.findIndex(l => l.id === selectedListing.id); 
-                if (idx < listings.length - 1) {
-                  setSelectedListing(listings[idx + 1]);
-                }
+                if (idx < listings.length - 1) { setSelectedListing(listings[idx + 1]); }
               }} 
               uiLang={lang} 
             />
-          ) : <div className="p-20 text-center text-slate-300 font-black uppercase tracking-widest">Listing Reference Invalid.</div>;
+          ) : <div className="p-20 text-center text-slate-300 font-black uppercase tracking-widest">Invalid Listing Context.</div>;
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
@@ -183,13 +181,13 @@ const App: React.FC = () => {
           return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
       }
     } catch (err) {
-      console.error("View Crash:", err);
+      console.error("View Rendering Error:", err);
       return (
         <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4 h-full bg-white">
           <AlertCircle size={48} className="text-red-500" />
           <h3 className="text-xl font-black">Runtime Recovery</h3>
-          <p className="text-slate-400 text-xs">The application encountered a critical view exception.</p>
-          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Reboot AMZBot</button>
+          <p className="text-slate-400 text-xs">A critical error occurred in the view engine.</p>
+          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Reboot ERP</button>
         </div>
       );
     }
@@ -199,7 +197,7 @@ const App: React.FC = () => {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-white">
         <Loader2 className="animate-spin text-indigo-600 mb-4" size={48} />
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Initializing Neural Core...</p>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Initializing Global Assets...</p>
       </div>
     );
   }

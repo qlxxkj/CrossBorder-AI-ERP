@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
-  X, Eraser, Scissors, PaintBucket, Crop, Save, Undo, 
+  X, Eraser, Scissors, PaintBucket, Save, Undo, 
   Loader2, MousePointer2, Type, Square, Circle, Minus, 
   Palette, ZoomIn, ZoomOut, Move, Maximize2, Sparkles, ChevronDown, Trash2, Hand
 } from 'lucide-react';
@@ -15,7 +15,7 @@ interface ImageEditorProps {
   uiLang: UILanguage;
 }
 
-type Tool = 'select' | 'hand' | 'brush' | 'ai-erase' | 'crop' | 'rect' | 'circle' | 'line' | 'text';
+type Tool = 'select' | 'hand' | 'brush' | 'ai-erase' | 'crop' | 'rect' | 'circle' | 'line' | 'text' | 'select-fill';
 
 interface EditorElement {
   id: string;
@@ -29,7 +29,6 @@ interface EditorElement {
   strokeWidth: number;
   fontSize: number;
   text?: string;
-  rotation: number;
   points?: { x: number, y: number }[];
 }
 
@@ -47,7 +46,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [isProcessing, setIsProcessing] = useState(true);
   
-  // 实时属性状态
+  // 右侧属性面板状态
   const [strokeColor, setStrokeColor] = useState('#ff0000');
   const [fillColor, setFillColor] = useState('transparent');
   const [strokeWidth, setStrokeWidth] = useState(10);
@@ -63,22 +62,23 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [isDragging, setIsDragging] = useState(false);
   const [canvasImage, setCanvasImage] = useState<HTMLImageElement | null>(null);
 
-  // 1. 初始化加载图片核心逻辑 (修复空白问题)
+  // 1. 初始化加载图片逻辑：修复图片不显示问题
   useEffect(() => {
     const loadImage = async () => {
       if (!imageUrl) return;
       setIsProcessing(true);
       try {
+        // 强制使用时间戳防止缓存，并通过代理解决 CORS
         const proxiedUrl = (imageUrl.startsWith('data:') || imageUrl.startsWith('blob:')) 
           ? imageUrl 
           : `${CORS_PROXY}${encodeURIComponent(imageUrl)}?t=${Date.now()}`;
         
         const img = new Image();
-        img.crossOrigin = "anonymous";
+        img.crossOrigin = "anonymous"; // 必须在 src 之前
         
         await new Promise((resolve, reject) => {
           img.onload = () => resolve(img);
-          img.onerror = (e) => reject(new Error("Editor Load Failure"));
+          img.onerror = (e) => reject(new Error("Loading Failed"));
           img.src = proxiedUrl;
         });
         
@@ -89,14 +89,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         }
         setIsProcessing(false);
       } catch (e) {
-        console.error("Editor Image Error:", e);
+        console.error("Editor Image Load Error:", e);
         setIsProcessing(false);
       }
     };
     loadImage();
   }, [imageUrl]);
 
-  // 2. 联动系统：属性变化实时同步到选中元素
+  // 2. 物理联动系统：属性修改立即应用到选中元素
   useEffect(() => {
     if (selectedId) {
       setElements(prev => prev.map(el => 
@@ -105,16 +105,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   }, [strokeColor, fillColor, strokeWidth, fontSize, selectedId]);
 
-  // 3. 画布重绘逻辑
+  // 3. 画布重绘逻辑引擎
   useEffect(() => {
     if (!canvasRef.current || !canvasImage) return;
     const ctx = canvasRef.current.getContext('2d')!;
     canvasRef.current.width = canvasImage.width;
     canvasRef.current.height = canvasImage.height;
     
+    // 绘制原始图层
     ctx.clearRect(0, 0, canvasImage.width, canvasImage.height);
     ctx.drawImage(canvasImage, 0, 0);
     
+    // 渲染动态元素图层
     elements.forEach(el => {
       ctx.save();
       ctx.globalAlpha = opacity;
@@ -127,14 +129,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       if ((el.type === 'brush' || el.type === 'ai-erase') && el.points) {
         if (el.type === 'ai-erase') ctx.globalCompositeOperation = 'destination-out';
         ctx.beginPath();
-        if (el.points.length) {
+        if (el.points.length > 0) {
           ctx.moveTo(el.points[0].x, el.points[0].y);
           el.points.forEach(p => ctx.lineTo(p.x, p.y));
         }
         ctx.stroke();
-      } else if (el.type === 'rect') {
+      } else if (el.type === 'rect' || el.type === 'select-fill') {
         if (el.fillColor !== 'transparent') ctx.fillRect(el.x, el.y, el.w, el.h);
-        ctx.strokeRect(el.x, el.y, el.w, el.h);
+        if (el.type === 'rect') ctx.strokeRect(el.x, el.y, el.w, el.h);
       } else if (el.type === 'circle') {
         const radius = Math.sqrt(el.w ** 2 + el.h ** 2);
         ctx.beginPath();
@@ -147,14 +149,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.font = `bold ${el.fontSize}px Inter, sans-serif`;
         ctx.textBaseline = 'top';
         ctx.fillText(el.text || '', el.x, el.y);
+      } else if (el.type === 'crop') {
+        ctx.setLineDash([10, 10]);
+        ctx.strokeStyle = '#6366f1';
+        ctx.strokeRect(el.x, el.y, el.w, el.h);
       }
 
+      // 选中元素的物理焦点提示
       if (el.id === selectedId) {
         ctx.globalCompositeOperation = 'source-over';
-        ctx.setLineDash([10 / zoom, 10 / zoom]);
+        ctx.setLineDash([5 / zoom, 5 / zoom]);
         ctx.strokeStyle = '#6366f1';
-        ctx.lineWidth = 4 / zoom;
-        ctx.strokeRect(el.x - 10 / zoom, el.y - 10 / zoom, el.w + 20 / zoom, el.h + 20 / zoom);
+        ctx.lineWidth = 2 / zoom;
+        ctx.strokeRect(el.x - 5 / zoom, el.y - 5 / zoom, el.w + 10 / zoom, el.h + 10 / zoom);
       }
       ctx.restore();
     });
@@ -183,7 +190,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     
     if (currentTool === 'select') { 
       const hit = [...elements].reverse().find(el => {
-        const margin = 20 / zoom;
+        const margin = 10 / zoom;
         return pos.x >= el.x - margin && pos.x <= el.x + el.w + margin && pos.y >= el.y - margin && pos.y <= el.y + el.h + margin;
       });
       if (hit) { 
@@ -201,7 +208,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const id = Math.random().toString(36).substring(2, 9);
     const newEl: EditorElement = { 
       id, type: currentTool, x: pos.x, y: pos.y, w: 0, h: 0, 
-      color: strokeColor, fillColor, strokeWidth, fontSize, rotation: 0,
+      color: strokeColor, fillColor, strokeWidth, fontSize,
       points: (currentTool === 'brush' || currentTool === 'ai-erase') ? [pos] : undefined
     };
     
@@ -232,6 +239,30 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }));
   };
 
+  const executeCrop = () => {
+    const cropEl = elements.find(el => el.type === 'crop' && el.id === selectedId);
+    if (!cropEl || !canvasRef.current) return;
+    
+    setIsProcessing(true);
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = Math.abs(cropEl.w);
+    tempCanvas.height = Math.abs(cropEl.h);
+    const tx = cropEl.w > 0 ? cropEl.x : cropEl.x + cropEl.w;
+    const ty = cropEl.h > 0 ? cropEl.y : cropEl.y + cropEl.h;
+    
+    const tctx = tempCanvas.getContext('2d')!;
+    tctx.drawImage(canvasRef.current, tx, ty, tempCanvas.width, tempCanvas.height, 0, 0, tempCanvas.width, tempCanvas.height);
+    
+    const img = new Image();
+    img.onload = () => {
+      setCanvasImage(img);
+      setElements([]);
+      setSelectedId(null);
+      setIsProcessing(false);
+    };
+    img.src = tempCanvas.toDataURL();
+  };
+
   const handleCommit = async (isStandardized: boolean) => {
     if (!canvasRef.current || isProcessing) return;
     setIsProcessing(true);
@@ -240,6 +271,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setTimeout(() => {
       const exportCanvas = document.createElement('canvas'); 
       const bctx = exportCanvas.getContext('2d')!;
+      
       if (isStandardized) { 
         exportCanvas.width = 1600; exportCanvas.height = 1600; 
         bctx.fillStyle = '#FFFFFF'; bctx.fillRect(0, 0, 1600, 1600); 
@@ -265,35 +297,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }, 100);
   };
 
-  const handleAIErase = async () => {
-    if (elements.length === 0 || isProcessing) return;
-    setIsProcessing(true);
-    try {
-      const base64 = canvasRef.current!.toDataURL('image/jpeg', 0.9).split(',')[1];
-      const result = await editImageWithAI(base64, "Remove marked object seamlessly.");
-      const nextUrl = `data:image/jpeg;base64,${result}`;
-      
-      const img = new Image();
-      img.onload = () => {
-        setCanvasImage(img);
-        setElements(prev => prev.filter(e => e.type !== 'ai-erase'));
-        setIsProcessing(false);
-      };
-      img.src = nextUrl;
-    } catch (e) {
-      alert("AI Erase Error");
-      setIsProcessing(false);
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-[250] bg-slate-950 flex flex-col font-inter overflow-hidden">
       <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between text-white z-[300] shadow-xl">
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24}/></button>
           <div className="flex flex-col">
-             <span className="font-black text-[10px] uppercase tracking-widest text-indigo-400">Media Studio v6.5</span>
-             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">HD Neural Engine Active</span>
+             <span className="font-black text-[10px] uppercase tracking-widest text-indigo-400">Media Studio v7.0</span>
+             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">HD Rendering Engine</span>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -311,6 +322,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            <div className="w-8 h-px bg-white/10 my-1"></div>
            
            <SideBtn active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelectedId(null); }} icon={<Palette size={18}/>} label="Brush" />
+           <SideBtn active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelectedId(null); }} icon={<PaintBucket size={18}/>} label="Fill" />
            
            <div className="relative group">
               <button 
@@ -331,10 +343,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            </div>
 
            <SideBtn active={currentTool === 'text'} onClick={() => { setCurrentTool('text'); setSelectedId(null); }} icon={<Type size={18}/>} label="Text" />
+           <SideBtn active={currentTool === 'crop'} onClick={() => { setCurrentTool('crop'); setSelectedId(null); }} icon={<Scissors size={18}/>} label="Crop" />
            <SideBtn active={currentTool === 'ai-erase'} onClick={() => { setCurrentTool('ai-erase'); setSelectedId(null); }} icon={<Sparkles size={18}/>} label="AI Erase" />
            
            <div className="w-8 h-px bg-white/10 mt-auto"></div>
-           <button onClick={() => { if(selectedId) setElements(prev => prev.filter(el => el.id !== selectedId)); setSelectedId(null); }} className="p-3 text-slate-500 hover:text-red-500"><Trash2 size={20}/></button>
+           {currentTool === 'crop' && selectedId && (
+             <button onClick={executeCrop} className="p-3 text-indigo-400 hover:text-white bg-indigo-600/20 rounded-xl mb-2"><Maximize2 size={20}/></button>
+           )}
+           <button onClick={() => { if(selectedId) setElements(prev => prev.filter(el => el.id !== selectedId)); setSelectedId(null); }} className="p-3 text-slate-500 hover:text-red-500 transition-colors"><Trash2 size={20}/></button>
         </div>
 
         <div 
@@ -348,7 +364,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           {isProcessing && (
             <div className="absolute inset-0 z-[400] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center">
               <Loader2 className="animate-spin text-indigo-500 mb-4" size={48} />
-              <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Synching Pixel Fabric...</p>
+              <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Synching Neural Fabric...</p>
             </div>
           )}
           
@@ -399,9 +415,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               <input type="range" min="0" max="1" step="0.01" value={opacity} onChange={e => setOpacity(parseFloat(e.target.value))} className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer" />
            </div>
 
-           {currentTool === 'ai-erase' && (
-             <button onClick={handleAIErase} className="w-full py-4 bg-indigo-600 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-indigo-500 animate-pulse">Execute AI Reconstruct</button>
-           )}
+           <div className="pt-6 border-t border-white/10 opacity-50">
+              <p className="text-[9px] font-medium leading-relaxed uppercase tracking-tighter text-slate-400">
+                Tip: Adjust properties above. If an element is selected, it will update immediately. Otherwise, it sets defaults for new items.
+              </p>
+           </div>
         </div>
       </div>
     </div>
@@ -409,8 +427,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 };
 
 const SideBtn = ({ active, onClick, icon, label }: any) => (
-  <button onClick={onClick} className={`w-14 flex flex-col items-center gap-1 group transition-all ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/20 ring-2 ring-indigo-500' : 'bg-white/5 hover:bg-white/10'}`}>{icon}</div>
+  <button onClick={onClick} className={`w-14 flex flex-col items-center gap-1 group transition-all shrink-0 ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/20 ring-2 ring-indigo-500 shadow-lg' : 'bg-white/5 hover:bg-white/10'}`}>{icon}</div>
     <span className="text-[7px] font-black uppercase tracking-tighter opacity-50 group-hover:opacity-100">{label}</span>
   </button>
 );
