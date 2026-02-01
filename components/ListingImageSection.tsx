@@ -28,16 +28,12 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const effectiveOthers = listing.optimized?.optimized_other_images || listing.cleaned?.other_images || [];
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
-  // 辅助函数：补全图床 URL
   const normalizeUrl = (raw: any): string => {
     const src = Array.isArray(raw) && raw[0]?.src ? raw[0].src : (raw.url || raw.data?.url || raw);
     if (!src || typeof src !== 'string') return "";
     return src.startsWith('http') ? src : `${IMAGE_HOST_DOMAIN}${src.startsWith('/') ? '' : '/'}${src}`;
   };
 
-  /**
-   * 物理级标准化上传核心
-   */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
@@ -64,11 +60,9 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       
       const scale = Math.min(1500 / img.width, 1500 / img.height);
       const dw = img.width * scale, dh = img.height * scale;
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
-      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
+      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.92));
       if (!blob) throw new Error("Canvas Fail");
 
       const fd = new FormData();
@@ -98,6 +92,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       if (url) {
         const nextOthers = [...effectiveOthers, url];
         onUpdateListing({ optimized: { ...listing.optimized, optimized_other_images: nextOthers } as any });
+        setPreviewImage(url);
       }
     } catch (err) {
       alert("Upload error");
@@ -115,8 +110,13 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       for (const u of effectiveOthers) {
         newOthers.push(await processAndUploadImage(u));
       }
-      const nextOpt = { ...(listing.optimized || {}), optimized_main_image: newMain || effectiveMain, optimized_other_images: newOthers };
-      onUpdateListing({ optimized: nextOpt as any });
+      onUpdateListing({ 
+        optimized: { 
+          ...(listing.optimized || {}), 
+          optimized_main_image: newMain || effectiveMain, 
+          optimized_other_images: newOthers 
+        } as any 
+      });
       if (newMain) setPreviewImage(newMain);
     } finally {
       setIsProcessing(false);
@@ -141,9 +141,43 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     onUpdateListing({ optimized: nextOpt as any });
   };
 
-  const handleRestoreAll = () => {
-    onUpdateListing({ optimized: undefined });
-    setPreviewImage(listing.cleaned.main_image || '');
+  const handleSetAsMain = (targetUrl: string) => {
+    if (targetUrl === effectiveMain) return;
+    
+    // 逻辑：将当前主图移入 other_images，将点击的图片设为 optimized_main_image
+    const currentOthers = [...effectiveOthers];
+    const filteredOthers = currentOthers.filter(u => u !== targetUrl);
+    
+    onUpdateListing({
+      optimized: {
+        ...(listing.optimized || {}),
+        optimized_main_image: targetUrl,
+        optimized_other_images: [effectiveMain, ...filteredOthers].filter(Boolean)
+      } as any
+    });
+    setPreviewImage(targetUrl);
+  };
+
+  const handleRemoveImage = (targetUrl: string) => {
+    if (!window.confirm("Remove this image?")) return;
+    if (targetUrl === effectiveMain) {
+      const [first, ...rest] = effectiveOthers;
+      onUpdateListing({
+        optimized: {
+          ...(listing.optimized || {}),
+          optimized_main_image: first || '',
+          optimized_other_images: rest
+        } as any
+      });
+      if (first) setPreviewImage(first);
+    } else {
+      onUpdateListing({
+        optimized: {
+          ...(listing.optimized || {}),
+          optimized_other_images: effectiveOthers.filter(u => u !== targetUrl)
+        } as any
+      });
+    }
   };
 
   const activeDisplayImage = hoverImage || previewImage;
@@ -154,23 +188,24 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
          {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-center justify-center z-10"><Loader2 className="animate-spin text-indigo-600" size={32} /></div>}
          <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
          <div className="absolute bottom-4 right-4 flex gap-2">
-            <button onClick={handleRestoreAll} className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center gap-2 hover:bg-slate-200 border border-slate-200"><RefreshCcw size={12} /> Restore</button>
-            <button onClick={handleStandardizeAll} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 hover:bg-indigo-700 shadow-indigo-200"><Maximize2 size={12} /> Standardize All</button>
+            <button onClick={() => onUpdateListing({ optimized: undefined })} className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center gap-2 hover:bg-slate-200 border border-slate-200"><RefreshCcw size={12} /> Restore</button>
+            <button onClick={handleStandardizeAll} disabled={isProcessing} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 hover:bg-indigo-700 shadow-indigo-200"><Maximize2 size={12} /> Standardize All</button>
             <button onClick={() => openEditor(previewImage)} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all"><Wand2 size={12} /> AI Editor</button>
          </div>
       </div>
       <div className="flex flex-wrap gap-2">
          {allImages.map((img, i) => {
            const isSelfProcessing = processingUrls.has(img);
+           const isMain = img === effectiveMain;
            return (
              <div key={`${img}-${i}`} onMouseEnter={() => setHoverImage(img)} onMouseLeave={() => setHoverImage(null)} onClick={() => setPreviewImage(img)} className={`group/thumb relative w-16 h-16 rounded-xl border-2 shrink-0 cursor-pointer overflow-hidden transition-all ${previewImage === img ? 'border-indigo-500 shadow-lg scale-105 z-10' : 'border-transparent opacity-60 hover:opacity-100 hover:scale-105'}`}>
                 <img src={img} className="w-full h-full object-cover" />
                 <div className={`absolute inset-0 bg-black/40 flex flex-col justify-between p-1 transition-opacity ${isSelfProcessing ? 'opacity-100' : 'opacity-0 group-hover/thumb:opacity-100'}`}>
                    <div className="flex justify-between w-full">
-                      <button onClick={(e) => { e.stopPropagation(); onUpdateListing({ optimized: { ...listing.optimized, optimized_main_image: img } as any }); setPreviewImage(img); }} className={`p-1 rounded-lg text-white ${img === effectiveMain ? 'bg-amber-500' : 'bg-white/20'}`}><Star size={10} fill={img === effectiveMain ? "currentColor" : "none"} /></button>
-                      <button onClick={(e) => { e.stopPropagation(); const nextOthers = effectiveOthers.filter(x => x !== img); onUpdateListing({ optimized: { ...listing.optimized, optimized_other_images: nextOthers } as any }); }} className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white"><Trash2 size={10} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); handleSetAsMain(img); }} className={`p-1 rounded-lg text-white transition-colors ${isMain ? 'bg-amber-500 shadow-lg' : 'bg-white/20 hover:bg-amber-400'}`} title="Set as Main"><Star size={10} fill={isMain ? "currentColor" : "none"} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); handleRemoveImage(img); }} className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white"><Trash2 size={10} /></button>
                    </div>
-                   <button onClick={(e) => { e.stopPropagation(); handleStandardizeOne(img); }} className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg shadow-lg self-start">
+                   <button onClick={(e) => { e.stopPropagation(); handleStandardizeOne(img); }} className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg shadow-lg self-start hover:bg-indigo-400">
                      {isSelfProcessing ? <Loader2 size={10} className="animate-spin" /> : <Maximize2 size={10} />}
                    </button>
                 </div>
