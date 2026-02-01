@@ -74,12 +74,13 @@ const App: React.FC = () => {
       }
       setUserProfile(profile);
     } catch (err) {
-      console.error("Critical Identity Error:", err);
+      console.error("Identity Sync Error:", err);
     } finally {
       setIsInitializing(false);
     }
   }, [fetchListings]);
 
+  // Auth Listener: Stabilized to prevent navigation loops
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
@@ -91,8 +92,8 @@ const App: React.FC = () => {
       setSession(newSession);
       if (newSession) {
         fetchIdentity(newSession.user.id, newSession);
-        // 如果处于 Landing 或 Auth 页面，登录后立即进入 Dashboard
-        if (view === AppView.LANDING || view === AppView.AUTH) {
+        // Only auto-navigate to dashboard on actual SIGNED_IN event from AUTH page
+        if (event === 'SIGNED_IN') {
           setView(AppView.DASHBOARD);
           setActiveTab('dashboard');
         }
@@ -100,15 +101,12 @@ const App: React.FC = () => {
         setUserProfile(null);
         setOrg(null);
         setListings([]);
-        // 核心修复：只有在不是主动进入登录页时，才回到落地页
-        if (view !== AppView.AUTH) {
-          setView(AppView.LANDING);
-        }
+        setView(AppView.LANDING);
         setIsInitializing(false);
       }
     });
     return () => subscription.unsubscribe();
-  }, [fetchIdentity, view]);
+  }, [fetchIdentity]); // Remove 'view' from dependencies
 
   const handleLandingLogin = () => {
     if (session && userProfile) {
@@ -143,7 +141,7 @@ const App: React.FC = () => {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20">
           <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Establishing Connection...</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Synchronizing Neural Core...</p>
         </div>
       );
     }
@@ -169,7 +167,7 @@ const App: React.FC = () => {
               }} 
               uiLang={lang} 
             />
-          ) : <div className="p-20 text-center text-slate-300 font-black uppercase tracking-widest">Invalid Listing Context.</div>;
+          ) : null;
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
@@ -181,7 +179,7 @@ const App: React.FC = () => {
           return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
       }
     } catch (err) {
-      console.error("View Rendering Error:", err);
+      console.error("View Crash:", err);
       return (
         <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4 h-full bg-white">
           <AlertCircle size={48} className="text-red-500" />
@@ -197,7 +195,7 @@ const App: React.FC = () => {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-white">
         <Loader2 className="animate-spin text-indigo-600 mb-4" size={48} />
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Initializing Global Assets...</p>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Initializing Assets...</p>
       </div>
     );
   }

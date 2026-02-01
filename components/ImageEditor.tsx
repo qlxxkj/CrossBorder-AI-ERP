@@ -46,7 +46,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [isProcessing, setIsProcessing] = useState(true);
   
-  // 右侧属性面板状态
+  // Attribute States
   const [strokeColor, setStrokeColor] = useState('#ff0000');
   const [fillColor, setFillColor] = useState('transparent');
   const [strokeWidth, setStrokeWidth] = useState(10);
@@ -62,23 +62,22 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [isDragging, setIsDragging] = useState(false);
   const [canvasImage, setCanvasImage] = useState<HTMLImageElement | null>(null);
 
-  // 1. 初始化加载图片逻辑：修复图片不显示问题
+  // 1. Initial Load Logic - Critical Fix for White Canvas
   useEffect(() => {
     const loadImage = async () => {
       if (!imageUrl) return;
       setIsProcessing(true);
       try {
-        // 强制使用时间戳防止缓存，并通过代理解决 CORS
         const proxiedUrl = (imageUrl.startsWith('data:') || imageUrl.startsWith('blob:')) 
           ? imageUrl 
           : `${CORS_PROXY}${encodeURIComponent(imageUrl)}?t=${Date.now()}`;
         
         const img = new Image();
-        img.crossOrigin = "anonymous"; // 必须在 src 之前
+        img.crossOrigin = "anonymous"; // MUST be set before src
         
         await new Promise((resolve, reject) => {
           img.onload = () => resolve(img);
-          img.onerror = (e) => reject(new Error("Loading Failed"));
+          img.onerror = (e) => reject(new Error("Image Load Failed"));
           img.src = proxiedUrl;
         });
         
@@ -89,14 +88,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         }
         setIsProcessing(false);
       } catch (e) {
-        console.error("Editor Image Load Error:", e);
+        console.error("ImageEditor Loading Error:", e);
         setIsProcessing(false);
       }
     };
     loadImage();
   }, [imageUrl]);
 
-  // 2. 物理联动系统：属性修改立即应用到选中元素
+  // 2. Real-time Attribute Sync to Selected Element
   useEffect(() => {
     if (selectedId) {
       setElements(prev => prev.map(el => 
@@ -105,18 +104,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   }, [strokeColor, fillColor, strokeWidth, fontSize, selectedId]);
 
-  // 3. 画布重绘逻辑引擎
+  // 3. Physical Drawing Engine
   useEffect(() => {
     if (!canvasRef.current || !canvasImage) return;
     const ctx = canvasRef.current.getContext('2d')!;
     canvasRef.current.width = canvasImage.width;
     canvasRef.current.height = canvasImage.height;
     
-    // 绘制原始图层
+    // Clear and draw base image
     ctx.clearRect(0, 0, canvasImage.width, canvasImage.height);
     ctx.drawImage(canvasImage, 0, 0);
     
-    // 渲染动态元素图层
+    // Draw all dynamic elements
     elements.forEach(el => {
       ctx.save();
       ctx.globalAlpha = opacity;
@@ -150,12 +149,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.textBaseline = 'top';
         ctx.fillText(el.text || '', el.x, el.y);
       } else if (el.type === 'crop') {
-        ctx.setLineDash([10, 10]);
+        ctx.setLineDash([10 / zoom, 10 / zoom]);
         ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 2 / zoom;
         ctx.strokeRect(el.x, el.y, el.w, el.h);
       }
 
-      // 选中元素的物理焦点提示
+      // Selection Highlight
       if (el.id === selectedId) {
         ctx.globalCompositeOperation = 'source-over';
         ctx.setLineDash([5 / zoom, 5 / zoom]);
@@ -268,6 +268,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setIsProcessing(true);
     setSelectedId(null);
     
+    // Minimal delay to ensure React has finished state updates for canvas effect
     setTimeout(() => {
       const exportCanvas = document.createElement('canvas'); 
       const bctx = exportCanvas.getContext('2d')!;
@@ -285,16 +286,44 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       
       exportCanvas.toBlob(async (blob) => {
         if (!blob) return setIsProcessing(false);
-        const fd = new FormData(); fd.append('file', blob, `studio_${Date.now()}.jpg`);
+        const fd = new FormData(); 
+        fd.append('file', blob, `studio_${Date.now()}.jpg`);
         try { 
           const res = await fetch(TARGET_API, { method: 'POST', body: fd }); 
           const data = await res.json(); 
           const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
           const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
           if (url) onSave(url); 
+        } catch (e) {
+          alert("Sync Failed: Check network/CORS.");
         } finally { setIsProcessing(false); }
       }, 'image/jpeg', 0.98);
-    }, 100);
+    }, 150);
+  };
+
+  const handleAIErase = async () => {
+    if (!selectedId || isProcessing) return;
+    const el = elements.find(e => e.id === selectedId && e.type === 'ai-erase');
+    if (!el) return;
+
+    setIsProcessing(true);
+    try {
+      const base64 = canvasRef.current!.toDataURL('image/jpeg', 0.9).split(',')[1];
+      const result = await editImageWithAI(base64, "Remove the object seamlessly.");
+      const nextUrl = `data:image/jpeg;base64,${result}`;
+      
+      const img = new Image();
+      img.onload = () => {
+        setCanvasImage(img);
+        setElements(prev => prev.filter(e => e.id !== selectedId));
+        setSelectedId(null);
+        setIsProcessing(false);
+      };
+      img.src = nextUrl;
+    } catch (e) {
+      alert("AI Erase Error");
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -304,7 +333,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24}/></button>
           <div className="flex flex-col">
              <span className="font-black text-[10px] uppercase tracking-widest text-indigo-400">Media Studio v7.0</span>
-             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">HD Rendering Engine</span>
+             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">HD Neural Engine Active</span>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -316,8 +345,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       </div>
       
       <div className="flex-1 flex overflow-hidden">
+        {/* Toolset */}
         <div className="w-20 bg-slate-900 border-r border-white/5 flex flex-col items-center py-6 gap-6 z-[300]">
-           <SideBtn active={currentTool === 'select'} onClick={() => setCurrentTool('select')} icon={<MousePointer2 size={18}/>} label="Move" />
+           <SideBtn active={currentTool === 'select'} onClick={() => setCurrentTool('select')} icon={<MousePointer2 size={18}/>} label="Select" />
            <SideBtn active={currentTool === 'hand'} onClick={() => setCurrentTool('hand')} icon={<Hand size={18}/>} label="Pan" />
            <div className="w-8 h-px bg-white/10 my-1"></div>
            
@@ -353,6 +383,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            <button onClick={() => { if(selectedId) setElements(prev => prev.filter(el => el.id !== selectedId)); setSelectedId(null); }} className="p-3 text-slate-500 hover:text-red-500 transition-colors"><Trash2 size={20}/></button>
         </div>
 
+        {/* Viewport Area */}
         <div 
           ref={containerRef}
           className="flex-1 bg-slate-950 cursor-crosshair overflow-hidden relative" 
@@ -384,6 +415,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
         </div>
 
+        {/* Attribute Panel */}
         <div className="w-72 bg-slate-900 border-l border-white/5 p-8 space-y-10 z-[300] overflow-y-auto text-white">
            <div className="space-y-4">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Stroke Width</label>
@@ -415,9 +447,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               <input type="range" min="0" max="1" step="0.01" value={opacity} onChange={e => setOpacity(parseFloat(e.target.value))} className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer" />
            </div>
 
+           {currentTool === 'ai-erase' && selectedId && (
+             <button onClick={handleAIErase} className="w-full py-4 bg-indigo-600 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-indigo-500 animate-pulse">Execute AI Reconstruct</button>
+           )}
+
            <div className="pt-6 border-t border-white/10 opacity-50">
               <p className="text-[9px] font-medium leading-relaxed uppercase tracking-tighter text-slate-400">
-                Tip: Adjust properties above. If an element is selected, it will update immediately. Otherwise, it sets defaults for new items.
+                Tip: Properties update selected elements immediately. Otherwise, they set defaults for new creations.
               </p>
            </div>
         </div>

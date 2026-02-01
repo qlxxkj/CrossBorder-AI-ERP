@@ -29,7 +29,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   /**
-   * 1600 物理标准化处理器
+   * 1600 Physical Standardization Handler
    */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
@@ -40,7 +40,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     });
     
     try {
-      // 核心修复：通过代理加载并授权 Canvas 导出权限
+      // Proxy bridge for CORS safety
       const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl 
         : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
@@ -59,11 +59,11 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
       
-      // 1. 物理白底
+      // 1. Physical White Background
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
-      // 2. 物理居中缩放
+      // 2. Physical Centered Scaling (Amazon Spec: 1500 padding)
       const scale = Math.min(1500 / img.width, 1500 / img.height);
       const dw = img.width * scale;
       const dh = img.height * scale;
@@ -72,15 +72,17 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
-      // 3. 导出物理 Blob 并上传至 host
+      // 3. Export & Sync to Host
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Canvas Error");
+      if (!blob) throw new Error("Canvas Serialization Failed");
 
       const fd = new FormData();
-      fd.append('file', blob, `standardized_${Date.now()}.jpg`);
+      fd.append('file', blob, `std_${Date.now()}.jpg`);
       
       const res = await fetch(TARGET_API, { method: 'POST', body: fd });
       const data = await res.json();
+      
+      // API typically returns [{"src": "/path"}] or {"url": "full"}
       const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
       const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : imgUrl;
       
@@ -109,7 +111,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       newOthers.push(await processAndUploadImage(u));
     }
     
-    // 深度合并到 optimized 字段，保留原有的 AI 标题等文本
+    // Perform deep merge into 'optimized' field to preserve existing AI text
     const nextOpt = { 
       ...(listing.optimized || {}), 
       optimized_main_image: newMain || effectiveMain, 
@@ -151,12 +153,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
       if (url) {
         const currentOthers = listing.optimized?.optimized_other_images || listing.cleaned.other_images || [];
-        onUpdateListing({ 
-          optimized: { 
-            ...(listing.optimized || {}), 
-            optimized_other_images: [...currentOthers, url] 
-          } as any 
-        });
+        onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: [...currentOthers, url] } as any });
         setPreviewImage(url);
       }
     } finally { setIsProcessing(false); if (e.target) e.target.value = ''; }
@@ -164,13 +161,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
 
   const handleSetMain = (url: string) => {
     const nextAll = allImages.filter(u => u !== url);
-    onUpdateListing({ 
-      optimized: { 
-        ...(listing.optimized || {}), 
-        optimized_main_image: url, 
-        optimized_other_images: nextAll 
-      } as any 
-    });
+    onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: url, optimized_other_images: nextAll } as any });
     setPreviewImage(url);
   };
 
@@ -178,21 +169,10 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     const isMain = url === effectiveMain;
     const nextAll = allImages.filter(u => u !== url);
     if (isMain) {
-       onUpdateListing({ 
-         optimized: { 
-           ...(listing.optimized || {}), 
-           optimized_main_image: nextAll[0] || "", 
-           optimized_other_images: nextAll.slice(1) 
-         } as any 
-       });
+       onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: nextAll[0] || "", optimized_other_images: nextAll.slice(1) } as any });
        setPreviewImage(nextAll[0] || "");
     } else {
-       onUpdateListing({ 
-         optimized: { 
-           ...(listing.optimized || {}), 
-           optimized_other_images: effectiveOthers.filter(u => u !== url) 
-         } as any 
-       });
+       onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: effectiveOthers.filter(u => u !== url) } as any });
     }
   };
 
