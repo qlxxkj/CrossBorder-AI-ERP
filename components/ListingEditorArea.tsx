@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { DollarSign, Truck, ListFilter, Plus, RefreshCw, Loader2, Sparkles } from 'lucide-react';
 import { Listing, OptimizedData, UILanguage, ExchangeRate, PriceAdjustment } from '../types';
@@ -117,8 +118,6 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
       updateListing({ optimized: { ...(listing.optimized || {}), [field]: value } as any });
     } else {
       const nextTrans = { ...(listing.translations || {}) };
-      // Cast the partial object update to any to bypass strict property requirement checks for OptimizedData
-      // This is necessary because spreading an object with optional properties may result in a type where required properties of OptimizedData are seen as optional.
       nextTrans[activeMarket] = { ...(nextTrans[activeMarket] || {}), [field]: value } as any;
       updateListing({ translations: nextTrans });
     }
