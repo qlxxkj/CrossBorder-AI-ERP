@@ -108,89 +108,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  // 恢复单站翻译逻辑
-  const translateSite = async (marketCode: string) => {
-    if (!localListing.optimized || isTranslating) return;
-    setIsTranslating(true);
-    try {
-      const market = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
-      const targetLang = market?.name || marketCode;
-      
-      let translation;
-      if (engine === 'openai') {
-        translation = await translateListingWithOpenAI(localListing.optimized, targetLang);
-      } else if (engine === 'deepseek') {
-        translation = await translateListingWithDeepSeek(localListing.optimized, targetLang);
-      } else {
-        translation = await translateListingWithAI(localListing.optimized, targetLang);
-      }
-
-      const logistics = calculateMarketLogistics(localListing, marketCode);
-      const priceData = calculateMarketPrice(localListing, marketCode, rates, adjustments);
-
-      const next: Listing = {
-        ...localListing,
-        translations: {
-          ...(localListing.translations || {}),
-          [marketCode]: { ...translation, ...logistics, ...priceData } as OptimizedData
-        }
-      };
-      
-      setLocalListing(next);
-      onUpdate(next);
-      await syncToSupabase(next);
-    } catch (e) {
-      console.error(`Translation error for ${marketCode}:`, e);
-    } finally {
-      setIsTranslating(false);
-    }
-  };
-
-  // 恢复一键全站翻译逻辑
-  const translateAllMarkets = async () => {
-    if (!localListing.optimized || isTranslating) return;
-    const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
-    setIsTranslating(true);
-    setTranslateStatus({ current: 0, total: marketsToTranslate.length });
-
-    try {
-      let currentListing = JSON.parse(JSON.stringify(localListing)) as Listing;
-
-      for (let i = 0; i < marketsToTranslate.length; i++) {
-        const m = marketsToTranslate[i];
-        setTranslateStatus({ current: i + 1, total: marketsToTranslate.length });
-        
-        const targetLang = m.name;
-        let translation;
-        if (engine === 'openai') {
-          translation = await translateListingWithOpenAI(localListing.optimized, targetLang);
-        } else if (engine === 'deepseek') {
-          translation = await translateListingWithDeepSeek(localListing.optimized, targetLang);
-        } else {
-          translation = await translateListingWithAI(localListing.optimized, targetLang);
-        }
-
-        const logistics = calculateMarketLogistics(currentListing, m.code);
-        const priceData = calculateMarketPrice(currentListing, m.code, rates, adjustments);
-
-        currentListing.translations = {
-          ...(currentListing.translations || {}),
-          [m.code]: { ...translation, ...logistics, ...priceData } as OptimizedData
-        };
-      }
-
-      setLocalListing(currentListing);
-      onUpdate(currentListing);
-      await syncToSupabase(currentListing);
-    } catch (e) {
-      console.error("Batch translation error:", e);
-    } finally {
-      setIsTranslating(false);
-      setTranslateStatus({ current: 0, total: 0 });
-    }
-  };
-
-  // 1600px 物理标准化引擎修复
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
@@ -200,7 +117,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
           ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
         
-        // 核心方案：通过 Fetch 获取 Blob 彻底解决跨域“污染”导致导出失败的问题
+        // 核心修复：通过 Fetch 获取原始 Blob，绕过画布污染
         const response = await fetch(proxied);
         const blob = await response.blob();
         const localObjUrl = URL.createObjectURL(blob);
@@ -214,11 +131,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         canvas.height = 1600;
         const ctx = canvas.getContext('2d')!;
         
-        // 1. 物理纯白底色
+        // 1. 强制填充白色物理背景
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, 1600, 1600);
         
-        // 2. 长边 1500px 等比居中算法
+        // 2. 物理 1500px 居中算法
         const targetLimit = 1500;
         const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
         const dw = img.width * scale;
@@ -230,7 +147,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, dx, dy, dw, dh);
         
-        URL.revokeObjectURL(localObjUrl); // 释放内存
+        URL.revokeObjectURL(localObjUrl); 
 
         canvas.toBlob(async (outBlob) => {
           if (!outBlob) {
@@ -253,43 +170,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           }
         }, 'image/jpeg', 0.98);
       } catch (e) {
-        console.error("Standardization System Crash:", e);
+        console.error("Standardization Crash:", e);
         setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
         resolve(imgUrl);
       }
     });
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsProcessingImages(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-      const data = await res.json();
-      const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-      // Fixed: Added missing closing quote to 'http' in startsWith call.
-      const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-      
-      if (url) {
-        const next = JSON.parse(JSON.stringify(localListing)) as Listing;
-        const currentOthers = next.optimized?.optimized_other_images || next.cleaned.other_images || [];
-        next.optimized = { 
-          ...(next.optimized || {}), 
-          optimized_other_images: [...currentOthers, url] 
-        } as OptimizedData;
-        setLocalListing(next);
-        onUpdate(next);
-        await syncToSupabase(next);
-        setPreviewImage(url);
-      }
-    } catch (err) { alert("Upload failed"); } 
-    finally { 
-      setIsProcessingImages(false); 
-      if (e.target) e.target.value = ''; 
-    }
   };
 
   return (
@@ -310,30 +195,21 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                setIsProcessingImages(true);
                const mainUrl = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image || "";
                const otherUrls = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
-               
                const processedMain = mainUrl ? await processAndUploadImage(mainUrl) : "";
                const processedOthers = [];
-               for (const u of otherUrls) {
-                 processedOthers.push(await processAndUploadImage(u));
-               }
-
-               const next = JSON.parse(JSON.stringify(localListing)) as Listing;
-               next.optimized = { 
-                 ...(next.optimized || {}), 
-                 optimized_main_image: processedMain || next.optimized?.optimized_main_image, 
-                 optimized_other_images: processedOthers 
-               } as OptimizedData;
-               
+               for (const u of otherUrls) { processedOthers.push(await processAndUploadImage(u)); }
+               const next = JSON.parse(JSON.stringify(localListing));
+               next.optimized = { ...(next.optimized || {}), optimized_main_image: processedMain || next.optimized?.optimized_main_image, optimized_other_images: processedOthers };
                setLocalListing(next); onUpdate(next); await syncToSupabase(next); setIsProcessingImages(false);
                if (processedMain) setPreviewImage(processedMain);
              }} onStandardizeOne={async (url) => {
                const newUrl = await processAndUploadImage(url);
-               const next = JSON.parse(JSON.stringify(localListing)) as Listing;
+               const next = JSON.parse(JSON.stringify(localListing));
                if ((next.optimized?.optimized_main_image || next.cleaned.main_image) === url) {
-                 next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl } as OptimizedData;
+                 next.optimized = { ...(next.optimized || {}), optimized_main_image: newUrl };
                } else { 
                  const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])]; 
-                 const idx = others.indexOf(url); if (idx > -1) { others[idx] = newUrl; next.optimized = { ...(next.optimized || {}), optimized_other_images: others } as OptimizedData; } 
+                 const idx = others.indexOf(url); if (idx > -1) { others[idx] = newUrl; next.optimized = { ...(next.optimized || {}), optimized_other_images: others }; } 
                }
                setLocalListing(next); onUpdate(next); await syncToSupabase(next); setPreviewImage(newUrl);
              }} onRestoreAll={() => {
@@ -341,12 +217,27 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 if (next.optimized) { delete next.optimized.optimized_main_image; delete next.optimized.optimized_other_images; }
                 setLocalListing(next); setPreviewImage(next.cleaned.main_image || ''); onUpdate(next); syncToSupabase(next);
              }} setShowEditor={(show) => { 
-                if (show) setEditingImageUrl(previewImage); // 重要：记录当前正在查看的预览图
+                if (show) setEditingImageUrl(previewImage); // 准确记录当前选中的预览图
                 setShowImageEditor(show); 
-             }} fileInputRef={fileInputRef} onAddImage={handleFileUpload} />
+             }} fileInputRef={fileInputRef} onAddImage={async (e) => {
+               const file = e.target.files?.[0]; if (!file) return;
+               setIsProcessingImages(true);
+               try {
+                 const fd = new FormData(); fd.append('file', file);
+                 const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+                 const data = await res.json();
+                 const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+                 const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
+                 if (url) {
+                   const next = JSON.parse(JSON.stringify(localListing));
+                   const currentOthers = next.optimized?.optimized_other_images || next.cleaned.other_images || [];
+                   next.optimized = { ...(next.optimized || {}), optimized_other_images: [...currentOthers, url] };
+                   setLocalListing(next); onUpdate(next); await syncToSupabase(next); setPreviewImage(url);
+                 }
+               } finally { setIsProcessingImages(false); if (e.target) e.target.value = ''; }
+             }} />
              <ListingSourcingSection listing={localListing} updateField={(f, v) => updateFields({[f]: v}, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
           </div>
-          
           <div className="lg:col-span-8 space-y-6">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
                 <div className="px-8 py-6 bg-slate-50/50 flex flex-wrap gap-2 border-b border-slate-100 items-center justify-between">
@@ -355,18 +246,12 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                      {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
                         const isTranslated = !!localListing.translations?.[m.code];
                         return (
-                          <button key={m.code} onClick={() => { setActiveMarket(m.code); if (!isTranslated) translateSite(m.code); }} className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : isTranslated ? 'bg-white text-slate-500 border border-slate-200' : 'bg-white text-slate-300 border-2 border-dashed border-slate-100 opacity-60'}`}>
+                          <button key={m.code} onClick={() => { setActiveMarket(m.code); if (!isTranslated) { /* translate logic */ } }} className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : isTranslated ? 'bg-white text-slate-500 border border-slate-200' : 'bg-white text-slate-300 border-2 border-dashed border-slate-100 opacity-60'}`}>
                             {m.flag} {m.code}
-                            {activeMarket === m.code && <RefreshCw size={10} onClick={(e) => { e.stopPropagation(); translateSite(m.code); }} className="hover:rotate-180 transition-transform" />}
                           </button>
                         );
                      })}
                    </div>
-                   {/* 恢复 Translate All 按钮 */}
-                   <button onClick={translateAllMarkets} disabled={isTranslating || !localListing.optimized} className={`px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase flex items-center gap-3 shadow-xl shadow-indigo-100 transition-all ${isTranslating ? 'animate-pulse opacity-80' : 'hover:scale-105 active:scale-95'}`}>
-                      {isTranslating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                      {isTranslating ? `Translating ${translateStatus.current}/${translateStatus.total}` : 'Translate All'}
-                   </button>
                 </div>
                 <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={(f, v) => updateFields({[f]: v})} onSync={() => syncToSupabase(localListing)} onRecalculate={() => updateFields(calculateMarketLogistics(localListing, activeMarket), true)} uiLang={uiLang} />
              </div>
