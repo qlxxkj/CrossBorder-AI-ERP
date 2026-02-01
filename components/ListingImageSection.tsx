@@ -15,6 +15,7 @@ interface ListingImageSectionProps {
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 const IMAGE_PROXY = 'https://images.weserv.nl/?url=';
+const CORS_PROXY = 'https://corsproxy.io/?';
 
 export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   listing, previewImage, setPreviewImage, onUpdateListing, isSaving, openEditor
@@ -55,24 +56,32 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       canvas.width = 1600; canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
       
+      // 核心修复：绘制纯白底图防止透明底
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
+      // 开启高质量缩放
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
       const scale = Math.min(1500 / img.width, 1500 / img.height);
       const dw = img.width * scale, dh = img.height * scale;
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Processing Error");
+      if (!blob) throw new Error("Canvas Error");
 
       const fd = new FormData();
-      fd.append('file', blob, `standard_${Date.now()}.jpg`);
+      fd.append('file', blob, `std_${Date.now()}.jpg`);
       
-      const uploadRes = await fetch(TARGET_API, { method: 'POST', body: fd });
+      // 核心修复：通过代理转发解决 CORS 问题
+      const proxiedUploadUrl = `${CORS_PROXY}${encodeURIComponent(TARGET_API)}`;
+      const uploadRes = await fetch(proxiedUploadUrl, { method: 'POST', body: fd });
+      if (!uploadRes.ok) throw new Error("Upload Failed");
+      
       const data = await uploadRes.json();
       const finalUrl = normalizeUrl(data);
       
-      // 返回带时间戳的 URL 以击穿浏览器缓存并确保 React 状态更新
       return finalUrl ? `${finalUrl}?std=${Date.now()}` : imgUrl;
     } catch (e) {
       console.error("Standardize Failed:", e);
@@ -122,17 +131,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     onUpdateListing({ optimized: nextOpt });
   };
 
-  const handleSetAsMain = (targetUrl: string) => {
-    if (targetUrl === effectiveMain) return;
-    const currentOthers = [...effectiveOthers];
-    const filteredOthers = currentOthers.filter(u => u !== targetUrl);
-    const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
-    nextOpt.optimized_main_image = targetUrl;
-    nextOpt.optimized_other_images = [effectiveMain, ...filteredOthers].filter(Boolean);
-    onUpdateListing({ optimized: nextOpt });
-    setPreviewImage(targetUrl);
-  };
-
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -140,7 +138,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+      const proxiedUploadUrl = `${CORS_PROXY}${encodeURIComponent(TARGET_API)}`;
+      const res = await fetch(proxiedUploadUrl, { method: 'POST', body: fd });
       const data = await res.json();
       const url = normalizeUrl(data);
       if (url) {
@@ -155,6 +154,17 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     }
   };
 
+  const handleSetAsMain = (targetUrl: string) => {
+    if (targetUrl === effectiveMain) return;
+    const currentOthers = [...effectiveOthers];
+    const filteredOthers = currentOthers.filter(u => u !== targetUrl);
+    const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
+    nextOpt.optimized_main_image = targetUrl;
+    nextOpt.optimized_other_images = [effectiveMain, ...filteredOthers].filter(Boolean);
+    onUpdateListing({ optimized: nextOpt });
+    setPreviewImage(targetUrl);
+  };
+
   const activeDisplayImage = hoverImage || previewImage;
 
   return (
@@ -162,7 +172,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group">
          {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 gap-3">
             <Loader2 className="animate-spin text-indigo-600" size={32} />
-            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Standardizing Pixels...</span>
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Syncing...</span>
          </div>}
          <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
          
