@@ -29,47 +29,46 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   /**
-   * 1600 物理标准化处理器
+   * 1600 物理级标准化处理器
    */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
+      // 必须通过代理物理隔离跨域安全限制
       const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl 
         : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
       
       const img = new Image();
-      img.crossOrigin = "anonymous"; 
+      img.crossOrigin = "anonymous"; // 必须设置授权，否则 Canvas 无法导出
       
       await new Promise((resolve, reject) => {
         img.onload = resolve;
-        img.onerror = () => reject(new Error("Image Load Failure"));
+        img.onerror = () => reject(new Error("Image Load Error"));
         img.src = proxiedUrl;
       });
 
       const canvas = document.createElement('canvas');
-      canvas.width = 1600; 
-      canvas.height = 1600;
+      canvas.width = 1600; canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
       
-      // 1. 绘制物理白底
+      // 1. 绘制物理纯白背景
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
-      // 2. 居中缩放计算
+      // 2. 物体居中等比缩放
       const scale = Math.min(1500 / img.width, 1500 / img.height);
-      const dw = img.width * scale;
-      const dh = img.height * scale;
+      const dw = img.width * scale, dh = img.height * scale;
       
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
-      // 3. 上传结果
+      // 3. 导出物理 Blob
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Export Failure");
+      if (!blob) throw new Error("Canvas Export Error");
 
       const fd = new FormData();
       fd.append('file', blob, `std1600_${Date.now()}.jpg`);
@@ -82,8 +81,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; });
       return finalUrl;
     } catch (e) {
-      console.error("1600 Process Error:", e);
-      setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; }); 
+      console.error("Standardize Error:", e);
+      setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; });
       return imgUrl;
     }
   };
@@ -96,7 +95,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       newOthers.push(await processAndUploadImage(u));
     }
     
-    // 更新至 listings 表的 optimized 字段，自动触发数据库同步
     const nextOpt = { 
       ...(listing.optimized || {}), 
       optimized_main_image: newMain || effectiveMain, 
@@ -143,8 +141,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   };
 
   const handleSetMain = (url: string) => {
-    const others = allImages.filter(u => u !== url);
-    onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: url, optimized_other_images: others } as any });
+    const nextAll = allImages.filter(u => u !== url);
+    onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: url, optimized_other_images: nextAll } as any });
     setPreviewImage(url);
   };
 

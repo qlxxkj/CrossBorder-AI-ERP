@@ -91,7 +91,8 @@ const App: React.FC = () => {
       setSession(newSession);
       if (newSession) {
         fetchIdentity(newSession.user.id, newSession);
-        if (view === AppView.AUTH) {
+        // 如果是从登录页或落地页进入且已登录，跳转到仪表盘
+        if (view === AppView.AUTH || view === AppView.LANDING) {
           setView(AppView.DASHBOARD);
           setActiveTab('dashboard');
         }
@@ -99,7 +100,10 @@ const App: React.FC = () => {
         setUserProfile(null);
         setOrg(null);
         setListings([]);
-        setView(AppView.LANDING);
+        // 核心修复：只有在不是正在 Auth 页面时，才退回到 Landing
+        if (view !== AppView.AUTH) {
+          setView(AppView.LANDING);
+        }
         setIsInitializing(false);
       }
     });
@@ -135,12 +139,11 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    // 【白屏守卫】如果不是公开页面且核心数据未准备好，强制显示加载屏
     if (!userProfile && (view !== AppView.LANDING && view !== AppView.AUTH)) {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20">
           <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Neural Environment Synchronizing...</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Synchronizing Neural Workspace...</p>
         </div>
       );
     }
