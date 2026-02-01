@@ -110,7 +110,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         newOthers.push(await processAndUploadImage(u));
       }
       
-      // 深度合并到 optimized 字段，确保触发 ListingDetail 的 syncToSupabase
+      // 深度合并到 optimized 字段，确保触发同步
       const nextOpt = { 
         ...(listing.optimized || {}), 
         optimized_main_image: newMain || effectiveMain, 

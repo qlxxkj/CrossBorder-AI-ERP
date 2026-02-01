@@ -78,7 +78,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         await new Promise((resolve, reject) => {
           img.onload = async () => {
             try {
-              // 关键修复：强制浏览器解码图像位图，确保 Canvas 绘图时内容已就绪
+              // 关键修复：强制浏览器解码图像位图，确保绘制时底图就绪
               if ('decode' in img) await img.decode();
               resolve(img);
             } catch (e) { reject(e); }
@@ -115,11 +115,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!canvasRef.current || !canvasImage) return;
     const ctx = canvasRef.current.getContext('2d')!;
     
-    // 设置画布物理尺寸
+    // 设置物理像素尺寸
     canvasRef.current.width = canvasImage.width;
     canvasRef.current.height = canvasImage.height;
     
-    // 渲染：底图 -> 元素图层
+    // 渲染图层：底图 -> 动态元素
     ctx.clearRect(0, 0, canvasImage.width, canvasImage.height);
     ctx.drawImage(canvasImage, 0, 0);
     
@@ -161,6 +161,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.strokeRect(el.x, el.y, el.w, el.h);
       }
 
+      // 选中项物理提示
       if (el.id === selectedId) {
         ctx.globalCompositeOperation = 'source-over';
         ctx.setLineDash([5 / zoom, 5 / zoom]);
@@ -231,7 +232,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!isDragging || !selectedId) return;
     const pos = getCanvasPoint(e);
     
-    // 关键点：物理更新正在操作的元素
+    // 关键点：更新当前正在绘制的元素坐标
     setElements(prev => prev.map(el => { 
       if (el.id !== selectedId) return el; 
       if (el.type === 'brush' || el.type === 'ai-erase') return { ...el, points: [...(el.points || []), pos] }; 
@@ -268,6 +269,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setIsProcessing(true);
     setSelectedId(null);
     
+    // 略微延迟确保 React 状态已同步到视图
     setTimeout(() => {
       const exportCanvas = document.createElement('canvas'); 
       const bctx = exportCanvas.getContext('2d')!;
