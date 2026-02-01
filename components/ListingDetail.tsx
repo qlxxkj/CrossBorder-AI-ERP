@@ -1,7 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Loader2, Globe, Sparkles, RefreshCw, CheckCircle2, Plus, ChevronRight } from 'lucide-react';
-import { Listing, OptimizedData, UILanguage, SourcingRecord, ExchangeRate, PriceAdjustment } from '../types';
+import { Listing, OptimizedData, UILanguage, SourcingRecord } from '../types';
 import { ListingTopBar } from './ListingTopBar';
 import { ListingImageSection } from './ListingImageSection';
 import { ListingSourcingSection } from './ListingSourcingSection';
@@ -10,11 +9,9 @@ import { ImageEditor } from './ImageEditor';
 import { SourcingModal } from './SourcingModal';
 import { SourcingFormModal } from './SourcingFormModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { optimizeListingWithAI, translateListingWithAI } from '../services/geminiService';
-import { optimizeListingWithOpenAI, translateListingWithOpenAI } from '../services/openaiService';
-import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from '../services/deepseekService';
-import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
-import { calculateMarketLogistics, calculateMarketPrice } from './LogisticsEditor';
+import { optimizeListingWithAI } from '../services/geminiService';
+import { optimizeListingWithOpenAI } from '../services/openaiService';
+import { optimizeListingWithDeepSeek } from '../services/deepseekService';
 
 interface ListingDetailProps {
   listing: Listing;
@@ -34,8 +31,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [activeMarket, setActiveMarket] = useState('US');
   const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [translateStatus, setTranslateStatus] = useState({ current: 0, total: 0 });
   const [isSaving, setIsSaving] = useState(false);
   const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [processingUrls, setProcessingUrls] = useState<Set<string>>(new Set());
@@ -46,27 +41,13 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   const [editingSourceRecord, setEditingSourceRecord] = useState<SourcingRecord | null>(null);
   const [localListing, setLocalListing] = useState<Listing>(listing);
   const [previewImage, setPreviewImage] = useState<string>('');
-  
-  const [rates, setRates] = useState<ExchangeRate[]>([]);
-  const [adjustments, setAdjustments] = useState<PriceAdjustment[]>([]);
 
   useEffect(() => { 
     setLocalListing(listing); 
     const initialImg = listing.optimized?.optimized_main_image || listing.cleaned?.main_image || '';
     setPreviewImage(initialImg); 
     localStorage.setItem('amzbot_preferred_engine', engine);
-    fetchCalculations();
   }, [listing.id, engine]);
-
-  const fetchCalculations = async () => {
-    if (!isSupabaseConfigured()) return;
-    const [rRes, aRes] = await Promise.all([
-      supabase.from('exchange_rates').select('*'),
-      supabase.from('price_adjustments').select('*')
-    ]);
-    if (rRes.data) setRates(rRes.data);
-    if (aRes.data) setAdjustments(aRes.data);
-  };
 
   const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
@@ -108,86 +89,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  const translateSite = async (marketCode: string) => {
-    if (!localListing.optimized || isTranslating) return;
-    setIsTranslating(true);
-    try {
-      const market = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
-      const targetLang = market?.name || marketCode;
-      
-      let translation;
-      if (engine === 'openai') {
-        translation = await translateListingWithOpenAI(localListing.optimized, targetLang);
-      } else if (engine === 'deepseek') {
-        translation = await translateListingWithDeepSeek(localListing.optimized, targetLang);
-      } else {
-        translation = await translateListingWithAI(localListing.optimized, targetLang);
-      }
-
-      const logistics = calculateMarketLogistics(localListing, marketCode);
-      const priceData = calculateMarketPrice(localListing, marketCode, rates, adjustments);
-
-      const next: Listing = {
-        ...localListing,
-        translations: {
-          ...(localListing.translations || {}),
-          [marketCode]: { ...translation, ...logistics, ...priceData } as OptimizedData
-        }
-      };
-      
-      setLocalListing(next);
-      onUpdate(next);
-      await syncToSupabase(next);
-    } catch (e) {
-      console.error(`Translation error for ${marketCode}:`, e);
-    } finally {
-      setIsTranslating(false);
-    }
-  };
-
-  const translateAllMarkets = async () => {
-    if (!localListing.optimized || isTranslating) return;
-    const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
-    setIsTranslating(true);
-    setTranslateStatus({ current: 0, total: marketsToTranslate.length });
-
-    try {
-      let currentListing = JSON.parse(JSON.stringify(localListing)) as Listing;
-
-      for (let i = 0; i < marketsToTranslate.length; i++) {
-        const m = marketsToTranslate[i];
-        setTranslateStatus({ current: i + 1, total: marketsToTranslate.length });
-        
-        const targetLang = m.name;
-        let translation;
-        if (engine === 'openai') {
-          translation = await translateListingWithOpenAI(localListing.optimized, targetLang);
-        } else if (engine === 'deepseek') {
-          translation = await translateListingWithDeepSeek(localListing.optimized, targetLang);
-        } else {
-          translation = await translateListingWithAI(localListing.optimized, targetLang);
-        }
-
-        const logistics = calculateMarketLogistics(currentListing, m.code);
-        const priceData = calculateMarketPrice(currentListing, m.code, rates, adjustments);
-
-        currentListing.translations = {
-          ...(currentListing.translations || {}),
-          [m.code]: { ...translation, ...logistics, ...priceData } as OptimizedData
-        };
-      }
-
-      setLocalListing(currentListing);
-      onUpdate(currentListing);
-      await syncToSupabase(currentListing);
-    } catch (e) {
-      console.error("Batch translation error:", e);
-    } finally {
-      setIsTranslating(false);
-      setTranslateStatus({ current: 0, total: 0 });
-    }
-  };
-
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
@@ -197,7 +98,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
           ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
         
-        // 核心方案：通过 Fetch 获取 Blob 彻底解决跨域“污染”导致导出失败的问题
         const response = await fetch(proxied);
         const blob = await response.blob();
         const localObjUrl = URL.createObjectURL(blob);
@@ -211,11 +111,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         canvas.height = 1600;
         const ctx = canvas.getContext('2d')!;
         
-        // 1. 物理纯白底色
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, 1600, 1600);
         
-        // 2. 物理 1500px 居中算法
         const targetLimit = 1500;
         const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
         const dw = img.width * scale;
@@ -241,7 +139,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             const data = await res.json();
             const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
             const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-            
             setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
             resolve(finalUrl || imgUrl);
           } catch (e) { 
@@ -297,7 +194,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 if (next.optimized) { delete next.optimized.optimized_main_image; delete next.optimized.optimized_other_images; }
                 setLocalListing(next); setPreviewImage(next.cleaned.main_image || ''); onUpdate(next); syncToSupabase(next);
              }} setShowEditor={(show) => { 
-                if (show) setEditingImageUrl(previewImage); // 准确记录当前选中的预览图
+                if (show) setEditingImageUrl(previewImage); 
                 setShowImageEditor(show); 
              }} fileInputRef={fileInputRef} onAddImage={async (e) => {
                const file = e.target.files?.[0]; if (!file) return;
@@ -321,25 +218,15 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           
           <div className="lg:col-span-8 space-y-6">
              <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
-                <div className="px-8 py-6 bg-slate-50/50 flex flex-wrap gap-2 border-b border-slate-100 items-center justify-between">
-                   <div className="flex flex-wrap gap-1.5 flex-1">
-                     <button onClick={() => setActiveMarket('US')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'bg-white text-slate-400 border border-slate-200'}`}>🇺🇸 Master</button>
-                     {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
-                        const isTranslated = !!localListing.translations?.[m.code];
-                        return (
-                          <button key={m.code} onClick={() => { setActiveMarket(m.code); if (!isTranslated) translateSite(m.code); }} className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : isTranslated ? 'bg-white text-slate-500 border border-slate-200' : 'bg-white text-slate-300 border-2 border-dashed border-slate-100 opacity-60'}`}>
-                            {m.flag} {m.code}
-                            {activeMarket === m.code && <RefreshCw size={10} onClick={(e) => { e.stopPropagation(); translateSite(m.code); }} className="hover:rotate-180 transition-transform" />}
-                          </button>
-                        );
-                     })}
-                   </div>
-                   <button onClick={translateAllMarkets} disabled={isTranslating || !localListing.optimized} className={`px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase flex items-center gap-3 shadow-xl shadow-indigo-100 transition-all ${isTranslating ? 'animate-pulse opacity-80' : 'hover:scale-105 active:scale-95'}`}>
-                      {isTranslating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                      {isTranslating ? `Translating ${translateStatus.current}/${translateStatus.total}` : 'Translate All'}
-                   </button>
-                </div>
-                <ListingEditorArea listing={localListing} activeMarket={activeMarket} updateField={(f, v) => updateFields({[f]: v})} onSync={() => syncToSupabase(localListing)} onRecalculate={() => updateFields(calculateMarketLogistics(localListing, activeMarket), true)} uiLang={uiLang} />
+                <ListingEditorArea 
+                  listing={localListing} 
+                  activeMarket={activeMarket} 
+                  setActiveMarket={setActiveMarket}
+                  updateField={(f, v) => updateFields({[f]: v})} 
+                  onSync={() => syncToSupabase(localListing)} 
+                  engine={engine}
+                  uiLang={uiLang} 
+                />
              </div>
           </div>
         </div>
