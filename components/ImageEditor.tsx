@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, Save, Undo, Loader2, MousePointer2, Palette, ZoomIn, ZoomOut, Move, 
   Maximize2, Sparkles, Paintbrush, Square, Circle, Type, Scissors, Pipette, 
-  Trash2, Layers, Minus
+  Trash2, Layers, Minus, ChevronDown, Eraser
 } from 'lucide-react';
 import { UILanguage } from '../types';
 
@@ -14,7 +14,7 @@ interface ImageEditorProps {
   uiLang: UILanguage;
 }
 
-type Tool = 'select' | 'brush' | 'rect' | 'circle' | 'line' | 'text' | 'rect_fill' | 'pan';
+type Tool = 'select' | 'brush' | 'rect' | 'circle' | 'line' | 'text' | 'rect_fill' | 'erase';
 
 interface Element {
   id: string;
@@ -43,6 +43,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [canvasImage, setCanvasImage] = useState<HTMLImageElement | null>(null);
+  const [showShapeMenu, setShowShapeMenu] = useState(false);
+  const [lastShape, setLastShape] = useState<Tool>('rect');
 
   useEffect(() => {
     const init = async () => {
@@ -57,7 +59,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         img.src = URL.createObjectURL(blob);
         img.onload = () => {
           setCanvasImage(img);
-          const fitZoom = Math.min((window.innerWidth-500)/img.width, (window.innerHeight-200)/img.height, 1);
+          const fitZoom = Math.min((window.innerWidth-600)/img.width, (window.innerHeight-300)/img.height, 1);
           setZoom(fitZoom);
           setIsProcessing(false);
         };
@@ -84,13 +86,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      if (el.id === selectedId) {
-        ctx.save();
-        ctx.setLineDash([5, 5]);
-        ctx.strokeStyle = '#00f';
-        ctx.lineWidth = 2;
-      }
-
       if (el.type === 'brush' && el.points) {
         ctx.beginPath();
         ctx.moveTo(el.points[0].x, el.points[0].y);
@@ -102,17 +97,28 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.fillRect(el.x, el.y, el.w || 0, el.h || 0);
       } else if (el.type === 'circle') {
         ctx.beginPath();
-        ctx.arc(el.x, el.y, el.w || 0, 0, Math.PI * 2);
+        ctx.arc(el.x, el.y, Math.abs(el.w || 0), 0, Math.PI * 2);
         ctx.stroke();
       } else if (el.type === 'line') {
         ctx.beginPath(); ctx.moveTo(el.x, el.y); ctx.lineTo(el.x + (el.w || 0), el.y + (el.h || 0)); ctx.stroke();
       } else if (el.type === 'text') {
-        ctx.font = `bold ${el.size * 3}px Inter`;
+        ctx.font = `bold ${el.size * 3}px Inter, sans-serif`;
         ctx.fillText(el.text || '', el.x, el.y);
+      } else if (el.type === 'erase') {
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(el.x, el.y, el.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
       }
 
       if (el.id === selectedId) {
+        ctx.save();
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 2;
         if (el.type === 'rect' || el.type === 'rect_fill') ctx.strokeRect(el.x - 5, el.y - 5, (el.w || 0) + 10, (el.h || 0) + 10);
+        else ctx.strokeRect(el.x - 20, el.y - 20, 40, 40);
         ctx.restore();
       }
     });
@@ -129,8 +135,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (currentTool === 'select') {
       const clicked = [...elements].reverse().find(el => {
         if (el.type === 'rect' || el.type === 'rect_fill') return pos.x >= el.x && pos.x <= el.x + (el.w||0) && pos.y >= el.y && pos.y <= el.y + (el.h||0);
-        if (el.type === 'text') return Math.abs(pos.x - el.x) < 50 && Math.abs(pos.y - el.y) < 50;
-        return false;
+        return Math.abs(pos.x - el.x) < 50 && Math.abs(pos.y - el.y) < 50;
       });
       if (clicked) {
         setSelectedId(clicked.id);
@@ -172,91 +177,164 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const handleEnd = () => setIsDragging(false);
 
-  const handleDelete = () => {
-    if (selectedId) {
-      setElements(elements.filter(el => el.id !== selectedId));
-      setSelectedId(null);
-    }
+  const handleStandardize = () => {
+    if (!canvasRef.current) return;
+    setIsProcessing(true);
+    // 强制物理解码并合成
+    const buffer = document.createElement('canvas');
+    buffer.width = 1600;
+    buffer.height = 1600;
+    const bCtx = buffer.getContext('2d')!;
+    bCtx.fillStyle = '#FFFFFF';
+    bCtx.fillRect(0,0,1600,1600);
+    
+    const targetLimit = 1500;
+    const scale = Math.min(targetLimit / canvasRef.current.width, targetLimit / canvasRef.current.height);
+    const dw = canvasRef.current.width * scale;
+    const dh = canvasRef.current.height * scale;
+    const dx = (1600 - dw) / 2;
+    const dy = (1600 - dh) / 2;
+    
+    bCtx.drawImage(canvasRef.current, dx, dy, dw, dh);
+    
+    const img = new Image();
+    img.src = buffer.toDataURL('image/jpeg', 0.95);
+    img.onload = () => {
+      setCanvasImage(img);
+      setElements([]); // 清空图层，因为已合成
+      setZoom(Math.min((window.innerWidth-600)/1600, (window.innerHeight-300)/1600, 1));
+      setIsProcessing(false);
+    };
+  };
+
+  const pickColor = async () => {
+    if (!(window as any).EyeDropper) return;
+    const dropper = new (window as any).EyeDropper();
+    try { const res = await dropper.open(); setStrokeColor(res.sRGBHex); } catch (e) {}
   };
 
   const handleFinalSave = async () => {
     if (!canvasRef.current) return;
     setIsProcessing(true);
-    // 取消选中状态再导出
-    const oldId = selectedId;
     setSelectedId(null);
     setTimeout(() => {
       canvasRef.current!.toBlob(async (blob) => {
         if (!blob) return setIsProcessing(false);
         const fd = new FormData();
-        fd.append('file', blob, `edit_${Date.now()}.jpg`);
+        fd.append('file', blob, `ai_edit_${Date.now()}.jpg`);
         try {
           const res = await fetch(TARGET_API, { method: 'POST', body: fd });
           const data = await res.json();
           const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
           const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
           if (u) onSave(u);
-        } catch (e) { alert("Upload Failed"); }
-        finally { setIsProcessing(false); }
-      }, 'image/jpeg', 0.95);
+        } finally { setIsProcessing(false); }
+      }, 'image/jpeg', 0.96);
     }, 100);
+  };
+
+  const ShapeIcon = () => {
+    if (lastShape === 'rect') return <Square size={18} />;
+    if (lastShape === 'circle') return <Circle size={18} />;
+    return <Minus size={18} />;
   };
 
   return (
     <div className="fixed inset-0 z-[200] bg-slate-950 flex flex-col font-inter">
-      <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between text-white">
-        <div className="flex items-center gap-4">
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20}/></button>
-          <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent italic">Layered AI Studio</span>
+      <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between text-white shadow-2xl">
+        <div className="flex items-center gap-6">
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-all"><X size={24}/></button>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-black text-xs italic">AI</div>
+            <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent">Layered Studio v3.0</span>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={handleFinalSave} disabled={isProcessing} className="px-8 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl">
-            {isProcessing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Commit & Sync
+        <div className="flex items-center gap-4">
+          <button onClick={handleStandardize} className="px-5 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 border border-white/10 transition-all active:scale-95"><Maximize2 size={14}/> 1600px Standardize</button>
+          <button onClick={handleFinalSave} disabled={isProcessing} className="px-10 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl shadow-indigo-500/20 active:scale-95 transition-all">
+            {isProcessing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Commit Sync
           </button>
         </div>
       </div>
       
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-20 bg-slate-900 border-r border-white/5 flex flex-col items-center py-6 gap-4">
+        {/* 左侧垂直工具栏 */}
+        <div className="w-24 bg-slate-900 border-r border-white/5 flex flex-col items-center py-8 gap-6">
            <SideBtn active={currentTool === 'select'} onClick={() => setCurrentTool('select')} icon={<MousePointer2 size={18}/>} label="Move" />
            <SideBtn active={currentTool === 'brush'} onClick={() => setCurrentTool('brush')} icon={<Paintbrush size={18}/>} label="Brush" />
-           <SideBtn active={currentTool === 'rect'} onClick={() => setCurrentTool('rect')} icon={<Square size={18}/>} label="Rect" />
-           <SideBtn active={currentTool === 'rect_fill'} onClick={() => setCurrentTool('rect_fill')} icon={<Layers size={18}/>} label="Fill" />
+           
+           <div className="relative group/menu">
+             <SideBtn active={['rect', 'circle', 'line'].includes(currentTool)} onClick={() => setShowShapeMenu(!showShapeMenu)} icon={<ShapeIcon />} label="Shapes" />
+             {showShapeMenu && (
+               <div className="absolute left-full top-0 ml-4 bg-slate-800 border border-slate-700 rounded-2xl p-2 shadow-2xl z-[210] flex flex-col gap-1 min-w-[50px] animate-in slide-in-from-left-2 duration-200">
+                  <button onClick={() => { setCurrentTool('rect'); setLastShape('rect'); setShowShapeMenu(false); }} className={`p-4 rounded-xl transition-all ${currentTool === 'rect' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`}><Square size={18}/></button>
+                  <button onClick={() => { setCurrentTool('circle'); setLastShape('circle'); setShowShapeMenu(false); }} className={`p-4 rounded-xl transition-all ${currentTool === 'circle' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`}><Circle size={18}/></button>
+                  <button onClick={() => { setCurrentTool('line'); setLastShape('line'); setShowShapeMenu(false); }} className={`p-4 rounded-xl transition-all ${currentTool === 'line' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`}><Minus size={18}/></button>
+               </div>
+             )}
+           </div>
+
            <SideBtn active={currentTool === 'text'} onClick={() => setCurrentTool('text')} icon={<Type size={18}/>} label="Text" />
-           <div className="w-8 h-px bg-white/10 my-2"></div>
-           <button onClick={handleDelete} disabled={!selectedId} className="p-3 text-slate-500 hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
+           <SideBtn active={currentTool === 'rect_fill'} onClick={() => setCurrentTool('rect_fill')} icon={<Layers size={18}/>} label="Fill" />
+           <SideBtn active={currentTool === 'erase'} onClick={() => setCurrentTool('erase')} icon={<Eraser size={18}/>} label="AI Erase" />
+           
+           <div className="w-10 h-px bg-white/10 my-2"></div>
+           <SideBtn active={false} onClick={pickColor} icon={<Pipette size={18} className="text-amber-400"/>} label="Pipette" />
+           <button onClick={() => { setElements(elements.filter(el => el.id !== selectedId)); setSelectedId(null); }} disabled={!selectedId} className="p-3 text-slate-500 hover:text-red-500 disabled:opacity-20 transition-all"><Trash2 size={20}/></button>
         </div>
 
+        {/* 画布主视口 */}
         <div className="flex-1 relative overflow-hidden bg-slate-950 flex items-center justify-center p-10 custom-scrollbar">
+          {(isProcessing || !canvasImage) && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/40 backdrop-blur-sm">
+              <Loader2 className="animate-spin text-indigo-500 mb-4" size={48} />
+              <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Synching Pixel Data...</p>
+            </div>
+          )}
           <div 
             onMouseDown={handleStart} 
             onMouseMove={handleMove} 
             onMouseUp={handleEnd} 
             onMouseLeave={handleEnd}
             style={{ transform: `scale(${zoom})`, cursor: currentTool === 'select' ? 'default' : 'crosshair' }} 
-            className="shadow-[0_0_100px_rgba(0,0,0,0.6)] bg-white relative transition-transform duration-75 origin-center"
+            className="shadow-[0_0_150px_rgba(0,0,0,0.8)] bg-white relative transition-transform duration-100 origin-center"
           >
              <canvas ref={canvasRef} className="block" />
           </div>
+
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 px-6 py-3 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl">
+             <button onClick={() => setZoom(prev => Math.max(0.1, prev - 0.1))} className="p-2 text-slate-400 hover:text-white"><ZoomOut size={16}/></button>
+             <span className="text-[10px] font-black text-slate-400 w-16 text-center uppercase tracking-widest">{Math.round(zoom * 100)}%</span>
+             <button onClick={() => setZoom(prev => Math.min(5, prev + 0.1))} className="p-2 text-slate-400 hover:text-white"><ZoomIn size={16}/></button>
+             <div className="w-px h-4 bg-white/10"></div>
+             <button onClick={() => { if(canvasImage) setZoom(Math.min((window.innerWidth-600)/canvasImage.width, (window.innerHeight-300)/canvasImage.height, 1)); }} className="p-2 text-slate-400 hover:text-indigo-400" title="Fit to screen"><Move size={16}/></button>
+          </div>
         </div>
 
-        <div className="w-72 bg-slate-900 border-l border-white/5 p-6 space-y-8 overflow-y-auto custom-scrollbar">
-           <div className="space-y-4">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Brush & Text Size</label>
-              <input type="range" min="1" max="100" value={strokeWidth} onChange={e => setStrokeWidth(parseInt(e.target.value))} className="w-full accent-indigo-500" />
+        {/* 右侧属性面板 */}
+        <div className="w-80 bg-slate-900 border-l border-white/5 p-8 space-y-10 overflow-y-auto custom-scrollbar">
+           <div className="space-y-5">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">Brush & Text Size</label>
+              <input type="range" min="1" max="100" value={strokeWidth} onChange={e => setStrokeWidth(parseInt(e.target.value))} className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-full appearance-none cursor-pointer" />
               <div className="flex justify-between text-[8px] font-black text-slate-600 uppercase"><span>Fine</span><span>{strokeWidth}px</span><span>Bold</span></div>
            </div>
-           <div className="space-y-4">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Color Palette</label>
-              <div className="grid grid-cols-5 gap-2">
-                 {['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#000000', '#ffffff', '#ff8800', '#00ffee', '#8800ff'].map(c => (
-                   <button key={c} onClick={() => setStrokeColor(c)} style={{backgroundColor: c}} className={`aspect-square rounded-lg border-2 transition-all ${strokeColor === c ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-60'}`} />
+           
+           <div className="space-y-5">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">Color Matrix</label>
+              <div className="grid grid-cols-5 gap-3">
+                 {['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#000000', '#ffffff', '#ff8800', '#6366f1'].map(c => (
+                   <button key={c} onClick={() => setStrokeColor(c)} style={{backgroundColor: c}} className={`aspect-square rounded-xl border-4 transition-all ${strokeColor === c ? 'border-white scale-110 shadow-xl' : 'border-transparent opacity-60 hover:opacity-100'}`} />
                  ))}
               </div>
            </div>
-           <div className="p-5 bg-indigo-600/10 border border-indigo-500/20 rounded-2xl">
-              <p className="text-[9px] font-bold text-indigo-400 leading-relaxed uppercase">
-                Pro Tip: Elements added with 'Rect', 'Fill', or 'Text' tools can be moved or deleted using the 'Move' tool.
+
+           <div className="p-6 bg-indigo-600/10 border border-indigo-500/20 rounded-3xl space-y-4">
+              <div className="flex items-center gap-3 text-indigo-400">
+                <Sparkles size={18}/>
+                <span className="text-[10px] font-black uppercase tracking-widest">Workflow Tip</span>
+              </div>
+              <p className="text-[10px] font-bold text-slate-400 leading-relaxed uppercase">
+                {uiLang === 'zh' ? '使用“AI擦除”涂抹不需要的区域，保存时将触发 3D 纹理修复。使用“1600px 标准化”确保最终主图符合亚马逊合规性要求。' : 'Use "AI Erase" to mask unwanted parts. Standardize 1600px ensures Amazon compliance instantly.'}
               </p>
            </div>
         </div>
@@ -266,8 +344,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 };
 
 const SideBtn = ({ active, onClick, icon, label }: any) => (
-  <button onClick={onClick} className={`flex flex-col items-center gap-1 group transition-all ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-    <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/20 ring-1 ring-indigo-500' : 'bg-white/5 group-hover:bg-white/10'}`}>{icon}</div>
-    <span className="text-[8px] font-black uppercase tracking-tighter">{label}</span>
+  <button onClick={onClick} className={`w-16 flex flex-col items-center gap-1.5 group transition-all ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/20 ring-2 ring-indigo-500 shadow-lg shadow-indigo-500/10' : 'bg-white/5 group-hover:bg-white/10 group-active:scale-90'}`}>{icon}</div>
+    <span className="text-[9px] font-black uppercase tracking-tighter opacity-50 group-hover:opacity-100">{label}</span>
   </button>
 );

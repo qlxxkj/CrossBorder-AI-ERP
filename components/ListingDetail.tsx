@@ -128,9 +128,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           canvas.height = 1600;
           const ctx = canvas.getContext('2d')!;
           
+          // 1. 强制填充物理背景
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, 1600, 1600);
           
+          // 2. 比例计算 - 长边缩放至 1500
           const targetLimit = 1500;
           const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
           const dw = img.width * scale;
@@ -186,7 +188,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           ? await translateListingWithDeepSeek(localListing.optimized, mkt.name) 
           : await translateListingWithAI(localListing.optimized, mkt.name);
 
-      // 核心：翻译后自动执行物流与财务换算逻辑
       const logistics = calculateMarketLogistics(localListing, marketCode);
       const priceData = calculateMarketPrice(localListing, marketCode, rates, adjustments);
       const enrichedTrans = { ...trans, ...logistics, ...priceData };
