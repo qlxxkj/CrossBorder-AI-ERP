@@ -80,32 +80,34 @@ const App: React.FC = () => {
     }
   }, [fetchListings]);
 
-  // 核心修复：Auth 监听器逻辑重构
+  // 核心修复：Auth 监听器逻辑
   useEffect(() => {
-    // 1. 初始化检查
+    // 1. 初次加载：检查 Session 决定初始视图
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
       if (cur) {
         fetchIdentity(cur.user.id, cur);
-        // 如果初始就有 Session，且在 Landing 页，则进入 Dashboard
-        setView(prev => prev === AppView.LANDING ? AppView.DASHBOARD : prev);
+        // 如果初次加载就有 Session，直接进 Dashboard
+        setView(AppView.DASHBOARD);
       } else {
         setIsInitializing(false);
       }
     });
 
-    // 2. 状态变更监听
+    // 2. 监听变更：只有显式的登录/退出动作才强制跳转
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      const prevSession = session;
       setSession(newSession);
+
       if (newSession) {
         fetchIdentity(newSession.user.id, newSession);
-        // 只有明确的登录操作才触发自动跳转
-        if (event === 'SIGNED_IN') {
+        // 只有从“无 Session”变为“有 Session”（即刚登录完）才自动跳转
+        if (!prevSession && event === 'SIGNED_IN') {
           setView(AppView.DASHBOARD);
           setActiveTab('dashboard');
         }
-      } else if (event === 'SIGNED_OUT') {
-        // 只有明确退出时才重置页面，切换过程中不干预
+      } else {
+        // 明确退出登录
         setUserProfile(null);
         setOrg(null);
         setListings([]);
@@ -113,13 +115,12 @@ const App: React.FC = () => {
       }
     });
     return () => subscription.unsubscribe();
-  }, [fetchIdentity]); // 移除 [view] 依赖，彻底消除闪回 Bug
+  }, [fetchIdentity]); // 关键：移除 [view] 依赖
 
   const handleLandingLogin = () => {
-    // 显式逻辑：如果已经登录，直接进仪表盘，否则手动切到登录页
+    // 显式跳转逻辑：由按钮控制
     if (session) {
       setView(AppView.DASHBOARD);
-      setActiveTab('dashboard');
     } else {
       setView(AppView.AUTH);
     }
@@ -149,7 +150,7 @@ const App: React.FC = () => {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20">
           <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Syncing Core State...</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Initializing Interface...</p>
         </div>
       );
     }

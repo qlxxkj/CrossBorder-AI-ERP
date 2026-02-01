@@ -29,11 +29,11 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   /**
-   * 1600 物理标准化上传核心
+   * 1600 物理级标准化上传核心
    */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
-    setProcessingUrls(prev => new Set(prev).add(imgUrl));
+    setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
       const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
@@ -63,7 +63,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Canvas Fail");
+      if (!blob) throw new Error("Canvas Serialization Failed");
 
       const fd = new FormData();
       fd.append('file', blob, `std_${Date.now()}.jpg`);
@@ -71,14 +71,14 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       const res = await fetch(TARGET_API, { method: 'POST', body: fd });
       const data = await res.json();
       
-      // 核心修复：解析 img.hmstu.eu.org 返回的数组格式
+      // 核心修复：针对特定图床 API 格式解析
       const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
       const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : imgUrl;
       
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
       return finalUrl;
     } catch (e) {
-      console.error("1600 Error:", e);
+      console.error("1600 Standardize Error:", e);
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
       return imgUrl;
     }
@@ -89,9 +89,11 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     try {
       const newMain = effectiveMain ? await processAndUploadImage(effectiveMain) : "";
       const newOthers = [];
-      for (const u of effectiveOthers) { newOthers.push(await processAndUploadImage(u)); }
+      for (const u of effectiveOthers) {
+        newOthers.push(await processAndUploadImage(u));
+      }
       
-      // 深度合并确保触发同步
+      // 深度合并并更新字段
       const nextOpt = { 
         ...(listing.optimized || {}), 
         optimized_main_image: newMain || effectiveMain, 
@@ -115,7 +117,10 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     } else {
       const others = [...effectiveOthers];
       const idx = others.indexOf(url);
-      if (idx > -1) { others[idx] = newUrl; nextOpt.optimized_other_images = others; }
+      if (idx > -1) {
+        others[idx] = newUrl;
+        nextOpt.optimized_other_images = others;
+      }
       if (previewImage === url) setPreviewImage(newUrl);
     }
     onUpdateListing({ optimized: nextOpt });
