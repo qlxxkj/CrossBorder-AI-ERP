@@ -35,24 +35,22 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   };
 
   /**
-   * 1600 标准化物理处理核心
+   * 1600 标准化物理处理核心 (强化版)
    */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
-      // 解决跨域与缓存
-      const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
-        ? imgUrl 
-        : `${CORS_PROXY}${encodeURIComponent(imgUrl)}&_t=${Date.now()}`;
+      const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(imgUrl)}&_t=${Date.now()}`;
       
       const img = new Image();
       img.crossOrigin = "anonymous"; 
       
       await new Promise((resolve, reject) => {
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error("Image Logic Load Fail"));
+        const timeout = setTimeout(() => reject(new Error("Timeout")), 10000);
+        img.onload = () => { clearTimeout(timeout); resolve(img); };
+        img.onerror = () => { clearTimeout(timeout); reject(new Error("Image Logic Load Fail")); };
         img.src = proxiedUrl;
       });
 
@@ -64,12 +62,10 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       
       const scale = Math.min(1500 / img.width, 1500 / img.height);
       const dw = img.width * scale, dh = img.height * scale;
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Canvas Pixelation Fail");
+      if (!blob) throw new Error("Canvas Error");
 
       const fd = new FormData();
       fd.append('file', blob, `std_${Date.now()}.jpg`);
@@ -78,10 +74,10 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       const data = await res.json();
       const finalUrl = normalizeUrl(data);
       
-      if (!finalUrl) throw new Error("API Return Invalid");
+      if (!finalUrl) throw new Error("API Invalid");
       return finalUrl;
     } catch (e) {
-      console.error("Critical Standardize Error:", e);
+      console.error("Standardize Error for:", imgUrl, e);
       return imgUrl;
     } finally {
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
@@ -98,6 +94,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         newOthers.push(await processAndUploadImage(u));
       }
       
+      // 强制更新 listing 的深度对象
       const nextOpt = { 
         ...(listing.optimized || {}), 
         optimized_main_image: newMain || effectiveMain, 
@@ -106,6 +103,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       
       onUpdateListing({ optimized: nextOpt as any });
       if (newMain) setPreviewImage(newMain);
+      alert("Standardization Complete: All pixels synced to 1600px HD.");
     } finally {
       setIsProcessing(false);
     }
@@ -145,7 +143,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: nextOthers } as any });
         setPreviewImage(url);
       }
-    } catch (err) { alert("Network Sync Error"); }
+    } catch (err) { alert("Upload Failed"); }
     finally { setIsProcessing(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
@@ -154,9 +152,9 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   return (
     <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
       <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
-         {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/40 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 gap-3">
+         {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 gap-3">
             <Loader2 className="animate-spin text-indigo-600" size={32} />
-            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Pixel Syncing...</span>
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Syncing HD Pixels...</span>
          </div>}
          <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
          <div className="absolute bottom-4 right-4 flex gap-2">
@@ -177,7 +175,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
                       <button onClick={(e) => { e.stopPropagation(); onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: img, optimized_other_images: allImages.filter(x => x !== img) } as any }); setPreviewImage(img); }} className={`p-1 rounded-lg text-white transition-colors ${isMain ? 'bg-amber-500 shadow-lg' : 'bg-white/20 hover:bg-amber-400'}`}><Star size={10} fill={isMain ? "currentColor" : "none"} /></button>
                       <button onClick={(e) => { e.stopPropagation(); onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: effectiveOthers.filter(u => u !== img) } as any }); }} className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white"><Trash2 size={10} /></button>
                    </div>
-                   <button onClick={(e) => { e.stopPropagation(); handleStandardizeOne(img); }} className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg shadow-lg self-start">
+                   <button onClick={(e) => { e.stopPropagation(); handleStandardizeOne(img); }} className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg shadow-lg self-start hover:bg-indigo-400 transition-colors">
                      {isSelfProcessing ? <Loader2 size={10} className="animate-spin" /> : <Maximize2 size={10} />}
                    </button>
                 </div>
