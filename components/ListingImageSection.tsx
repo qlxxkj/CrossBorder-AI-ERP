@@ -75,8 +75,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       
       const data = await uploadRes.json();
       const finalUrl = normalizeUrl(data);
-      // 返回带时间戳的 URL 以击穿浏览器缓存
-      return finalUrl ? `${finalUrl}?t=${Date.now()}` : imgUrl;
+      // 关键：追加随机数解决浏览器不刷新的问题
+      return finalUrl ? `${finalUrl}?std=${Date.now()}` : imgUrl;
     } catch (e) {
       console.error("Standardize Error:", e);
       return imgUrl;
@@ -95,7 +95,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         newOthers.push(await processAndUploadImage(u));
       }
       
-      // 关键：构建全新的 optimized 对象，触发父组件 localListing 状态更新
       const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
       nextOpt.optimized_main_image = newMain || effectiveMain;
       nextOpt.optimized_other_images = newOthers;
