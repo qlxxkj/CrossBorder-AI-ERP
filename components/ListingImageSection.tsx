@@ -15,8 +15,9 @@ interface ListingImageSectionProps {
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 const IMAGE_PROXY = 'https://images.weserv.nl/?url=';
-// 使用 AllOrigins 作为更宽松的跨域上传代理方案
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+
+// 请在此处填入您部署的 Cloudflare Worker URL
+const CF_UPLOAD_PROXY = 'https://amzbot-proxy.a8926764.workers.dev'; 
 
 export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   listing, previewImage, setPreviewImage, onUpdateListing, isSaving, openEditor
@@ -31,7 +32,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   const normalizeUrl = (raw: any): string => {
-    // 适配 allorigins 返回包裹或其他结构
     const src = Array.isArray(raw) ? raw[0]?.src : (raw.url || raw.data?.url || raw.src || raw);
     if (!src || typeof src !== 'string') return "";
     return src.startsWith('http') ? src : `${IMAGE_HOST_DOMAIN}${src.startsWith('/') ? '' : '/'}${src}`;
@@ -69,27 +69,21 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Capture Failed");
+      if (!blob) throw new Error("Processing Failed");
 
       const fd = new FormData();
-      fd.append('file', blob, `std_${Date.now()}.jpg`);
+      fd.append('file', blob, `amz_std_${Date.now()}.jpg`);
       
-      // 核心修复：针对 WEB 端跨域，如果直连失败，在 Extension 模式下通常没问题。
-      // 这里我们直接 fetch 尝试，如果失败则提示用户检查网络或使用插件。
-      let uploadRes;
-      try {
-        uploadRes = await fetch(TARGET_API, { method: 'POST', body: fd });
-      } catch (err) {
-        // 如果 fetch 失败通常是 CORS，这里我们尝试再次直连（因为 manifest 有权限）
-        uploadRes = await fetch(TARGET_API, { method: 'POST', body: fd });
-      }
+      // 使用专属的 CF Worker 代理
+      const uploadUrl = CF_UPLOAD_PROXY || TARGET_API;
+      const uploadRes = await fetch(uploadUrl, { method: 'POST', body: fd });
 
-      if (!uploadRes.ok) throw new Error("Cloud Storage Timeout");
+      if (!uploadRes.ok) throw new Error("Proxy connection failed. Check CF Worker URL.");
       
       const data = await uploadRes.json();
       const finalUrl = normalizeUrl(data);
       
-      return finalUrl ? `${finalUrl}?std=${Date.now()}` : imgUrl;
+      return finalUrl ? `${finalUrl}?v=${Date.now()}` : imgUrl;
     } catch (e) {
       console.error("Standardize Engine Error:", e);
       return imgUrl;
@@ -145,7 +139,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+      const uploadUrl = CF_UPLOAD_PROXY || TARGET_API;
+      const res = await fetch(uploadUrl, { method: 'POST', body: fd });
       const data = await res.json();
       const url = normalizeUrl(data);
       if (url) {
@@ -154,6 +149,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         onUpdateListing({ optimized: nextOpt });
         setPreviewImage(url);
       }
+    } catch (err) {
+      alert("Proxy Error: Could not upload. Check CF Worker deployment.");
     } finally {
       setIsProcessing(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -178,7 +175,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group">
          {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 gap-3">
             <Loader2 className="animate-spin text-indigo-600" size={32} />
-            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Syncing Pixels...</span>
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Syncing...</span>
          </div>}
          <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
          
