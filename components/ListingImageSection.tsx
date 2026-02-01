@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { Loader2, Maximize2, Wand2, Star, Trash2, Plus, RefreshCcw } from 'lucide-react';
+import { Loader2, Maximize2, Wand2, Star, Trash2, Plus, RefreshCcw, Upload } from 'lucide-react';
 import { Listing } from '../types';
 
 interface ListingImageSectionProps {
@@ -19,6 +19,7 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   listing, previewImage, setPreviewImage, onUpdateListing, isSaving, openEditor
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [processingUrls, setProcessingUrls] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
   const [hoverImage, setHoverImage] = useState<string | null>(null);
@@ -27,15 +28,21 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const effectiveOthers = listing.optimized?.optimized_other_images || listing.cleaned?.other_images || [];
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
+  // 辅助函数：补全图床 URL
+  const normalizeUrl = (raw: any): string => {
+    const src = Array.isArray(raw) && raw[0]?.src ? raw[0].src : (raw.url || raw.data?.url || raw);
+    if (!src || typeof src !== 'string') return "";
+    return src.startsWith('http') ? src : `${IMAGE_HOST_DOMAIN}${src.startsWith('/') ? '' : '/'}${src}`;
+  };
+
   /**
-   * 1600 物理级标准化上传核心
+   * 物理级标准化上传核心
    */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
-      // 增加缓存击穿
       const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl 
         : `${CORS_PROXY}${encodeURIComponent(imgUrl)}&_t=${Date.now()}`;
@@ -52,12 +59,9 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       const canvas = document.createElement('canvas');
       canvas.width = 1600; canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
-      
-      // 强制背景白
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
-      // 等比例缩放绘图
       const scale = Math.min(1500 / img.width, 1500 / img.height);
       const dw = img.width * scale, dh = img.height * scale;
       ctx.imageSmoothingEnabled = true;
@@ -72,17 +76,34 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       
       const res = await fetch(TARGET_API, { method: 'POST', body: fd });
       const data = await res.json();
-      
-      // 针对 img.hmstu.eu.org 的特殊返回格式进行适配
-      const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : (data.url || data.data?.url);
-      const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : imgUrl;
-      
-      setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-      return finalUrl;
+      return normalizeUrl(data) || imgUrl;
     } catch (e) {
-      console.error("1600 Standardize Physical Failure:", e);
-      setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+      console.error("Standardize Failure:", e);
       return imgUrl;
+    } finally {
+      setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsProcessing(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+      const data = await res.json();
+      const url = normalizeUrl(data);
+      if (url) {
+        const nextOthers = [...effectiveOthers, url];
+        onUpdateListing({ optimized: { ...listing.optimized, optimized_other_images: nextOthers } as any });
+      }
+    } catch (err) {
+      alert("Upload error");
+    } finally {
+      setIsProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -94,14 +115,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       for (const u of effectiveOthers) {
         newOthers.push(await processAndUploadImage(u));
       }
-      
-      // 创建全新引用确保 React 侦测到变化
-      const nextOpt = { 
-        ...(listing.optimized || {}), 
-        optimized_main_image: newMain || effectiveMain, 
-        optimized_other_images: newOthers 
-      };
-      
+      const nextOpt = { ...(listing.optimized || {}), optimized_main_image: newMain || effectiveMain, optimized_other_images: newOthers };
       onUpdateListing({ optimized: nextOpt as any });
       if (newMain) setPreviewImage(newMain);
     } finally {
@@ -112,7 +126,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const handleStandardizeOne = async (url: string) => {
     const newUrl = await processAndUploadImage(url);
     const nextOpt = { ...(listing.optimized || {}) };
-    
     if (effectiveMain === url) {
       nextOpt.optimized_main_image = newUrl;
       setPreviewImage(newUrl);
@@ -128,6 +141,11 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     onUpdateListing({ optimized: nextOpt as any });
   };
 
+  const handleRestoreAll = () => {
+    onUpdateListing({ optimized: undefined });
+    setPreviewImage(listing.cleaned.main_image || '');
+  };
+
   const activeDisplayImage = hoverImage || previewImage;
 
   return (
@@ -136,8 +154,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
          {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-center justify-center z-10"><Loader2 className="animate-spin text-indigo-600" size={32} /></div>}
          <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
          <div className="absolute bottom-4 right-4 flex gap-2">
-            <button onClick={handleRestoreAll} disabled={isProcessing} className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center gap-2 hover:bg-slate-200 transition-all border border-slate-200 disabled:opacity-30"><RefreshCcw size={12} /> Restore</button>
-            <button onClick={handleStandardizeAll} disabled={isProcessing} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-indigo-200"><Maximize2 size={12} /> Standardize All</button>
+            <button onClick={handleRestoreAll} className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center gap-2 hover:bg-slate-200 border border-slate-200"><RefreshCcw size={12} /> Restore</button>
+            <button onClick={handleStandardizeAll} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 hover:bg-indigo-700 shadow-indigo-200"><Maximize2 size={12} /> Standardize All</button>
             <button onClick={() => openEditor(previewImage)} className="px-4 py-2 bg-white/90 backdrop-blur-md rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all"><Wand2 size={12} /> AI Editor</button>
          </div>
       </div>
@@ -149,25 +167,21 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
                 <img src={img} className="w-full h-full object-cover" />
                 <div className={`absolute inset-0 bg-black/40 flex flex-col justify-between p-1 transition-opacity ${isSelfProcessing ? 'opacity-100' : 'opacity-0 group-hover/thumb:opacity-100'}`}>
                    <div className="flex justify-between w-full">
-                      <button onClick={(e) => { e.stopPropagation(); }} className={`p-1 rounded-lg text-white ${img === effectiveMain ? 'bg-amber-500' : 'bg-white/20'}`}><Star size={10} fill={img === effectiveMain ? "currentColor" : "none"} /></button>
-                      <button onClick={(e) => { e.stopPropagation(); }} className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white"><Trash2 size={10} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); onUpdateListing({ optimized: { ...listing.optimized, optimized_main_image: img } as any }); setPreviewImage(img); }} className={`p-1 rounded-lg text-white ${img === effectiveMain ? 'bg-amber-500' : 'bg-white/20'}`}><Star size={10} fill={img === effectiveMain ? "currentColor" : "none"} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); const nextOthers = effectiveOthers.filter(x => x !== img); onUpdateListing({ optimized: { ...listing.optimized, optimized_other_images: nextOthers } as any }); }} className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white"><Trash2 size={10} /></button>
                    </div>
-                   <button onClick={(e) => { e.stopPropagation(); handleStandardizeOne(img); }} className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg hover:bg-indigo-400 shadow-lg self-start">
+                   <button onClick={(e) => { e.stopPropagation(); handleStandardizeOne(img); }} className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg shadow-lg self-start">
                      {isSelfProcessing ? <Loader2 size={10} className="animate-spin" /> : <Maximize2 size={10} />}
                    </button>
                 </div>
              </div>
            );
          })}
+         <button onClick={() => fileInputRef.current?.click()} className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-600 transition-all bg-slate-50">
+            <Upload size={20} />
+         </button>
+         <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
       </div>
     </div>
   );
-
-  function handleRestoreAll() {
-    const nextOpt = { ...listing.optimized };
-    delete (nextOpt as any).optimized_main_image; 
-    delete (nextOpt as any).optimized_other_images;
-    onUpdateListing({ optimized: nextOpt as any });
-    setPreviewImage(listing.cleaned.main_image || '');
-  }
 };
