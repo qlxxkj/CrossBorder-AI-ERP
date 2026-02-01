@@ -24,122 +24,94 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const [processingUrls, setProcessingUrls] = useState<Set<string>>(new Set());
   const [hoverImage, setHoverImage] = useState<string | null>(null);
 
-  /**
-   * 【核心逻辑：智能回溯读取机制】
-   * 优先从 listings 表的 optimized 字段获取 URL。
-   * 如果不存在（从未标准化过或已重置），则回溯到 cleaned 原始采集数据。
-   */
+  // 优先级逻辑：从 listings.optimized 读取，如果没有则回溯到 listings.cleaned
   const effectiveMain = listing.optimized?.optimized_main_image || listing.cleaned?.main_image || '';
   const effectiveOthers = listing.optimized?.optimized_other_images || listing.cleaned?.other_images || [];
-  
-  // 汇总当前所有有效展示的图片
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
-  /**
-   * 1600 标准化物理处理引擎
-   * 逻辑：Canvas(1600x1600) -> 白底 -> 1500像素等比缩放 -> 居中渲染 -> 写入 listings.optimized
-   */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
+    
     try {
-      // 跨域处理
-      const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
-        ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
+      // 必须使用代理以避免 Canvas 跨域污染
+      const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
+        ? imgUrl 
+        : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
       
-      const response = await fetch(proxied);
-      const blob = await response.blob();
-      const localObjUrl = URL.createObjectURL(blob);
       const img = new Image();
-      img.src = localObjUrl;
-      await img.decode();
+      img.crossOrigin = "anonymous"; // 核心：开启跨域许可
+      img.src = proxiedUrl;
+      
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error("Image Load Failed"));
+      });
 
       const canvas = document.createElement('canvas');
-      canvas.width = 1600; canvas.height = 1600;
-      const ctx = canvas.getContext('2d')!;
+      canvas.width = 1600; 
+      canvas.height = 1600;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
       
       // 1. 物理白底
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
-      // 2. 物理缩放计算 (限制长边在 1500 内)
+      // 2. 物理缩放 (限制长边 1500px 居中)
       const scale = Math.min(1500 / img.width, 1500 / img.height);
-      const dw = img.width * scale, dh = img.height * scale;
+      const dw = img.width * scale;
+      const dh = img.height * scale;
       
-      // 3. 渲染配置
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      
-      // 4. 居中绘制
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
-      URL.revokeObjectURL(localObjUrl);
+      // 3. 转换为 Blob 并上传
+      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
+      if (!blob) throw new Error("Canvas Export Failed");
+
+      const fd = new FormData();
+      fd.append('file', blob, `std1600_${Date.now()}.jpg`);
       
-      return new Promise((resolve) => {
-        canvas.toBlob(async (outBlob) => {
-          if (!outBlob) { setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; }); return resolve(imgUrl); }
-          const fd = new FormData(); fd.append('file', outBlob, `std1600_${Date.now()}.jpg`);
-          try {
-            const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-            const data = await res.json();
-            // 适配图床多种返回格式
-            const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-            const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : imgUrl;
-            
-            setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; });
-            resolve(finalUrl);
-          } catch (e) { 
-            setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; }); 
-            resolve(imgUrl); 
-          }
-        }, 'image/jpeg', 0.98);
-      });
+      const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+      const data = await res.json();
+      const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+      const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : imgUrl;
+      
+      setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; });
+      return finalUrl;
     } catch (e) { 
-      console.error("1600 Standardize Process Error:", e);
+      console.error("Standardize Error:", e);
       setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; }); 
       return imgUrl; 
     }
   };
 
-  /**
-   * 批量标准化逻辑：
-   * 获取当前有效图片 -> 处理 -> 全部存入 optimized 字段 -> 触发数据库同步
-   */
   const handleStandardizeAll = async () => {
     setIsProcessing(true);
-    
-    // 使用 effectiveMain/effectiveOthers 以确保即使未标准化过的图片也能被读取处理
     const processedMain = effectiveMain ? await processAndUploadImage(effectiveMain) : "";
-    
     const processedOthers = [];
     for (const u of effectiveOthers) {
       processedOthers.push(await processAndUploadImage(u));
     }
     
-    // 【核心写入】：将标准化结果写入 optimized 字段
+    // 写入 listings 表的 optimized 字段
     const nextOpt = { 
       ...(listing.optimized || {}), 
       optimized_main_image: processedMain || effectiveMain, 
       optimized_other_images: processedOthers 
     };
-    
     onUpdateListing({ optimized: nextOpt as any });
-    
     if (processedMain) setPreviewImage(processedMain);
     setIsProcessing(false);
   };
 
-  /**
-   * 单图标准化逻辑
-   */
   const handleStandardizeOne = async (url: string) => {
     const newUrl = await processAndUploadImage(url);
     const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
-    
     if (effectiveMain === url) {
       nextOpt.optimized_main_image = newUrl;
     } else {
-      // 在附图中查找
       const others = [...effectiveOthers];
       const idx = others.indexOf(url);
       if (idx > -1) {
@@ -147,7 +119,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         nextOpt.optimized_other_images = others;
       }
     }
-    
     onUpdateListing({ optimized: nextOpt });
     if (previewImage === url) setPreviewImage(newUrl);
   };
@@ -161,78 +132,36 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       const data = await res.json();
       const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
       const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-      
       if (url) {
-        // 新上传的图片始终追加入 optimized 字段
         const currentOthers = listing.optimized?.optimized_other_images || listing.cleaned.other_images || [];
-        onUpdateListing({ 
-          optimized: { 
-            ...(listing.optimized || {}), 
-            optimized_other_images: [...currentOthers, url] 
-          } as any 
-        });
+        onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: [...currentOthers, url] } as any });
         setPreviewImage(url);
       }
-    } finally { 
-      setIsProcessing(false); 
-      if (e.target) e.target.value = ''; 
-    }
+    } finally { setIsProcessing(false); if (e.target) e.target.value = ''; }
   };
 
-  /**
-   * 设置主图逻辑：将选中的图片设为主图，并同步调整 optimized 字段
-   */
   const handleSetMain = (url: string) => {
-    const nextAll = allImages.filter(u => u !== url);
-    onUpdateListing({ 
-      optimized: { 
-        ...(listing.optimized || {}), 
-        optimized_main_image: url, 
-        optimized_other_images: nextAll 
-      } as any 
-    });
+    const others = allImages.filter(u => u !== url);
+    onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: url, optimized_other_images: others } as any });
     setPreviewImage(url);
   };
 
-  /**
-   * 删除图片逻辑
-   */
   const handleRemoveImage = (url: string) => {
     const isMain = url === effectiveMain;
     const nextAll = allImages.filter(u => u !== url);
-    
     if (isMain) {
-       onUpdateListing({ 
-         optimized: { 
-           ...(listing.optimized || {}), 
-           optimized_main_image: nextAll[0] || "", 
-           optimized_other_images: nextAll.slice(1) 
-         } as any 
-       });
+       onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: nextAll[0] || "", optimized_other_images: nextAll.slice(1) } as any });
        setPreviewImage(nextAll[0] || "");
     } else {
-       // 删除附图：从 optimized 中剔除
-       const nextOthers = effectiveOthers.filter(u => u !== url);
-       onUpdateListing({ 
-         optimized: { 
-           ...(listing.optimized || {}), 
-           optimized_other_images: nextOthers 
-         } as any 
-       });
+       onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: allImages.filter(u => u !== url && u !== effectiveMain) } as any });
     }
   };
 
-  /**
-   * 恢复原始逻辑：删除 optimized 中的图片记录，自动触发回溯到 cleaned
-   */
   const handleRestoreAll = () => {
     const nextOpt = { ...listing.optimized };
-    // 删除所有已优化的图片字段
     delete (nextOpt as any).optimized_main_image; 
     delete (nextOpt as any).optimized_other_images;
-    
     onUpdateListing({ optimized: nextOpt as any });
-    // UI 立刻回溯预览图
     setPreviewImage(listing.cleaned.main_image || '');
   };
 

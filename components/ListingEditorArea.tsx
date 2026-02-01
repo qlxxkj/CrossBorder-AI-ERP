@@ -200,7 +200,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         </div>
 
         <EditBlock label="Description (HTML)" value={getVal('optimized_description', 'description')} onChange={v => handleFieldUpdate('optimized_description', v)} onBlur={onSync} limit={2000} isMono className="min-h-[200px] text-xs" />
-        <EditBlock label="Search Keywords" value={getVal('search_keywords', 'search_keywords')} onChange={v => handleFieldUpdate('search_keywords', v)} onBlur={onSync} limit={250} className="bg-amber-50/20 border-amber-100" />
+        <EditBlock label="Search Keywords" value={getVal('search_keywords', 'search_keywords')} onChange={v => handleFieldUpdate('search_keywords', v)} onBlur={onSync} limit={500} className="bg-amber-50/20 border-amber-100" />
       </div>
     </div>
   );
