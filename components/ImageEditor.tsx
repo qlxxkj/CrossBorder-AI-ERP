@@ -33,7 +33,6 @@ interface EditorElement {
 }
 
 const IMAGE_PROXY = 'https://images.weserv.nl/?url=';
-const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
 
@@ -51,7 +50,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [strokeWidth, setStrokeWidth] = useState(10);
   const [fontSize, setFontSize] = useState(64);
   const [fillEnabled, setFillEnabled] = useState(true);
-  const [layerOpacity, setLayerOpacity] = useState(1); // 默认 100%
+  const [layerOpacity, setLayerOpacity] = useState(1); 
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -81,7 +80,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const retryImg = new Image();
       retryImg.crossOrigin = "anonymous";
       retryImg.onload = () => { setImgObj(retryImg); setIsProcessing(false); };
-      retryImg.onerror = () => { setIsProcessing(false); alert("Image load error."); };
+      retryImg.onerror = () => { setIsProcessing(false); alert("Pixel Engine: Image Load Error"); };
       retryImg.src = cleanUrl;
     };
     img.src = proxiedUrl;
@@ -89,7 +88,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   useEffect(() => { initImage(imageUrl); }, [imageUrl, initImage]);
 
-  // 高保真渲染逻辑
   const renderToCtx = (ctx: CanvasRenderingContext2D, els: EditorElement[], targetImg: HTMLImageElement) => {
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.drawImage(targetImg, 0, 0);
@@ -111,7 +109,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           ctx.stroke();
         }
       } else if (el.type === 'rect' || el.type === 'select-fill') {
-        if (el.fillEnabled) ctx.fillRect(el.x, el.y, el.w, el.h);
+        if (el.fillEnabled) {
+          ctx.fillRect(el.x, el.y, el.w, el.h);
+        }
         ctx.strokeRect(el.x, el.y, el.w, el.h);
       } else if (el.type === 'circle') {
         const r = Math.sqrt(el.w**2 + el.h**2);
@@ -130,15 +130,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.fillText(el.text || '', el.x, el.y);
       }
 
-      // 仅在编辑器渲染选中框
       if (el.id === selectedId && ctx.canvas.id === 'editor-canvas') {
         ctx.globalAlpha = 1;
         ctx.setLineDash([5 / zoom, 5 / zoom]);
         ctx.strokeStyle = '#6366f1';
         ctx.lineWidth = 2 / zoom;
         const pad = 10 / zoom;
-        const boxH = el.type === 'text' ? el.fontSize : Math.abs(el.h);
-        const boxW = Math.abs(el.w);
+        const boxH = el.type === 'text' ? el.fontSize : (el.type === 'brush' ? (el.h || 50) : Math.abs(el.h));
+        const boxW = el.type === 'brush' ? (el.w || 50) : Math.abs(el.w);
         ctx.strokeRect(el.x - pad, el.y - pad, (boxW || 50) + pad * 2, (boxH || 50) + pad * 2);
       }
       ctx.restore();
@@ -179,7 +178,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const boxW = Math.abs(el.w) || 50;
         const minX = Math.min(el.x, el.x + (el.w || 0));
         const minY = Math.min(el.y, el.y + (el.h || 0));
-        return pos.x >= minX - 15 && pos.x <= minX + boxW + 15 && pos.y >= minY - 15 && pos.y <= minY + boxH + 15;
+        return pos.x >= minX - 20 && pos.x <= minX + boxW + 20 && pos.y >= minY - 20 && pos.y <= minY + boxH + 20;
       });
       if (hit) {
         setSelectedId(hit.id);
@@ -229,7 +228,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const dy = pos.y - lastMousePos.y;
       setElements(prev => prev.map(el => {
         if (el.id !== selectedId) return el;
-        // 如果是画笔，需要同步偏移点数组
         if (el.type === 'brush' && el.points) {
            return { ...el, x: el.x + dx, y: el.y + dy, points: el.points.map(p => ({ x: p.x + dx, y: p.y + dy })) };
         }
@@ -242,7 +240,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!isDrawing || !selectedId) return;
     setElements(prev => prev.map(el => {
       if (el.id !== selectedId) return el;
-      if (el.type === 'brush') return { ...el, points: [...(el.points || []), pos] };
+      if (el.type === 'brush') return { ...el, points: [...(el.points || []), pos], w: Math.max(el.w, pos.x - el.x), h: Math.max(el.h, pos.y - el.y) };
       return { ...el, w: pos.x - el.x, h: pos.y - el.y };
     }));
     setLastMousePos(pos);
@@ -275,21 +273,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       finalCanvas.toBlob(async (blob) => {
         if (!blob) { setIsProcessing(false); return; }
         const fd = new FormData();
-        fd.append('file', blob, `studio_${Date.now()}.jpg`);
+        fd.append('file', blob, `amzbot_studio_${Date.now()}.jpg`);
         try {
-          // 通过 CORS 代理解决上传权限问题
-          const proxiedUploadUrl = `${CORS_PROXY}${encodeURIComponent(TARGET_API)}`;
-          const res = await fetch(proxiedUploadUrl, { method: 'POST', body: fd });
+          // 移除代理直连上传，解决 403 问题
+          const res = await fetch(TARGET_API, { method: 'POST', body: fd });
           const data = await res.json();
           const rawSrc = Array.isArray(data) ? data[0]?.src : (data.url || data.data?.url || data.src);
           const url = typeof rawSrc === 'string' ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
           if (url) onSave(url + `?studio=${Date.now()}`);
           else throw new Error("Format error");
         } catch (e) {
-          alert(uiLang === 'zh' ? "同步失败：服务器响应异常，请重试" : "Sync Error: Server unreachable.");
+          alert(uiLang === 'zh' ? "同步失败：云端图床连接异常，请稍后再试" : "Sync Error: Server unreachable.");
         } finally { setIsProcessing(false); }
       }, 'image/jpeg', 0.95);
-    }, 100);
+    }, 150);
   };
 
   return (
@@ -297,12 +294,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between shadow-2xl shrink-0">
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24}/></button>
-          <span className="font-black text-[10px] uppercase tracking-[0.2em] text-indigo-400">Pixel Studio v18.5 Professional</span>
+          <span className="font-black text-[10px] uppercase tracking-[0.2em] text-indigo-400">AMZBot Pixel Studio v18.8</span>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => handleCommit(true)} className="px-5 py-2 bg-slate-800 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-700 transition-all border border-white/5"><Maximize2 size={14}/> 1600 HD</button>
           <button onClick={() => handleCommit(false)} disabled={isProcessing} className="px-10 py-2 bg-indigo-600 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl shadow-indigo-900/40 hover:bg-indigo-700 active:scale-95 transition-all">
-            {isProcessing ? <Loader2 size={14} className="animate-spin"/> : <Check size={14}/>} Sync & Save
+            {isProcessing ? <Loader2 size={14} className="animate-spin"/> : <Check size={14}/>} Sync & Close
           </button>
         </div>
       </div>
@@ -329,7 +326,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
              <button 
                 onClick={() => { if(selectedId) { setElements(prev => prev.filter(x => x.id !== selectedId)); setSelectedId(null); } }} 
                 className={`p-4 rounded-xl transition-all ${selectedId ? 'bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white' : 'text-slate-700 pointer-events-none'}`} 
-                title="Delete Layer"
+                title="Delete Selected"
              >
                 <Trash2 size={20}/>
              </button>
@@ -339,7 +336,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         <div ref={containerRef} className="flex-1 bg-slate-950 relative overflow-hidden flex items-center justify-center">
           {isProcessing && <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-[1200] flex flex-col items-center justify-center gap-4">
              <Loader2 className="animate-spin text-indigo-500" size={48}/>
-             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/50">Processing Layers...</p>
+             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 animate-pulse">Rendering Pixels...</p>
           </div>}
           
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transition: (isPanning || isDrawing || isDragging) ? 'none' : 'transform 0.1s ease-out' }} className="shadow-2xl relative bg-white">
@@ -362,7 +359,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
         <div className="w-72 bg-slate-900 border-l border-white/5 p-8 space-y-10 shrink-0 overflow-y-auto custom-scrollbar">
            <div className="space-y-6">
-              <label className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] border-b border-white/5 pb-2 block">Brushes & Shapes</label>
+              <label className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] border-b border-white/5 pb-2 block">Drawing Physics</label>
               <div className="space-y-3">
                  <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase"><span>Size</span> <span>{strokeWidth}px</span></div>
                  <input type="range" min="1" max="200" value={strokeWidth} onChange={e => { const v = parseInt(e.target.value); setStrokeWidth(v); if(selectedId) setElements(prev => prev.map(el => el.id === selectedId ? {...el, strokeWidth: v} : el)) }} className="w-full accent-indigo-500" />
@@ -392,12 +389,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                  <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase"><span>Opacity</span> <span>{Math.round(layerOpacity * 100)}%</span></div>
                  <input type="range" min="0.1" max="1" step="0.01" value={layerOpacity} onChange={e => { const v = parseFloat(e.target.value); setLayerOpacity(v); if(selectedId) setElements(prev => prev.map(el => el.id === selectedId ? {...el, opacity: v} : el)) }} className="w-full accent-emerald-500" />
               </div>
-           </div>
-           
-           <div className="p-4 bg-slate-800/50 rounded-2xl border border-white/5 space-y-2">
-             <p className="text-[9px] font-black text-slate-500 uppercase">Keyboard Shortcuts</p>
-             <div className="flex justify-between text-[8px] font-bold text-slate-400 uppercase"><span>Delete</span> <span>Remove Layer</span></div>
-             <div className="flex justify-between text-[8px] font-bold text-slate-400 uppercase"><span>V</span> <span>Select Tool</span></div>
            </div>
         </div>
       </div>

@@ -110,7 +110,14 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
       while (res.length < 5) res.push('');
       return res;
     }
-    return (data ? (data as any)[field] : null) || (isUS ? (listing.cleaned as any)[cleanField] : "") || "";
+    const val = (data ? (data as any)[field] : null) || (isUS ? (listing.cleaned as any)[cleanField] : "") || "";
+    
+    // 关键修复：针对数值输入框的字符串转义处理
+    if ((field === 'optimized_price' || field === 'optimized_shipping') && typeof val === 'string') {
+       const numeric = parseFloat(val.replace(/[^0-9.]/g, ''));
+       return isNaN(numeric) ? 0 : numeric;
+    }
+    return val;
   };
 
   const handleFieldUpdate = (field: string, value: any) => {
