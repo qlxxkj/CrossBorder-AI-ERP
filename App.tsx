@@ -80,36 +80,43 @@ const App: React.FC = () => {
     }
   }, [fetchListings]);
 
-  // 修复点：Auth 监听器现在只处理 Session 的存在状态，不负责自动路由跳转，防止 Logo 跳转闪回
+  // 核心修复：Auth 监听器逻辑重构
   useEffect(() => {
+    // 1. 初始化检查
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
-      if (cur) fetchIdentity(cur.user.id, cur);
-      else setIsInitializing(false);
+      if (cur) {
+        fetchIdentity(cur.user.id, cur);
+        // 如果初始就有 Session，且在 Landing 页，则进入 Dashboard
+        setView(prev => prev === AppView.LANDING ? AppView.DASHBOARD : prev);
+      } else {
+        setIsInitializing(false);
+      }
     });
 
+    // 2. 状态变更监听
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
       if (newSession) {
         fetchIdentity(newSession.user.id, newSession);
-        // 只有当显式触发 SIGNED_IN 事件且当前在 AuthPage 时才跳转
-        if (event === 'SIGNED_IN' && view === AppView.AUTH) {
+        // 只有明确的登录操作才触发自动跳转
+        if (event === 'SIGNED_IN') {
           setView(AppView.DASHBOARD);
           setActiveTab('dashboard');
         }
-      } else {
+      } else if (event === 'SIGNED_OUT') {
+        // 只有明确退出时才重置页面，切换过程中不干预
         setUserProfile(null);
         setOrg(null);
         setListings([]);
         setView(AppView.LANDING);
-        setIsInitializing(false);
       }
     });
     return () => subscription.unsubscribe();
-  }, [fetchIdentity, view]);
+  }, [fetchIdentity]); // 移除 [view] 依赖，彻底消除闪回 Bug
 
   const handleLandingLogin = () => {
-    // 逻辑：如果已经登录，直接进仪表盘，否则进登录页
+    // 显式逻辑：如果已经登录，直接进仪表盘，否则手动切到登录页
     if (session) {
       setView(AppView.DASHBOARD);
       setActiveTab('dashboard');
@@ -142,7 +149,7 @@ const App: React.FC = () => {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20">
           <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Syncing Environment...</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Syncing Core State...</p>
         </div>
       );
     }
