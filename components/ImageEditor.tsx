@@ -48,7 +48,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [lastShape, setLastShape] = useState<Tool>('rect');
 
-  // 恢复稳定的 Blob 加载逻辑，彻底避开 Canvas 跨域空白问题
   useEffect(() => {
     const loadSecureImage = async () => {
       if (!imageUrl) { setIsProcessing(false); return; }
@@ -87,7 +86,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!canvasRef.current || !canvasImage) return;
     const ctx = canvasRef.current.getContext('2d')!;
     
-    // 设置物理尺寸
     canvasRef.current.width = canvasImage.width;
     canvasRef.current.height = canvasImage.height;
     ctx.drawImage(canvasImage, 0, 0);
