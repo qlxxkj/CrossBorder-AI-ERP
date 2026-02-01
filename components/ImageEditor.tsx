@@ -35,17 +35,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [elements, setElements] = useState<Element[]>([]);
   const [currentTool, setCurrentTool] = useState<Tool>('brush');
-  const [lastShape, setLastShape] = useState<Tool>('rect'); // 记忆上一次使用的形状
+  const [lastShape, setLastShape] = useState<Tool>('rect'); 
   const [showShapeOptions, setShowShapeOptions] = useState(false);
   const [isProcessing, setIsProcessing] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   
-  // 属性状态
+  // 属性状态：这些状态决定了新元素的默认值以及选中元素的即时值
   const [strokeColor, setStrokeColor] = useState('#ff0000');
   const [fillColor, setFillColor] = useState('transparent');
-  const [strokeWidth, setStrokeWidth] = useState(8);
-  const [fontSize, setFontSize] = useState(32);
+  const [strokeWidth, setStrokeWidth] = useState(12);
+  const [fontSize, setFontSize] = useState(64);
   
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -53,7 +53,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [canvasImage, setCanvasImage] = useState<HTMLImageElement | null>(null);
 
-  // 初始化加载图片核心逻辑
+  // 1. 初始化加载图片逻辑：彻底修复空白问题
   useEffect(() => {
     const loadImage = async () => {
       if (!imageUrl) return;
@@ -65,18 +65,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         
         const img = new Image();
         img.crossOrigin = "anonymous";
-        img.src = proxiedUrl;
         
         await new Promise((resolve, reject) => {
-          img.onload = resolve;
+          img.onload = () => resolve(img);
           img.onerror = (e) => reject(new Error("Image Load Failure"));
+          img.src = proxiedUrl;
         });
         
         setCanvasImage(img);
-        // 初始化缩放：确保图片适合可视窗口
-        const padding = 120;
+        
+        // 计算最佳初始缩放
+        const padding = 100;
         const availableW = window.innerWidth - 600;
-        const availableH = window.innerHeight - 300;
+        const availableH = window.innerHeight - 200;
         const scale = Math.min(availableW / img.width, availableH / img.height, 1);
         setZoom(scale);
         setIsProcessing(false);
@@ -88,7 +89,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     loadImage();
   }, [imageUrl]);
 
-  // 联动系统：属性变化同步到选中元素
+  // 2. 联动系统：当右侧属性栏改变时，同步更新选中的元素
   useEffect(() => {
     if (selectedId) {
       setElements(prev => prev.map(el => {
@@ -98,21 +99,22 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         return el;
       }));
     }
-  }, [strokeColor, fillColor, strokeWidth, fontSize]);
+  }, [strokeColor, fillColor, strokeWidth, fontSize, selectedId]);
 
-  // 画布重绘逻辑
+  // 3. 核心重绘逻辑：确保每一层都按序正确绘制
   useEffect(() => {
     if (!canvasRef.current || !canvasImage) return;
-    const ctx = canvasRef.current.getContext('2d')!;
+    const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true })!;
     
-    // 设置画布物理尺寸
+    // 设置物理像素尺寸，保持 1:1
     canvasRef.current.width = canvasImage.width;
     canvasRef.current.height = canvasImage.height;
     
-    // 绘制原始底图
+    // 绘制原始图作为底图
+    ctx.clearRect(0, 0, canvasImage.width, canvasImage.height);
     ctx.drawImage(canvasImage, 0, 0);
     
-    // 绘制所有叠加元素
+    // 循环绘制所有元素
     elements.forEach(el => {
       ctx.save();
       ctx.strokeStyle = el.color;
@@ -159,31 +161,30 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         ctx.stroke();
       }
 
-      // 绘制选中提示框
+      // 选中元素的边框提示
       if (el.id === selectedId) {
         ctx.globalCompositeOperation = 'source-over';
-        ctx.setLineDash([5, 5]);
+        ctx.setLineDash([10 / zoom, 10 / zoom]);
         ctx.strokeStyle = '#6366f1';
-        ctx.lineWidth = 2 / zoom;
-        ctx.strokeRect(el.x - 4, el.y - 4, (el.w || 0) + 8, (el.h || 0) + 8);
+        ctx.lineWidth = 4 / zoom;
+        ctx.strokeRect(el.x - 10 / zoom, el.y - 10 / zoom, (el.w || 0) + 20 / zoom, (el.h || 0) + 20 / zoom);
       }
       ctx.restore();
     });
   }, [elements, selectedId, canvasImage, zoom]);
 
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(prev => Math.min(Math.max(0.1, prev * delta), 10));
-  };
-  
-  const handleStart = (e: React.MouseEvent) => {
-    if (!canvasRef.current || isProcessing) return;
+  const getCanvasPoint = (e: React.MouseEvent) => {
+    if (!canvasRef.current) return { x: 0, y: 0 };
     const rect = canvasRef.current.getBoundingClientRect();
-    const pos = { 
-      x: (e.clientX - rect.left) / zoom, 
-      y: (e.clientY - rect.top) / zoom 
+    return {
+      x: (e.clientX - rect.left) * (canvasRef.current.width / rect.width),
+      y: (e.clientY - rect.top) * (canvasRef.current.height / rect.height)
     };
+  };
+
+  const handleStart = (e: React.MouseEvent) => {
+    if (isProcessing) return;
+    const pos = getCanvasPoint(e);
     
     if (currentTool === 'hand') { 
       setIsPanning(true); 
@@ -197,11 +198,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const xMax = Math.max(el.x, el.x + (el.w || 0));
         const yMin = Math.min(el.y, el.y + (el.h || 0));
         const yMax = Math.max(el.y, el.y + (el.h || 0));
-        return pos.x >= xMin && pos.x <= xMax && pos.y >= yMin && pos.y <= yMax;
+        const margin = 20 / zoom;
+        return pos.x >= xMin - margin && pos.x <= xMax + margin && pos.y >= yMin - margin && pos.y <= yMax + margin;
       });
       if (clicked) { 
         setSelectedId(clicked.id); 
-        // 同步属性到边栏
         setStrokeColor(clicked.color);
         setFillColor(clicked.fillColor);
         setStrokeWidth(clicked.strokeWidth);
@@ -225,7 +226,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const t = prompt("Input Text:"); 
       if (!t) { setIsDragging(false); return; } 
       newEl.text = t; 
-      newEl.w = 100; newEl.h = 40; 
+      newEl.w = t.length * (fontSize * 0.6); 
+      newEl.h = fontSize; 
       setElements([...elements, newEl]); 
       setSelectedId(id); 
       setIsDragging(false); 
@@ -240,13 +242,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       setOffset({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
     }
     
-    if (!isDragging || !selectedId || !canvasRef.current) return;
-    
-    const rect = canvasRef.current.getBoundingClientRect();
-    const pos = { 
-      x: (e.clientX - rect.left) / zoom, 
-      y: (e.clientY - rect.top) / zoom 
-    };
+    if (!isDragging || !selectedId || isProcessing) return;
+    const pos = getCanvasPoint(e);
     
     setElements(prev => prev.map(el => { 
       if (el.id !== selectedId) return el; 
@@ -260,12 +257,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setIsPanning(false);
   };
 
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom(prev => Math.min(Math.max(0.05, prev * delta), 20));
+  };
+
   const commitSync = async (isStandardized: boolean) => {
     if (!canvasRef.current || isProcessing) return;
     setIsProcessing(true);
     setSelectedId(null);
     
-    // 给渲染一点缓冲时间
     setTimeout(() => {
       const exportCanvas = document.createElement('canvas'); 
       const bctx = exportCanvas.getContext('2d')!;
@@ -285,7 +287,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       
       exportCanvas.toBlob(async (blob) => {
         if (!blob) { setIsProcessing(false); return; }
-        const fd = new FormData(); fd.append('file', blob, `studio_${Date.now()}.jpg`);
+        const fd = new FormData(); fd.append('file', blob, `studio_export_${Date.now()}.jpg`);
         try { 
           const res = await fetch(TARGET_API, { method: 'POST', body: fd }); 
           const data = await res.json(); 
@@ -294,7 +296,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           if (url) onSave(url); 
         } finally { setIsProcessing(false); }
       }, 'image/jpeg', 0.98);
-    }, 50);
+    }, 100);
   };
 
   const handleShapeSelect = (type: Tool) => {
@@ -305,12 +307,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   return (
     <div className="fixed inset-0 z-[250] bg-slate-950 flex flex-col font-inter overflow-hidden">
+      {/* 顶部菜单 */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between text-white z-[300] shadow-xl">
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24}/></button>
           <div className="flex flex-col">
-             <span className="font-black text-[10px] uppercase tracking-widest text-indigo-400">Media Studio v6.0</span>
-             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">HD Layer Engine Activated</span>
+             <span className="font-black text-[10px] uppercase tracking-widest text-indigo-400">Media Studio v6.5</span>
+             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">HMSTU HD Canvas Active</span>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -322,16 +325,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       </div>
       
       <div className="flex-1 flex pt-16">
-        {/* 工具栏 */}
+        {/* 左侧工具栏 */}
         <div className="w-20 bg-slate-900 border-r border-white/5 flex flex-col items-center py-6 gap-6 z-[300]">
            <SideBtn active={currentTool === 'select'} onClick={() => setCurrentTool('select')} icon={<MousePointer2 size={18}/>} label="Move" />
            <SideBtn active={currentTool === 'hand'} onClick={() => setCurrentTool('hand')} icon={<Hand size={18}/>} label="Pan" />
-           <div className="w-8 h-px bg-white/10 my-2"></div>
+           <div className="w-8 h-px bg-white/10 my-1"></div>
            
            <SideBtn active={currentTool === 'brush'} onClick={() => setCurrentTool('brush')} icon={<Paintbrush size={18}/>} label="Brush" />
            
-           {/* 图形折叠组 */}
-           <div className="relative group/shape">
+           {/* 图形折叠菜单 */}
+           <div className="relative">
               <button 
                 onClick={() => { setCurrentTool(lastShape); setShowShapeOptions(!showShapeOptions); }}
                 className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${['rect', 'circle', 'line'].includes(currentTool) ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white/5 text-slate-500 hover:bg-white/10'}`}
@@ -341,7 +344,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               </button>
               
               {showShapeOptions && (
-                <div className="absolute left-full ml-2 top-0 bg-slate-800 border border-white/10 p-2 rounded-2xl shadow-2xl flex flex-col gap-2 z-[400] animate-in slide-in-from-left-2">
+                <div className="absolute left-full ml-3 top-0 bg-slate-800 border border-white/10 p-2 rounded-2xl shadow-2xl flex flex-col gap-2 z-[400] animate-in slide-in-from-left-2">
                    <button onClick={() => handleShapeSelect('rect')} className={`p-3 rounded-xl hover:bg-white/10 transition-colors ${lastShape === 'rect' ? 'text-indigo-400' : 'text-slate-400'}`}><Square size={20}/></button>
                    <button onClick={() => handleShapeSelect('circle')} className={`p-3 rounded-xl hover:bg-white/10 transition-colors ${lastShape === 'circle' ? 'text-indigo-400' : 'text-slate-400'}`}><Circle size={20}/></button>
                    <button onClick={() => handleShapeSelect('line')} className={`p-3 rounded-xl hover:bg-white/10 transition-colors ${lastShape === 'line' ? 'text-indigo-400' : 'text-slate-400'}`}><Minus size={20} className="rotate-45"/></button>
@@ -356,7 +359,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            <button onClick={() => { setElements(prev => prev.filter(el => el.id !== selectedId)); setSelectedId(null); }} className="p-3 text-slate-500 hover:text-red-500 mt-auto transition-colors"><Trash2 size={20}/></button>
         </div>
 
-        {/* 交互工作区 */}
+        {/* 交互核心工作区 */}
         <div 
           className="flex-1 bg-slate-950 cursor-crosshair overflow-hidden relative" 
           onWheel={handleWheel} 
@@ -368,7 +371,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           {isProcessing && (
             <div className="absolute inset-0 z-[400] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center">
               <Loader2 className="animate-spin text-indigo-500 mb-4" size={48} />
-              <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Synching Neural Data...</p>
+              <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Preparing Visual Engine...</p>
             </div>
           )}
           
@@ -376,23 +379,24 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
             style={{ 
               transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, 
               transformOrigin: 'center',
-              transition: isPanning ? 'none' : 'transform 0.1s ease-out'
+              transition: (isPanning || isDragging) ? 'none' : 'transform 0.1s ease-out'
             }} 
-            className="inline-block shadow-[0_0_100px_rgba(0,0,0,0.8)] bg-white absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+            className="inline-block shadow-[0_0_100px_rgba(0,0,0,1)] bg-white absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
           >
             <canvas ref={canvasRef} className="block" />
           </div>
+          
           <div className="absolute bottom-8 right-8 px-5 py-2.5 bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full text-[10px] font-black text-white/50 shadow-2xl">
              {Math.round(zoom * 100)}% MAGNIFICATION
           </div>
         </div>
 
-        {/* 属性面板 */}
+        {/* 右侧属性面板：实时控制选中元素或默认画笔 */}
         <div className="w-72 bg-slate-900 border-l border-white/5 p-8 space-y-10 z-[300] overflow-y-auto custom-scrollbar text-white">
            <div className="space-y-4">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Stroke Width</label>
-              <input type="range" min="1" max="100" value={strokeWidth} onChange={e => setStrokeWidth(parseInt(e.target.value))} className="w-full accent-indigo-500 h-1 bg-slate-800 rounded-lg appearance-none" />
-              <div className="flex justify-between text-[8px] font-black text-slate-600"><span>1PX</span><span>100PX</span></div>
+              <input type="range" min="1" max="200" value={strokeWidth} onChange={e => setStrokeWidth(parseInt(e.target.value))} className="w-full accent-indigo-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer" />
+              <div className="flex justify-between text-[8px] font-black text-slate-600"><span>1PX</span><span>200PX</span></div>
            </div>
 
            <div className="space-y-4">
@@ -431,12 +435,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
            <div className="space-y-4">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Text Size</label>
-              <input type="range" min="12" max="200" value={fontSize} onChange={e => setFontSize(parseInt(e.target.value))} className="w-full accent-blue-500 h-1 bg-slate-800 rounded-lg appearance-none" />
+              <input type="range" min="12" max="500" value={fontSize} onChange={e => setFontSize(parseInt(e.target.value))} className="w-full accent-blue-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer" />
+              <div className="flex justify-between text-[8px] font-black text-slate-600"><span>12PX</span><span>500PX</span></div>
            </div>
 
            <div className="pt-10 border-t border-white/5 opacity-50">
               <p className="text-[9px] font-medium text-slate-400 leading-relaxed uppercase tracking-tighter">
-                Navigation: Use mouse wheel to zoom. <br/>Use Hand tool or Move tool to pan the canvas.
+                Tip: Mouse wheel to zoom. <br/>Use Move tool to modify existing shapes.
               </p>
            </div>
         </div>

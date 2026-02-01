@@ -29,58 +29,66 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const effectiveOthers = listing.optimized?.optimized_other_images || listing.cleaned?.other_images || [];
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
+  /**
+   * 1600 物理标准化处理函数
+   */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
+      // 代理处理跨域，防止 Canvas 污染
       const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl 
         : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
       
       const img = new Image();
-      img.crossOrigin = "anonymous"; // 必须设置，否则 Canvas 会被污染无法导出
-      img.src = proxiedUrl;
+      img.crossOrigin = "anonymous"; 
       
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = () => reject(new Error("Load Fail"));
+      const loadPromise = new Promise<HTMLImageElement>((resolve, reject) => {
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Image Load Failed"));
+        img.src = proxiedUrl;
       });
+
+      const loadedImg = await loadPromise;
 
       const canvas = document.createElement('canvas');
       canvas.width = 1600; 
       canvas.height = 1600;
       const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
       
-      // 1. 物理白底
+      // 1. 绘制物理纯白背景
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
-      // 2. 物理缩放计算 (限制长边 1500px 居中)
-      const scale = Math.min(1500 / img.width, 1500 / img.height);
-      const dw = img.width * scale;
-      const dh = img.height * scale;
+      // 2. 计算缩放比（长边限制在 1500px 以留出白边）
+      const scale = Math.min(1500 / loadedImg.width, 1500 / loadedImg.height);
+      const dw = loadedImg.width * scale;
+      const dh = loadedImg.height * scale;
       
+      // 3. 开启高质量抗锯齿并居中渲染
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
+      ctx.drawImage(loadedImg, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
-      // 3. 转 Blob 上传
+      // 4. 转为 Blob 后上传图床
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Canvas Error");
+      if (!blob) throw new Error("Canvas to Blob conversion failed");
 
       const fd = new FormData();
-      fd.append('file', blob, `std1600_${Date.now()}.jpg`);
+      fd.append('file', blob, `standard_1600_${Date.now()}.jpg`);
       
       const res = await fetch(TARGET_API, { method: 'POST', body: fd });
       const data = await res.json();
       const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+      
       const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : imgUrl;
       
       setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; });
       return finalUrl;
     } catch (e) { 
-      console.error("1600 Process Error:", e);
+      console.error("Standardize Process Error:", e);
       setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; }); 
       return imgUrl; 
     }
@@ -88,22 +96,23 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
 
   const handleStandardizeAll = async () => {
     setIsProcessing(true);
-    // 处理主图
     const processedMain = effectiveMain ? await processAndUploadImage(effectiveMain) : "";
     
-    // 处理附图
     const processedOthers = [];
     for (const u of effectiveOthers) {
       processedOthers.push(await processAndUploadImage(u));
     }
     
-    // 更新至 listings 表的 optimized 字段
+    // 更新至 listings 表的 optimized 字段，这会通过 ListingDetail 里的 updateListingData 同步数据库
     const nextOpt = { 
       ...(listing.optimized || {}), 
       optimized_main_image: processedMain || effectiveMain, 
       optimized_other_images: processedOthers 
     };
+    
     onUpdateListing({ optimized: nextOpt as any });
+    
+    // 强制更新当前预览图状态
     if (processedMain) setPreviewImage(processedMain);
     setIsProcessing(false);
   };
@@ -111,8 +120,10 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const handleStandardizeOne = async (url: string) => {
     const newUrl = await processAndUploadImage(url);
     const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
+    
     if (effectiveMain === url) {
       nextOpt.optimized_main_image = newUrl;
+      setPreviewImage(newUrl);
     } else {
       const others = [...effectiveOthers];
       const idx = others.indexOf(url);
@@ -121,8 +132,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         nextOpt.optimized_other_images = others;
       }
     }
+    
     onUpdateListing({ optimized: nextOpt });
-    if (previewImage === url) setPreviewImage(newUrl);
   };
 
   const handleAddImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
