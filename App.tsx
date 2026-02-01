@@ -80,7 +80,7 @@ const App: React.FC = () => {
     }
   }, [fetchListings]);
 
-  // Auth Listener: Stabilized to prevent navigation loops
+  // 修复点：Auth 监听器现在只处理 Session 的存在状态，不负责自动路由跳转，防止 Logo 跳转闪回
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
@@ -92,8 +92,8 @@ const App: React.FC = () => {
       setSession(newSession);
       if (newSession) {
         fetchIdentity(newSession.user.id, newSession);
-        // Only auto-navigate to dashboard on actual SIGNED_IN event from AUTH page
-        if (event === 'SIGNED_IN') {
+        // 只有当显式触发 SIGNED_IN 事件且当前在 AuthPage 时才跳转
+        if (event === 'SIGNED_IN' && view === AppView.AUTH) {
           setView(AppView.DASHBOARD);
           setActiveTab('dashboard');
         }
@@ -106,10 +106,11 @@ const App: React.FC = () => {
       }
     });
     return () => subscription.unsubscribe();
-  }, [fetchIdentity]); // Remove 'view' from dependencies
+  }, [fetchIdentity, view]);
 
   const handleLandingLogin = () => {
-    if (session && userProfile) {
+    // 逻辑：如果已经登录，直接进仪表盘，否则进登录页
+    if (session) {
       setView(AppView.DASHBOARD);
       setActiveTab('dashboard');
     } else {
@@ -141,7 +142,7 @@ const App: React.FC = () => {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20">
           <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Synchronizing Neural Core...</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Syncing Environment...</p>
         </div>
       );
     }
@@ -184,8 +185,7 @@ const App: React.FC = () => {
         <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4 h-full bg-white">
           <AlertCircle size={48} className="text-red-500" />
           <h3 className="text-xl font-black">Runtime Recovery</h3>
-          <p className="text-slate-400 text-xs">A critical error occurred in the view engine.</p>
-          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Reboot ERP</button>
+          <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs">Reboot ERP</button>
         </div>
       );
     }

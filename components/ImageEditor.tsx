@@ -1,9 +1,9 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
-  X, Eraser, Scissors, PaintBucket, Save, Undo, 
-  Loader2, MousePointer2, Type, Square, Circle, Minus, 
-  Palette, ZoomIn, ZoomOut, Move, Maximize2, Sparkles, ChevronDown, Trash2, Hand
+  X, Scissors, PaintBucket, Save, Loader2, MousePointer2, 
+  Type, Square, Circle, Minus, Palette, Maximize2, 
+  Sparkles, ChevronDown, Trash2, Hand
 } from 'lucide-react';
 import { editImageWithAI } from '../services/geminiService';
 import { UILanguage } from '../types';
@@ -46,7 +46,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [isProcessing, setIsProcessing] = useState(true);
   
-  // Attribute States
+  // 实时属性
   const [strokeColor, setStrokeColor] = useState('#ff0000');
   const [fillColor, setFillColor] = useState('transparent');
   const [strokeWidth, setStrokeWidth] = useState(10);
@@ -62,7 +62,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [isDragging, setIsDragging] = useState(false);
   const [canvasImage, setCanvasImage] = useState<HTMLImageElement | null>(null);
 
-  // 1. Initial Load Logic - Critical Fix for White Canvas
+  // 1. 初始化底图：修复白屏问题的物理加载逻辑
   useEffect(() => {
     const loadImage = async () => {
       if (!imageUrl) return;
@@ -73,10 +73,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           : `${CORS_PROXY}${encodeURIComponent(imageUrl)}?t=${Date.now()}`;
         
         const img = new Image();
-        img.crossOrigin = "anonymous"; // MUST be set before src
+        img.crossOrigin = "anonymous"; 
         
         await new Promise((resolve, reject) => {
-          img.onload = () => resolve(img);
+          img.onload = async () => {
+            try {
+              // 关键修复：强制浏览器解码图像位图，确保 Canvas 绘图时内容已就绪
+              if ('decode' in img) await img.decode();
+              resolve(img);
+            } catch (e) { reject(e); }
+          };
           img.onerror = (e) => reject(new Error("Image Load Failed"));
           img.src = proxiedUrl;
         });
@@ -86,16 +92,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           const scale = Math.min((containerRef.current.clientWidth - 100) / img.width, (containerRef.current.clientHeight - 100) / img.height, 1);
           setZoom(scale);
         }
-        setIsProcessing(false);
       } catch (e) {
-        console.error("ImageEditor Loading Error:", e);
+        console.error("Editor Critical Loading Error:", e);
+      } finally {
         setIsProcessing(false);
       }
     };
     loadImage();
   }, [imageUrl]);
 
-  // 2. Real-time Attribute Sync to Selected Element
+  // 2. 属性联动同步
   useEffect(() => {
     if (selectedId) {
       setElements(prev => prev.map(el => 
@@ -104,18 +110,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
   }, [strokeColor, fillColor, strokeWidth, fontSize, selectedId]);
 
-  // 3. Physical Drawing Engine
+  // 3. 画布主渲染循环
   useEffect(() => {
     if (!canvasRef.current || !canvasImage) return;
     const ctx = canvasRef.current.getContext('2d')!;
+    
+    // 设置画布物理尺寸
     canvasRef.current.width = canvasImage.width;
     canvasRef.current.height = canvasImage.height;
     
-    // Clear and draw base image
+    // 渲染：底图 -> 元素图层
     ctx.clearRect(0, 0, canvasImage.width, canvasImage.height);
     ctx.drawImage(canvasImage, 0, 0);
     
-    // Draw all dynamic elements
     elements.forEach(el => {
       ctx.save();
       ctx.globalAlpha = opacity;
@@ -151,11 +158,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       } else if (el.type === 'crop') {
         ctx.setLineDash([10 / zoom, 10 / zoom]);
         ctx.strokeStyle = '#6366f1';
-        ctx.lineWidth = 2 / zoom;
         ctx.strokeRect(el.x, el.y, el.w, el.h);
       }
 
-      // Selection Highlight
       if (el.id === selectedId) {
         ctx.globalCompositeOperation = 'source-over';
         ctx.setLineDash([5 / zoom, 5 / zoom]);
@@ -183,9 +188,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const pos = getCanvasPoint(e);
     
     if (currentTool === 'hand') { 
-      setIsPanning(true); 
-      setLastPanPos({ x: e.clientX, y: e.clientY }); 
-      return; 
+      setIsPanning(true); setLastPanPos({ x: e.clientX, y: e.clientY }); return; 
     }
     
     if (currentTool === 'select') { 
@@ -195,10 +198,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       });
       if (hit) { 
         setSelectedId(hit.id); 
-        setStrokeColor(hit.color);
-        setFillColor(hit.fillColor);
-        setStrokeWidth(hit.strokeWidth);
-        setFontSize(hit.fontSize);
+        setStrokeColor(hit.color); setFillColor(hit.fillColor); setStrokeWidth(hit.strokeWidth); setFontSize(hit.fontSize);
         setIsDragging(true); 
       } else setSelectedId(null); 
       return; 
@@ -213,14 +213,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     };
     
     if (currentTool === 'text') { 
-      const txt = prompt(uiLang === 'zh' ? "输入文本：" : "Enter text:"); 
+      const txt = prompt(uiLang === 'zh' ? "输入文字" : "Enter text"); 
       if (!txt) { setIsDragging(false); return; } 
       newEl.text = txt; newEl.w = txt.length * (fontSize * 0.6); newEl.h = fontSize;
-      setElements([...elements, newEl]); 
-      setSelectedId(id); setIsDragging(false); 
+      setElements([...elements, newEl]); setSelectedId(id); setIsDragging(false); 
     } else { 
-      setElements([...elements, newEl]); 
-      setSelectedId(id); 
+      setElements([...elements, newEl]); setSelectedId(id); 
     }
   };
 
@@ -232,9 +230,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     }
     if (!isDragging || !selectedId) return;
     const pos = getCanvasPoint(e);
+    
+    // 关键点：物理更新正在操作的元素
     setElements(prev => prev.map(el => { 
       if (el.id !== selectedId) return el; 
-      if (el.type === 'brush' || el.type === 'ai-erase') return { ...el, points: [...(el.points || []), pos], w: Math.max(el.w, Math.abs(pos.x - el.x)), h: Math.max(el.h, Math.abs(pos.y - el.y)) }; 
+      if (el.type === 'brush' || el.type === 'ai-erase') return { ...el, points: [...(el.points || []), pos] }; 
       return { ...el, w: pos.x - el.x, h: pos.y - el.y }; 
     }));
   };
@@ -268,7 +268,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setIsProcessing(true);
     setSelectedId(null);
     
-    // Minimal delay to ensure React has finished state updates for canvas effect
     setTimeout(() => {
       const exportCanvas = document.createElement('canvas'); 
       const bctx = exportCanvas.getContext('2d')!;
@@ -294,36 +293,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
           const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
           if (url) onSave(url); 
-        } catch (e) {
-          alert("Sync Failed: Check network/CORS.");
         } finally { setIsProcessing(false); }
       }, 'image/jpeg', 0.98);
     }, 150);
-  };
-
-  const handleAIErase = async () => {
-    if (!selectedId || isProcessing) return;
-    const el = elements.find(e => e.id === selectedId && e.type === 'ai-erase');
-    if (!el) return;
-
-    setIsProcessing(true);
-    try {
-      const base64 = canvasRef.current!.toDataURL('image/jpeg', 0.9).split(',')[1];
-      const result = await editImageWithAI(base64, "Remove the object seamlessly.");
-      const nextUrl = `data:image/jpeg;base64,${result}`;
-      
-      const img = new Image();
-      img.onload = () => {
-        setCanvasImage(img);
-        setElements(prev => prev.filter(e => e.id !== selectedId));
-        setSelectedId(null);
-        setIsProcessing(false);
-      };
-      img.src = nextUrl;
-    } catch (e) {
-      alert("AI Erase Error");
-      setIsProcessing(false);
-    }
   };
 
   return (
@@ -332,8 +304,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24}/></button>
           <div className="flex flex-col">
-             <span className="font-black text-[10px] uppercase tracking-widest text-indigo-400">Media Studio v7.0</span>
-             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">HD Neural Engine Active</span>
+             <span className="font-black text-[10px] uppercase tracking-widest text-indigo-400">Media Studio v7.5</span>
+             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">HD Rendering Engine Active</span>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -345,7 +317,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       </div>
       
       <div className="flex-1 flex overflow-hidden">
-        {/* Toolset */}
         <div className="w-20 bg-slate-900 border-r border-white/5 flex flex-col items-center py-6 gap-6 z-[300]">
            <SideBtn active={currentTool === 'select'} onClick={() => setCurrentTool('select')} icon={<MousePointer2 size={18}/>} label="Select" />
            <SideBtn active={currentTool === 'hand'} onClick={() => setCurrentTool('hand')} icon={<Hand size={18}/>} label="Pan" />
@@ -378,12 +349,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            
            <div className="w-8 h-px bg-white/10 mt-auto"></div>
            {currentTool === 'crop' && selectedId && (
-             <button onClick={executeCrop} className="p-3 text-indigo-400 hover:text-white bg-indigo-600/20 rounded-xl mb-2"><Maximize2 size={20}/></button>
+             <button onClick={executeCrop} className="p-3 text-indigo-400 hover:text-white bg-indigo-600/20 rounded-xl mb-2 animate-pulse"><Maximize2 size={20}/></button>
            )}
-           <button onClick={() => { if(selectedId) setElements(prev => prev.filter(el => el.id !== selectedId)); setSelectedId(null); }} className="p-3 text-slate-500 hover:text-red-500 transition-colors"><Trash2 size={20}/></button>
+           <button onClick={() => { if(selectedId) setElements(prev => prev.filter(el => el.id !== selectedId)); setSelectedId(null); }} className="p-3 text-slate-500 hover:text-red-500"><Trash2 size={20}/></button>
         </div>
 
-        {/* Viewport Area */}
         <div 
           ref={containerRef}
           className="flex-1 bg-slate-950 cursor-crosshair overflow-hidden relative" 
@@ -415,7 +385,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           </div>
         </div>
 
-        {/* Attribute Panel */}
         <div className="w-72 bg-slate-900 border-l border-white/5 p-8 space-y-10 z-[300] overflow-y-auto text-white">
            <div className="space-y-4">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Stroke Width</label>
@@ -445,16 +414,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Text Size / Opacity</label>
               <input type="range" min="12" max="500" value={fontSize} onChange={e => setFontSize(parseInt(e.target.value))} className="w-full accent-blue-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer mb-2" />
               <input type="range" min="0" max="1" step="0.01" value={opacity} onChange={e => setOpacity(parseFloat(e.target.value))} className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer" />
-           </div>
-
-           {currentTool === 'ai-erase' && selectedId && (
-             <button onClick={handleAIErase} className="w-full py-4 bg-indigo-600 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-indigo-500 animate-pulse">Execute AI Reconstruct</button>
-           )}
-
-           <div className="pt-6 border-t border-white/10 opacity-50">
-              <p className="text-[9px] font-medium leading-relaxed uppercase tracking-tighter text-slate-400">
-                Tip: Properties update selected elements immediately. Otherwise, they set defaults for new creations.
-              </p>
            </div>
         </div>
       </div>

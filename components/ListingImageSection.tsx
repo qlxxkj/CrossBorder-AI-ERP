@@ -29,7 +29,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   /**
-   * 1600 Physical Standardization Handler
+   * 1600 物理级标准化同步器
    */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
@@ -40,7 +40,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     });
     
     try {
-      // Proxy bridge for CORS safety
+      // 必须通过代理物理隔离跨域安全限制
       const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl 
         : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
@@ -55,24 +55,22 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       });
 
       const canvas = document.createElement('canvas');
-      canvas.width = 1600; 
-      canvas.height = 1600;
+      canvas.width = 1600; canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
       
-      // 1. Physical White Background
+      // 1. 物理绘制纯白底
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
-      // 2. Physical Centered Scaling (Amazon Spec: 1500 padding)
+      // 2. 物体居中（Amazon 标准：主物体占 85%-90% 空间）
       const scale = Math.min(1500 / img.width, 1500 / img.height);
-      const dw = img.width * scale;
-      const dh = img.height * scale;
+      const dw = img.width * scale, dh = img.height * scale;
       
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
-      // 3. Export & Sync to Host
+      // 3. 导出物理 Blob 提交至图床
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
       if (!blob) throw new Error("Canvas Serialization Failed");
 
@@ -82,7 +80,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       const res = await fetch(TARGET_API, { method: 'POST', body: fd });
       const data = await res.json();
       
-      // API typically returns [{"src": "/path"}] or {"url": "full"}
+      // 核心修复：针对特定图床 API 的数组格式进行物理路径提取
       const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
       const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : imgUrl;
       
@@ -93,7 +91,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       });
       return finalUrl;
     } catch (e) {
-      console.error("1600 Process Failed:", e);
+      console.error("1600 Standardize Critical failure:", e);
       setProcessingUrls(prev => {
         const next = new Set(prev);
         next.delete(imgUrl);
@@ -105,22 +103,25 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
 
   const handleStandardizeAll = async () => {
     setIsProcessing(true);
-    const newMain = effectiveMain ? await processAndUploadImage(effectiveMain) : "";
-    const newOthers = [];
-    for (const u of effectiveOthers) {
-      newOthers.push(await processAndUploadImage(u));
+    try {
+      const newMain = effectiveMain ? await processAndUploadImage(effectiveMain) : "";
+      const newOthers = [];
+      for (const u of effectiveOthers) {
+        newOthers.push(await processAndUploadImage(u));
+      }
+      
+      // 深度合并到 optimized 字段，确保触发 ListingDetail 的 syncToSupabase
+      const nextOpt = { 
+        ...(listing.optimized || {}), 
+        optimized_main_image: newMain || effectiveMain, 
+        optimized_other_images: newOthers 
+      };
+      
+      onUpdateListing({ optimized: nextOpt as any });
+      if (newMain) setPreviewImage(newMain);
+    } finally {
+      setIsProcessing(false);
     }
-    
-    // Perform deep merge into 'optimized' field to preserve existing AI text
-    const nextOpt = { 
-      ...(listing.optimized || {}), 
-      optimized_main_image: newMain || effectiveMain, 
-      optimized_other_images: newOthers 
-    };
-    
-    onUpdateListing({ optimized: nextOpt as any });
-    if (newMain) setPreviewImage(newMain);
-    setIsProcessing(false);
   };
 
   const handleStandardizeOne = async (url: string) => {
