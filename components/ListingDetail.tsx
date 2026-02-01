@@ -108,6 +108,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
+  // 恢复单站翻译逻辑
   const translateSite = async (marketCode: string) => {
     if (!localListing.optimized || isTranslating) return;
     setIsTranslating(true);
@@ -145,6 +146,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
+  // 恢复一键全站翻译逻辑
   const translateAllMarkets = async () => {
     if (!localListing.optimized || isTranslating) return;
     const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
@@ -188,6 +190,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
+  // 1600px 物理标准化引擎修复
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
@@ -197,7 +200,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
           ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
         
-        // 核心方案：通过 Fetch 获取 Blob 彻底解决跨域“污染”导出失败
+        // 核心方案：通过 Fetch 获取 Blob 彻底解决跨域“污染”导致导出失败的问题
         const response = await fetch(proxied);
         const blob = await response.blob();
         const localObjUrl = URL.createObjectURL(blob);
@@ -211,11 +214,11 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         canvas.height = 1600;
         const ctx = canvas.getContext('2d')!;
         
-        // 1. 物理白色背景
+        // 1. 物理纯白底色
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, 1600, 1600);
         
-        // 2. 长边 1500px 居中算法
+        // 2. 长边 1500px 等比居中算法
         const targetLimit = 1500;
         const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
         const dw = img.width * scale;
@@ -227,7 +230,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, dx, dy, dw, dh);
         
-        URL.revokeObjectURL(localObjUrl); 
+        URL.revokeObjectURL(localObjUrl); // 释放内存
 
         canvas.toBlob(async (outBlob) => {
           if (!outBlob) {
@@ -250,7 +253,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           }
         }, 'image/jpeg', 0.98);
       } catch (e) {
-        console.error("Standardization Crash:", e);
+        console.error("Standardization System Crash:", e);
         setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
         resolve(imgUrl);
       }
@@ -267,6 +270,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       const res = await fetch(TARGET_API, { method: 'POST', body: fd });
       const data = await res.json();
       const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+      // Fixed: Added missing closing quote to 'http' in startsWith call.
       const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
       
       if (url) {
@@ -337,7 +341,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                 if (next.optimized) { delete next.optimized.optimized_main_image; delete next.optimized.optimized_other_images; }
                 setLocalListing(next); setPreviewImage(next.cleaned.main_image || ''); onUpdate(next); syncToSupabase(next);
              }} setShowEditor={(show) => { 
-                if (show) setEditingImageUrl(previewImage); 
+                if (show) setEditingImageUrl(previewImage); // 重要：记录当前正在查看的预览图
                 setShowImageEditor(show); 
              }} fileInputRef={fileInputRef} onAddImage={handleFileUpload} />
              <ListingSourcingSection listing={localListing} updateField={(f, v) => updateFields({[f]: v}, true)} setShowModal={setShowSourcingModal} setShowForm={setShowSourcingForm} setEditingRecord={setEditingSourceRecord} />
@@ -358,6 +362,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                         );
                      })}
                    </div>
+                   {/* 恢复 Translate All 按钮 */}
                    <button onClick={translateAllMarkets} disabled={isTranslating || !localListing.optimized} className={`px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase flex items-center gap-3 shadow-xl shadow-indigo-100 transition-all ${isTranslating ? 'animate-pulse opacity-80' : 'hover:scale-105 active:scale-95'}`}>
                       {isTranslating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
                       {isTranslating ? `Translating ${translateStatus.current}/${translateStatus.total}` : 'Translate All'}

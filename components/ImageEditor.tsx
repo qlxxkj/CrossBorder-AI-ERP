@@ -48,7 +48,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [lastShape, setLastShape] = useState<Tool>('rect');
 
-  // 核心修复方案：使用安全 Blob 加载图片，绕过 Canvas Tainted 跨域安全限制
+  // 核心修复方案：使用安全 Blob 加载图片，彻底绕过浏览器跨域导出空白的限制
   useEffect(() => {
     const loadSecureImage = async () => {
       if (!imageUrl) { setIsProcessing(false); return; }
@@ -58,13 +58,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           ? imageUrl : `${CORS_PROXY}${encodeURIComponent(imageUrl)}?t=${Date.now()}`;
         
         const response = await fetch(proxied);
-        if (!response.ok) throw new Error("Fetch failed");
+        if (!response.ok) throw new Error("Secure Fetch failed");
         
         const blob = await response.blob();
         const localUrl = URL.createObjectURL(blob);
         
         const img = new Image();
-        // 因为已经是本地授权的 blob，不再需要设置 crossOrigin
+        // 关键：本地 Blob 对象不需要再设置 crossOrigin
         img.src = localUrl;
         
         img.onload = () => {
@@ -74,11 +74,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           setIsProcessing(false);
         };
         img.onerror = () => {
-          console.error("Image secure loading error");
+          console.error("Editor image render error");
           setIsProcessing(false);
         };
       } catch (e) { 
-        console.error("Editor image fetching crashed:", e);
+        console.error("Image Pre-fetch Crash:", e);
         setIsProcessing(false); 
       }
     };
@@ -93,14 +93,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     if (!canvasRef.current || !canvasImage) return;
     const ctx = canvasRef.current.getContext('2d')!;
     
-    // 设置物理画布尺寸为底图尺寸
+    // 设置物理画布尺寸为原图尺寸
     canvasRef.current.width = canvasImage.width;
     canvasRef.current.height = canvasImage.height;
     
-    // 1. 绘制底图
+    // 1. 绘制物理底图
     ctx.drawImage(canvasImage, 0, 0);
 
-    // 2. 顺序绘制所有标注层
+    // 2. 顺序绘制所有矢量图层
     elements.forEach(el => {
       ctx.save();
       ctx.strokeStyle = el.color;
@@ -226,40 +226,49 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 
   const handleEnd = () => setIsDragging(false);
 
+  // 1600px 物理引擎：放大至 1500px + 1600px 纯白底
   const handleStandardize = async () => {
     if (!canvasRef.current) return;
     setIsProcessing(true);
+    setSelectedId(null); // 隐藏选择框
     
-    const buffer = document.createElement('canvas');
-    buffer.width = 1600;
-    buffer.height = 1600;
-    const bctx = buffer.getContext('2d')!;
-    
-    bctx.fillStyle = '#FFFFFF';
-    bctx.fillRect(0, 0, 1600, 1600);
-    
-    const scale = Math.min(1500 / canvasRef.current.width, 1500 / canvasRef.current.height);
-    const dw = canvasRef.current.width * scale;
-    const dh = canvasRef.current.height * scale;
-    const dx = (1600 - dw) / 2;
-    const dy = (1600 - dh) / 2;
-    
-    bctx.drawImage(canvasRef.current, dx, dy, dw, dh);
-    
-    buffer.toBlob(async (blob) => {
-      if (!blob) return setIsProcessing(false);
-      const fd = new FormData();
-      fd.append('file', blob, `manual_std1600_${Date.now()}.jpg`);
-      try {
-        const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-        const data = await res.json();
-        const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-        const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-        if (u) onSave(u);
-      } catch (e) {
-        alert("Commit failed.");
-      } finally { setIsProcessing(false); }
-    }, 'image/jpeg', 0.98);
+    setTimeout(() => {
+      const buffer = document.createElement('canvas');
+      buffer.width = 1600;
+      buffer.height = 1600;
+      const bctx = buffer.getContext('2d')!;
+      
+      // 1. 物理纯白底色
+      bctx.fillStyle = '#FFFFFF';
+      bctx.fillRect(0, 0, 1600, 1600);
+      
+      // 2. 长边 1500px 居中算法
+      const sourceCanvas = canvasRef.current!;
+      const scale = Math.min(1500 / sourceCanvas.width, 1500 / sourceCanvas.height);
+      const dw = sourceCanvas.width * scale;
+      const dh = sourceCanvas.height * scale;
+      const dx = (1600 - dw) / 2;
+      const dy = (1600 - dh) / 2;
+      
+      bctx.imageSmoothingEnabled = true;
+      bctx.imageSmoothingQuality = 'high';
+      bctx.drawImage(sourceCanvas, dx, dy, dw, dh);
+      
+      buffer.toBlob(async (blob) => {
+        if (!blob) return setIsProcessing(false);
+        const fd = new FormData();
+        fd.append('file', blob, `editor_std1600_${Date.now()}.jpg`);
+        try {
+          const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+          const data = await res.json();
+          const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+          const u = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
+          if (u) onSave(u);
+        } catch (e) {
+          alert("Sync error. Please retry.");
+        } finally { setIsProcessing(false); }
+      }, 'image/jpeg', 0.98);
+    }, 100);
   };
 
   const handleFinalSave = async () => {
@@ -307,16 +316,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-all"><X size={24}/></button>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-black text-xs italic">AI</div>
-            <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent">AI Media Studio Pro v4.4</span>
+            <span className="font-black text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent">AI Media Studio Pro v4.5</span>
           </div>
         </div>
         <div className="flex items-center gap-4">
           <button 
             onClick={handleStandardize} 
             disabled={isProcessing} 
-            className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all"
+            className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all group"
           >
-            <Maximize2 size={14}/> Standardize 1600
+            <Maximize2 size={14} className="group-hover:scale-110 transition-transform"/> Standardize 1600
           </button>
           <button onClick={handleFinalSave} disabled={isProcessing} className="px-10 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl shadow-indigo-500/20 transition-all">
             {isProcessing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Commit Sync
@@ -350,7 +359,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            <button onClick={() => { if(selectedId) setElements(elements.filter(el => el.id !== selectedId)); setSelectedId(null); }} className="p-3 text-slate-500 hover:text-red-500 transition-all"><Trash2 size={20}/></button>
         </div>
 
-        {/* 画布主视口 */}
+        {/* 画布视口 */}
         <div className="flex-1 relative overflow-hidden bg-slate-950 flex items-center justify-center p-10 custom-scrollbar">
           {isProcessing && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/40 backdrop-blur-sm">
@@ -387,7 +396,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            </div>
            
            <div className="space-y-5">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">Text Size</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block">Text Font Size</label>
               <input type="range" min="12" max="250" value={fontSize} onChange={e => setFontSize(parseInt(e.target.value))} className="w-full accent-blue-500 h-1.5 bg-slate-800 rounded-full appearance-none cursor-pointer" />
               <div className="flex justify-between text-[8px] font-black text-slate-600 uppercase"><span>Small</span><span>{fontSize}px</span><span>Large</span></div>
            </div>
