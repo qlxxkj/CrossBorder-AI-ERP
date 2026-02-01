@@ -39,8 +39,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
-      const cleanUrl = imgUrl.split('?')[0]; // 去掉之前的时间戳
-      const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(cleanUrl)}&_t=${Date.now()}`;
+      const cleanUrl = imgUrl.split('?')[0]; 
+      const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(cleanUrl)}`;
       const resp = await fetch(proxiedUrl);
       if (!resp.ok) throw new Error("Proxy Failure");
       const blobSource = await resp.blob();
@@ -75,8 +75,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       
       const data = await uploadRes.json();
       const finalUrl = normalizeUrl(data);
-      // 关键：追加随机数解决浏览器不刷新的问题
-      return finalUrl ? `${finalUrl}?std=${Date.now()}` : imgUrl;
+      // 返回带时间戳的 URL 以击穿浏览器缓存
+      return finalUrl ? `${finalUrl}?t=${Date.now()}` : imgUrl;
     } catch (e) {
       console.error("Standardize Error:", e);
       return imgUrl;
@@ -95,6 +95,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         newOthers.push(await processAndUploadImage(u));
       }
       
+      // 关键：构建全新的 optimized 对象，触发父组件 localListing 状态更新
       const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
       nextOpt.optimized_main_image = newMain || effectiveMain;
       nextOpt.optimized_other_images = newOthers;
@@ -120,7 +121,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         others[idx] = newUrl;
         nextOpt.optimized_other_images = others;
       }
-      // 如果当前正在预览这张图，强制刷新预览
       if (previewImage === url) setPreviewImage(newUrl);
     }
     onUpdateListing({ optimized: nextOpt });
@@ -166,7 +166,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group">
          {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 gap-3">
             <Loader2 className="animate-spin text-indigo-600" size={32} />
-            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Processing Pixels...</span>
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Syncing Pixels...</span>
          </div>}
          <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
          

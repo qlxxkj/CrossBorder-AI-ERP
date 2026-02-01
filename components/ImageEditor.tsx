@@ -63,20 +63,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [isDrawing, setIsDrawing] = useState(false);
   const [imgObj, setImgObj] = useState<HTMLImageElement | null>(null);
 
-  // 1. 深度加载引擎：增加超时处理，解决一直加载问题
+  // 1. 稳健的物理图像加载引擎
   const initImage = useCallback(async (url: string) => {
     if (!url) return;
     setIsProcessing(true);
     
-    const timeout = setTimeout(() => {
-      if (isProcessing) {
-        setIsProcessing(false);
-        alert(uiLang === 'zh' ? "图像加载超时" : "Image Load Timeout");
-      }
-    }, 10000);
-
     try {
-      const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(url)}&_t=${Date.now()}`;
+      // 移除原有的时间戳逻辑，采用更直接的流式读取
+      const cleanUrl = url.split('?')[0];
+      const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(cleanUrl)}`;
       const response = await fetch(proxiedUrl);
       if (!response.ok) throw new Error("Fetch failed");
       const blob = await response.blob();
@@ -85,24 +80,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = () => {
-        clearTimeout(timeout);
         setImgObj(img);
         setIsProcessing(false);
         const scale = Math.min((window.innerWidth * 0.7) / img.width, (window.innerHeight * 0.7) / img.height, 1);
         setZoom(scale);
       };
       img.onerror = () => {
-        clearTimeout(timeout);
         setIsProcessing(false);
-        alert("Image stream corrupted.");
+        alert("Image logic corrupted.");
       };
       img.src = localUrl;
     } catch (e) {
-      clearTimeout(timeout);
       setIsProcessing(false);
       console.error(e);
     }
-  }, [uiLang, isProcessing]);
+  }, []);
 
   useEffect(() => { initImage(imageUrl); }, [imageUrl]);
 
@@ -187,21 +179,35 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     });
   }, [elements, imgObj, selectedId, zoom, opacity]);
 
+  // 2. 关键：修复缩放和平移下的鼠标坐标映射逻辑
   const getMousePos = (e: any) => {
     if (!canvasRef.current) return { x: 0, y: 0 };
-    const rect = canvasRef.current.getBoundingClientRect();
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    
+    // 获取相对于 Canvas 元素的原始鼠标坐标
     const clientX = e.clientX || (e.touches && e.touches[0].clientX);
     const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
-    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+    
+    // 计算缩放比例 (由于 Canvas 可能被 CSS 缩放)
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (isProcessing || !imgObj) return;
     const pos = getMousePos(e);
 
-    if (currentTool === 'hand') { setIsPanning(true); setLastPanPos({ x: e.clientX, y: e.clientY }); return; }
+    if (currentTool === 'hand') { 
+      setIsPanning(true); 
+      setLastPanPos({ x: e.clientX, y: e.clientY }); 
+      return; 
+    }
 
     if (currentTool === 'select') {
       const hit = [...elements].reverse().find(el => {
@@ -296,19 +302,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const fd = new FormData();
         fd.append('file', blob, `studio_${Date.now()}.jpg`);
         try {
-          // 修正：POST 请求不建议使用 CORS_PROXY，改回直接上传
           const res = await fetch(TARGET_API, { method: 'POST', body: fd });
           if (!res.ok) throw new Error("Sync Failure");
           const data = await res.json();
           const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : (data.url || data.data?.url);
           const url = typeof rawSrc === 'string' ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
           if (url) {
-            onSave(url + `?t=${Date.now()}`); // 追加时间戳强制刷新
+            onSave(url + `?studio=${Date.now()}`); 
           }
         } catch (e) { 
-          alert(uiLang === 'zh' ? "云端同步失败，图床接口目前不可用" : "Sync failed. Interface currently down."); 
+          alert(uiLang === 'zh' ? "云端同步失败，请检查网络" : "Sync failed. Network issue."); 
         } finally { setIsProcessing(false); }
-      }, 'image/jpeg', 0.95);
+      }, 'image/jpeg', 0.98);
     }, 150);
   };
 
@@ -317,7 +322,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between shadow-2xl">
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X size={24}/></button>
-          <span className="font-black text-[10px] uppercase tracking-[0.2em] text-indigo-400">AMZBot Pixel Engine v17.2</span>
+          <span className="font-black text-[10px] uppercase tracking-[0.2em] text-indigo-400">AMZBot Pixel Engine v17.3</span>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => handleCommit(true)} className="px-5 py-2 bg-slate-800 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-700 transition-all"><Maximize2 size={14}/> 1600 HD</button>
@@ -328,7 +333,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       </div>
       
       <div className="flex-1 flex overflow-hidden">
-        {/* 关键：增加 z-index 和 overflow-visible 解决弹出菜单遮挡 */}
+        {/* 修复溢出遮挡 */}
         <div className="w-20 bg-slate-900 border-r border-white/5 flex flex-col items-center py-6 gap-4 shrink-0 z-[1100] overflow-visible">
            <SideBtn active={currentTool === 'select'} onClick={() => { setCurrentTool('select'); setSelectedId(null); }} icon={<MousePointer2 size={18}/>} />
            <SideBtn active={currentTool === 'hand'} onClick={() => { setCurrentTool('hand'); setSelectedId(null); }} icon={<Hand size={18}/>} />

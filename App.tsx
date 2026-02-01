@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { ListingsManager } from './components/ListingsManager';
@@ -28,6 +28,9 @@ const App: React.FC = () => {
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
+  
+  // 使用 Ref 记录是否已经处理过初始登录跳转，防止切换 Tab 回来重置视图
+  const hasInitiallyRedirected = useRef(false);
 
   const fetchListings = useCallback(async (orgId: string) => {
     if (!isSupabaseConfigured() || !orgId) return;
@@ -80,45 +83,44 @@ const App: React.FC = () => {
     }
   }, [fetchListings]);
 
-  // 核心修复：Auth 监听器逻辑
   useEffect(() => {
-    // 1. 初次加载：检查 Session 决定初始视图
+    // 1. 获取初始会话
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);
       if (cur) {
         fetchIdentity(cur.user.id, cur);
-        // 如果初次加载就有 Session，直接进 Dashboard
-        setView(AppView.DASHBOARD);
+        // 初始加载有会话，如果是从 Landing/Auth 来的，才跳转
+        setView(prev => (prev === AppView.LANDING || prev === AppView.AUTH) ? AppView.DASHBOARD : prev);
       } else {
         setIsInitializing(false);
       }
     });
 
-    // 2. 监听变更：只有显式的登录/退出动作才强制跳转
+    // 2. 监听 Auth 变更
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-      const prevSession = session;
       setSession(newSession);
 
       if (newSession) {
         fetchIdentity(newSession.user.id, newSession);
-        // 只有从“无 Session”变为“有 Session”（即刚登录完）才自动跳转
-        if (!prevSession && event === 'SIGNED_IN') {
+        
+        // 关键逻辑：只有在显式 SIGNED_IN 且当前在 Landing/Auth 页面时才重置视图
+        if (event === 'SIGNED_IN' && !hasInitiallyRedirected.current) {
           setView(AppView.DASHBOARD);
           setActiveTab('dashboard');
+          hasInitiallyRedirected.current = true;
         }
       } else {
-        // 明确退出登录
         setUserProfile(null);
         setOrg(null);
         setListings([]);
         setView(AppView.LANDING);
+        hasInitiallyRedirected.current = false;
       }
     });
     return () => subscription.unsubscribe();
-  }, [fetchIdentity]); // 关键：移除 [view] 依赖
+  }, [fetchIdentity]);
 
   const handleLandingLogin = () => {
-    // 显式跳转逻辑：由按钮控制
     if (session) {
       setView(AppView.DASHBOARD);
     } else {
@@ -164,7 +166,10 @@ const App: React.FC = () => {
             <ListingDetail 
               listing={selectedListing} 
               onBack={() => setView(AppView.LISTINGS)} 
-              onUpdate={(u) => { setListings(prev => prev.map(l => l.id === u.id ? u : l)); setSelectedListing(u); }} 
+              onUpdate={(u) => { 
+                setListings(prev => prev.map(l => l.id === u.id ? u : l)); 
+                setSelectedListing(u); 
+              }} 
               onDelete={async (id) => {
                 await supabase.from('listings').delete().eq('id', id);
                 setListings(prev => prev.filter(l => l.id !== id));
