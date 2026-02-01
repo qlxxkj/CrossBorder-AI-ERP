@@ -34,20 +34,25 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     try {
       const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
+      
       const response = await fetch(proxied);
       const blob = await response.blob();
       const localObjUrl = URL.createObjectURL(blob);
       const img = new Image();
       img.src = localObjUrl;
       await img.decode();
+
       const canvas = document.createElement('canvas');
       canvas.width = 1600; canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
       ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, 1600, 1600);
+      
       const scale = Math.min(1500 / img.width, 1500 / img.height);
       const dw = img.width * scale, dh = img.height * scale;
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
+      
       URL.revokeObjectURL(localObjUrl);
+      
       return new Promise((resolve) => {
         canvas.toBlob(async (outBlob) => {
           if (!outBlob) { setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; }); return resolve(imgUrl); }
@@ -67,12 +72,15 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
 
   const handleStandardizeAll = async () => {
     setIsProcessing(true);
-    const mainUrl = effectiveMain;
-    const otherUrls = effectiveOthers;
-    const processedMain = mainUrl ? await processAndUploadImage(mainUrl) : "";
+    const processedMain = effectiveMain ? await processAndUploadImage(effectiveMain) : "";
     const processedOthers = [];
-    for (const u of otherUrls) { processedOthers.push(await processAndUploadImage(u)); }
-    const nextOpt = { ...(listing.optimized || {}), optimized_main_image: processedMain || effectiveMain, optimized_other_images: processedOthers };
+    for (const u of effectiveOthers) { processedOthers.push(await processAndUploadImage(u)); }
+    
+    const nextOpt = { 
+      ...(listing.optimized || {}), 
+      optimized_main_image: processedMain || effectiveMain, 
+      optimized_other_images: processedOthers 
+    };
     onUpdateListing({ optimized: nextOpt as any });
     if (processedMain) setPreviewImage(processedMain);
     setIsProcessing(false);
@@ -139,7 +147,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
       <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group mb-6">
          {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-center justify-center z-10"><Loader2 className="animate-spin text-indigo-600" size={32} /></div>}
-         <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" onError={(e) => { e.currentTarget.src = 'https://via.placeholder.com/400?text=Image+Error'; }} />
+         <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
          <div className="absolute bottom-4 right-4 flex gap-2">
             <button onClick={handleRestoreAll} disabled={isProcessing} className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center gap-2 hover:bg-slate-200 transition-all border border-slate-200 disabled:opacity-30"><RefreshCcw size={12} /> Restore Original</button>
             <button onClick={handleStandardizeAll} disabled={isProcessing} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-xl flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-indigo-200"><Maximize2 size={12} /> Standardize All</button>
@@ -154,7 +162,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
                 <img src={img} className="w-full h-full object-cover" />
                 <div className={`absolute inset-0 bg-black/40 flex flex-col justify-between p-1 transition-opacity ${isSelfProcessing ? 'opacity-100' : 'opacity-0 group-hover/thumb:opacity-100'}`}>
                    <div className="flex justify-between w-full">
-                      <button onClick={(e) => { e.stopPropagation(); handleSetMain(img); }} className={`p-1 rounded-lg text-white transition-colors ${img === effectiveMain ? 'bg-amber-500' : 'bg-white/20 hover:bg-amber-400'}`}><Star size={10} fill={img === effectiveMain ? "currentColor" : "none"} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); handleSetMain(img); }} className={`p-1 rounded-lg text-white transition-colors ${img === effectiveMain ? 'bg-amber-50' : 'bg-white/20 hover:bg-amber-400'}`}><Star size={10} fill={img === effectiveMain ? "currentColor" : "none"} /></button>
                       <button onClick={(e) => { e.stopPropagation(); handleRemoveImage(img); }} className="p-1 bg-white/20 hover:bg-red-500 rounded-lg text-white transition-colors"><Trash2 size={10} /></button>
                    </div>
                    <button onClick={(e) => { e.stopPropagation(); handleStandardizeOne(img); }} className="w-5 h-5 flex items-center justify-center bg-indigo-600 text-white rounded-lg hover:bg-indigo-400 shadow-lg self-start">

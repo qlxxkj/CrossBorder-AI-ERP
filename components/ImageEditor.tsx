@@ -74,23 +74,49 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   }, [elements, selectedId, canvasImage, strokeColor, strokeWidth, zoom]);
 
   const handleWheel = (e: React.WheelEvent) => { e.preventDefault(); const d = e.deltaY > 0 ? 0.9 : 1.1; setZoom(p => Math.min(Math.max(0.05, p * d), 20)); };
+  
   const handleStart = (e: React.MouseEvent) => {
-    const rect = canvasRef.current!.getBoundingClientRect();
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
     const pos = { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom };
-    if (currentTool === 'hand' || currentTool === 'select') { setIsPanning(true); setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y }); if (currentTool === 'hand') return; }
-    if (currentTool === 'select') { const clicked = [...elements].reverse().find(el => (pos.x >= el.x && pos.x <= el.x + (el.w||0) && pos.y >= el.y && pos.y <= el.y + (el.h||0))); if (clicked) { setSelectedId(clicked.id); setIsDragging(true); } else { setSelectedId(null); } return; }
-    setIsDragging(true); const id = Math.random().toString(36).substr(2, 9);
+    
+    if (currentTool === 'hand' || currentTool === 'select') { 
+      setIsPanning(true); 
+      setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y }); 
+      if (currentTool === 'hand') return; 
+    }
+    
+    if (currentTool === 'select') { 
+      const clicked = [...elements].reverse().find(el => (pos.x >= el.x && pos.x <= el.x + (el.w||0) && pos.y >= el.y && pos.y <= el.y + (el.h||0))); 
+      if (clicked) { setSelectedId(clicked.id); setIsDragging(true); } else { setSelectedId(null); } 
+      return; 
+    }
+    
+    setIsDragging(true); 
+    const id = Math.random().toString(36).substr(2, 9);
     const newEl: Element = { id, type: currentTool, x: pos.x, y: pos.y, w: 0, h: 0, color: strokeColor, strokeWidth, fontSize, points: ['brush', 'erase'].includes(currentTool) ? [pos] : [] };
-    if (currentTool === 'text') { const t = prompt("Text Content:"); if (!t) { setIsDragging(false); return; } newEl.text = t; setElements([...elements, newEl]); setSelectedId(id); setIsDragging(false); }
-    else { setElements([...elements, newEl]); setSelectedId(id); }
+    
+    if (currentTool === 'text') { 
+      const t = prompt("Text Content:"); 
+      if (!t) { setIsDragging(false); return; } 
+      newEl.text = t; setElements([...elements, newEl]); setSelectedId(id); setIsDragging(false); 
+    } else { 
+      setElements([...elements, newEl]); setSelectedId(id); 
+    }
   };
 
   const handleMove = (e: React.MouseEvent) => {
     if (isPanning) setOffset({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
-    if (!isDragging || !selectedId) return;
-    const rect = canvasRef.current!.getBoundingClientRect();
+    if (!isDragging || !selectedId || !canvasRef.current) return;
+    
+    const rect = canvasRef.current.getBoundingClientRect();
     const pos = { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom };
-    setElements(elements.map(el => { if (el.id !== selectedId) return el; if (['brush', 'erase'].includes(el.type)) return { ...el, points: [...(el.points || []), pos] }; return { ...el, w: pos.x - el.x, h: pos.y - el.y }; }));
+    
+    setElements(elements.map(el => { 
+      if (el.id !== selectedId) return el; 
+      if (['brush', 'erase'].includes(el.type)) return { ...el, points: [...(el.points || []), pos] }; 
+      return { ...el, w: pos.x - el.x, h: pos.y - el.y }; 
+    }));
   };
 
   const sync = async (type: string) => {
@@ -98,19 +124,36 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setIsProcessing(true); setSelectedId(null);
     setTimeout(() => {
       const buffer = document.createElement('canvas'); 
-      if (type === 'std') { buffer.width = 1600; buffer.height = 1600; const bctx = buffer.getContext('2d')!; bctx.fillStyle = '#FFFFFF'; bctx.fillRect(0, 0, 1600, 1600); const scale = Math.min(1500 / canvasRef.current!.width, 1500 / canvasRef.current!.height); const dw = canvasRef.current!.width * scale, dh = canvasRef.current!.height * scale; bctx.drawImage(canvasRef.current!, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh); }
-      else { buffer.width = canvasRef.current!.width; buffer.height = canvasRef.current!.height; buffer.getContext('2d')!.drawImage(canvasRef.current!, 0, 0); }
+      if (type === 'std') { 
+        buffer.width = 1600; buffer.height = 1600; 
+        const bctx = buffer.getContext('2d')!; 
+        bctx.fillStyle = '#FFFFFF'; bctx.fillRect(0, 0, 1600, 1600); 
+        const scale = Math.min(1500 / canvasRef.current!.width, 1500 / canvasRef.current!.height); 
+        const dw = canvasRef.current!.width * scale, dh = canvasRef.current!.height * scale; 
+        bctx.drawImage(canvasRef.current!, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh); 
+      } else { 
+        buffer.width = canvasRef.current!.width; 
+        buffer.height = canvasRef.current!.height; 
+        buffer.getContext('2d')!.drawImage(canvasRef.current!, 0, 0); 
+      }
+      
       buffer.toBlob(async (blob) => {
         if (!blob) return setIsProcessing(false);
         const fd = new FormData(); fd.append('file', blob, `edit_${Date.now()}.jpg`);
-        try { const res = await fetch(TARGET_API, { method: 'POST', body: fd }); const data = await res.json(); const url = Array.isArray(data) && data[0]?.src ? `${IMAGE_HOST_DOMAIN}${data[0].src}` : data.url; if (url) onSave(url); } finally { setIsProcessing(false); }
+        try { 
+          const res = await fetch(TARGET_API, { method: 'POST', body: fd }); 
+          const data = await res.json(); 
+          const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+          const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
+          if (url) onSave(url); 
+        } finally { setIsProcessing(false); }
       }, 'image/jpeg', 0.98);
     }, 50);
   };
 
   return (
     <div className="fixed inset-0 z-[250] bg-slate-950 flex flex-col font-inter overflow-hidden">
-      {/* 顶部工具栏 - 强行固定 */}
+      {/* 顶部工具栏 - 强制固定 */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between text-white z-[300] shadow-2xl">
         <div className="flex items-center gap-6"><button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X size={24}/></button><span className="font-black text-xs uppercase tracking-widest text-indigo-400">Media Engine v4.8</span></div>
         <div className="flex items-center gap-4">
@@ -119,8 +162,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         </div>
       </div>
       
-      <div className="flex-1 flex pt-16 relative">
-        {/* 左侧工具栏 - 强行固定 */}
+      <div className="flex-1 flex pt-16 relative overflow-hidden">
+        {/* 左侧工具栏 - 强制固定 */}
         <div className="fixed left-0 top-16 bottom-0 w-20 bg-slate-900 border-r border-white/5 flex flex-col items-center py-6 gap-5 z-[300]">
            <SideBtn active={currentTool === 'select'} onClick={() => setCurrentTool('select')} icon={<MousePointer2 size={18}/>} label="Move" />
            <SideBtn active={currentTool === 'hand'} onClick={() => setCurrentTool('hand')} icon={<Hand size={18}/>} label="Pan" />
@@ -134,13 +177,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         </div>
 
         {/* 交互工作区 */}
-        <div className="flex-1 bg-slate-950 cursor-crosshair overflow-hidden relative" onWheel={handleWheel} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={() => { setIsDragging(false); setIsPanning(false); }} onMouseLeave={() => { setIsDragging(false); setIsPanning(false); }}>
+        <div className="flex-1 bg-slate-950 cursor-crosshair overflow-hidden relative ml-20 mr-72" onWheel={handleWheel} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={() => { setIsDragging(false); setIsPanning(false); }} onMouseLeave={() => { setIsDragging(false); setIsPanning(false); }}>
           {isProcessing && <div className="absolute inset-0 z-[400] bg-slate-950/60 backdrop-blur-md flex flex-col items-center justify-center"><Loader2 className="animate-spin text-indigo-500 mb-4" size={48} /><p className="text-[10px] font-black text-white/50 uppercase tracking-widest">Syncing Neural Workspace...</p></div>}
-          <div style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, transformOrigin: 'center', transition: isPanning ? 'none' : 'transform 0.1s ease-out' }} className="inline-block shadow-[0_0_100px_rgba(0,0,0,0.8)] bg-white absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"><canvas ref={canvasRef} className="block" /></div>
-          <div className="absolute bottom-8 right-72 px-5 py-2.5 bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full text-[10px] font-black text-white/50">{Math.round(zoom * 100)}% ZOOM</div>
+          <div style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, transformOrigin: 'center', transition: isPanning ? 'none' : 'transform 0.1s ease-out' }} className="inline-block shadow-[0_0_100px_rgba(0,0,0,0.8)] bg-white absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+            <canvas ref={canvasRef} className="block" />
+          </div>
+          <div className="absolute bottom-8 right-8 px-5 py-2.5 bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full text-[10px] font-black text-white/50">{Math.round(zoom * 100)}% ZOOM</div>
         </div>
 
-        {/* 右侧属性栏 - 强行固定 */}
+        {/* 右侧属性栏 - 强制固定 */}
         <div className="fixed right-0 top-16 bottom-0 w-72 bg-slate-900 border-l border-white/5 p-8 space-y-10 z-[300] overflow-y-auto">
            <div className="space-y-4"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Brush/Line Width</label><input type="range" min="1" max="150" value={strokeWidth} onChange={e => setStrokeWidth(parseInt(e.target.value))} className="w-full accent-indigo-500 h-1 bg-slate-800 rounded-lg appearance-none" /></div>
            <div className="space-y-4"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Text Size</label><input type="range" min="12" max="300" value={fontSize} onChange={e => setFontSize(parseInt(e.target.value))} className="w-full accent-blue-500 h-1 bg-slate-800 rounded-lg appearance-none" /></div>
@@ -154,6 +199,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
 const SideBtn = ({ active, onClick, icon, label }: any) => (
   <button onClick={onClick} className={`w-14 flex flex-col items-center gap-1 group transition-all ${active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
     <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${active ? 'bg-indigo-600/20 ring-2 ring-indigo-500' : 'bg-white/5 hover:bg-white/10'}`}>{icon}</div>
-    <span className="text-[8px] font-black uppercase tracking-tighter opacity-50">{label}</span>
+    <span className="text-[8px] font-black uppercase tracking-tighter opacity-50 group-hover:opacity-100">{label}</span>
   </button>
 );

@@ -115,8 +115,16 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       {showImageEditor && (
         <ImageEditor imageUrl={editingImageUrl} onClose={() => setShowImageEditor(false)} onSave={(url) => {
           const next = JSON.parse(JSON.stringify(localListing));
-          if ((next.optimized?.optimized_main_image || next.cleaned.main_image) === editingImageUrl) next.optimized = { ...(next.optimized || {}), optimized_main_image: url };
-          else { const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])]; const idx = others.indexOf(editingImageUrl); if (idx > -1) { others[idx] = url; next.optimized = { ...(next.optimized || {}), optimized_other_images: others }; } }
+          if ((next.optimized?.optimized_main_image || next.cleaned.main_image) === editingImageUrl) {
+            next.optimized = { ...(next.optimized || {}), optimized_main_image: url };
+          } else {
+            const others = [...(next.optimized?.optimized_other_images || next.cleaned.other_images || [])];
+            const idx = others.indexOf(editingImageUrl);
+            if (idx > -1) {
+              others[idx] = url;
+              next.optimized = { ...(next.optimized || {}), optimized_other_images: others };
+            }
+          }
           setPreviewImage(url);
           updateListingData(next);
           setShowImageEditor(false);
