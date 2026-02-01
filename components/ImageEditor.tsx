@@ -63,30 +63,48 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [isDrawing, setIsDrawing] = useState(false);
   const [imgObj, setImgObj] = useState<HTMLImageElement | null>(null);
 
+  // 1. 深度加载引擎：增加超时处理，解决一直加载问题
   const initImage = useCallback(async (url: string) => {
     if (!url) return;
     setIsProcessing(true);
+    
+    const timeout = setTimeout(() => {
+      if (isProcessing) {
+        setIsProcessing(false);
+        alert(uiLang === 'zh' ? "图像加载超时" : "Image Load Timeout");
+      }
+    }, 10000);
+
     try {
       const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(url)}&_t=${Date.now()}`;
       const response = await fetch(proxiedUrl);
+      if (!response.ok) throw new Error("Fetch failed");
       const blob = await response.blob();
       const localUrl = URL.createObjectURL(blob);
+      
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = () => {
+        clearTimeout(timeout);
         setImgObj(img);
         setIsProcessing(false);
         const scale = Math.min((window.innerWidth * 0.7) / img.width, (window.innerHeight * 0.7) / img.height, 1);
         setZoom(scale);
       };
+      img.onerror = () => {
+        clearTimeout(timeout);
+        setIsProcessing(false);
+        alert("Image stream corrupted.");
+      };
       img.src = localUrl;
     } catch (e) {
-      alert("Load Error: Image stream blocked.");
+      clearTimeout(timeout);
       setIsProcessing(false);
+      console.error(e);
     }
-  }, []);
+  }, [uiLang, isProcessing]);
 
-  useEffect(() => { initImage(imageUrl); }, [imageUrl, initImage]);
+  useEffect(() => { initImage(imageUrl); }, [imageUrl]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -114,7 +132,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       ctx.save();
       ctx.globalAlpha = opacity;
       ctx.strokeStyle = el.color;
-      ctx.fillStyle = el.color; // 默认填充色与线条色一致
+      ctx.fillStyle = el.color;
       ctx.lineWidth = el.strokeWidth;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -199,7 +217,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         setSelectedId(hit.id);
         setIsDragging(true);
         setDragOffset({ x: pos.x - hit.x, y: pos.y - hit.y });
-        // 同步选中元素的属性到侧边栏
         setStrokeColor(hit.color);
         setStrokeWidth(hit.strokeWidth);
         setFontSize(hit.fontSize);
@@ -259,7 +276,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     setIsProcessing(true);
     setSelectedId(null);
     
-    // 延迟以确保选中框消失
     setTimeout(async () => {
       const finalCanvas = document.createElement('canvas');
       const fctx = finalCanvas.getContext('2d')!;
@@ -280,19 +296,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const fd = new FormData();
         fd.append('file', blob, `studio_${Date.now()}.jpg`);
         try {
-          // 使用代理上传解决跨域/Referer拦截
-          const uploadUrl = `${CORS_PROXY}${encodeURIComponent(TARGET_API)}`;
-          const res = await fetch(uploadUrl, { method: 'POST', body: fd });
-          if (!res.ok) throw new Error("Upload Blocked");
+          // 修正：POST 请求不建议使用 CORS_PROXY，改回直接上传
+          const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+          if (!res.ok) throw new Error("Sync Failure");
           const data = await res.json();
           const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : (data.url || data.data?.url);
           const url = typeof rawSrc === 'string' ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-          if (url) onSave(url);
-          else throw new Error("No URL returned");
+          if (url) {
+            onSave(url + `?t=${Date.now()}`); // 追加时间戳强制刷新
+          }
         } catch (e) { 
-          alert(uiLang === 'zh' ? "云端同步失败，请检查网络或重试" : "Cloud sync failed. Check network."); 
+          alert(uiLang === 'zh' ? "云端同步失败，图床接口目前不可用" : "Sync failed. Interface currently down."); 
         } finally { setIsProcessing(false); }
-      }, 'image/jpeg', 0.98);
+      }, 'image/jpeg', 0.95);
     }, 150);
   };
 
@@ -301,7 +317,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between shadow-2xl">
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X size={24}/></button>
-          <span className="font-black text-[10px] uppercase tracking-[0.2em] text-indigo-400">AMZBot Pixel Engine v17.0</span>
+          <span className="font-black text-[10px] uppercase tracking-[0.2em] text-indigo-400">AMZBot Pixel Engine v17.2</span>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => handleCommit(true)} className="px-5 py-2 bg-slate-800 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-700 transition-all"><Maximize2 size={14}/> 1600 HD</button>
@@ -312,20 +328,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       </div>
       
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-20 bg-slate-900 border-r border-white/5 flex flex-col items-center py-6 gap-4 shrink-0">
+        {/* 关键：增加 z-index 和 overflow-visible 解决弹出菜单遮挡 */}
+        <div className="w-20 bg-slate-900 border-r border-white/5 flex flex-col items-center py-6 gap-4 shrink-0 z-[1100] overflow-visible">
            <SideBtn active={currentTool === 'select'} onClick={() => { setCurrentTool('select'); setSelectedId(null); }} icon={<MousePointer2 size={18}/>} />
            <SideBtn active={currentTool === 'hand'} onClick={() => { setCurrentTool('hand'); setSelectedId(null); }} icon={<Hand size={18}/>} />
            <div className="w-8 h-px bg-white/10 my-1"></div>
            <SideBtn active={currentTool === 'brush'} onClick={() => { setCurrentTool('brush'); setSelectedId(null); }} icon={<Palette size={18}/>} />
            <SideBtn active={currentTool === 'select-fill'} onClick={() => { setCurrentTool('select-fill'); setSelectedId(null); }} icon={<PaintBucket size={18}/>} />
            <SideBtn active={currentTool === 'picker'} onClick={() => setCurrentTool('picker')} icon={<Pipette size={18}/>} />
-           <div className="relative">
+           <div className="relative overflow-visible">
              <SideBtn active={['rect', 'circle', 'line'].includes(currentTool)} onClick={() => setShowShapeMenu(!showShapeMenu)} icon={lastShape === 'rect' ? <SquareIcon size={18}/> : lastShape === 'circle' ? <Circle size={18}/> : <Minus size={18} className="rotate-45" />} />
              {showShapeMenu && (
-               <div className="absolute left-full ml-2 top-0 bg-slate-800 border border-white/10 p-2 rounded-xl flex flex-col gap-2 z-[1100] shadow-2xl">
-                 <button onClick={() => { setCurrentTool('rect'); setLastShape('rect'); setShowShapeMenu(false); setSelectedId(null); }} className={`p-3 rounded-lg hover:bg-white/10 ${currentTool === 'rect' ? 'text-indigo-400' : 'text-slate-400'}`}><SquareIcon size={20}/></button>
-                 <button onClick={() => { setCurrentTool('circle'); setLastShape('circle'); setShowShapeMenu(false); setSelectedId(null); }} className={`p-3 rounded-lg hover:bg-white/10 ${currentTool === 'circle' ? 'text-indigo-400' : 'text-slate-400'}`}><Circle size={20}/></button>
-                 <button onClick={() => { setCurrentTool('line'); setLastShape('line'); setShowShapeMenu(false); setSelectedId(null); }} className={`p-3 rounded-lg hover:bg-white/10 ${currentTool === 'line' ? 'text-indigo-400' : 'text-slate-400'}`}><Minus size={20} className="rotate-45"/></button>
+               <div className="absolute left-full ml-4 top-0 bg-slate-800 border border-white/10 p-2 rounded-2xl flex flex-col gap-2 z-[2000] shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+                 <button onClick={() => { setCurrentTool('rect'); setLastShape('rect'); setShowShapeMenu(false); setSelectedId(null); }} className={`p-4 rounded-xl hover:bg-white/10 ${currentTool === 'rect' ? 'text-indigo-400' : 'text-slate-400'}`}><SquareIcon size={24}/></button>
+                 <button onClick={() => { setCurrentTool('circle'); setLastShape('circle'); setShowShapeMenu(false); setSelectedId(null); }} className={`p-4 rounded-xl hover:bg-white/10 ${currentTool === 'circle' ? 'text-indigo-400' : 'text-slate-400'}`}><Circle size={24}/></button>
+                 <button onClick={() => { setCurrentTool('line'); setLastShape('line'); setShowShapeMenu(false); setSelectedId(null); }} className={`p-4 rounded-xl hover:bg-white/10 ${currentTool === 'line' ? 'text-indigo-400' : 'text-slate-400'}`}><Minus size={24} className="rotate-45"/></button>
                </div>
              )}
            </div>

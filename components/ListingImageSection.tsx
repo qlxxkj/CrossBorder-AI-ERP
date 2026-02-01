@@ -39,9 +39,10 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
-      const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(imgUrl)}&_t=${Date.now()}`;
+      const cleanUrl = imgUrl.split('?')[0]; // 去掉之前的时间戳
+      const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(cleanUrl)}&_t=${Date.now()}`;
       const resp = await fetch(proxiedUrl);
-      if (!resp.ok) throw new Error("CORS Proxy Error");
+      if (!resp.ok) throw new Error("Proxy Failure");
       const blobSource = await resp.blob();
       const localSource = URL.createObjectURL(blobSource);
 
@@ -62,21 +63,20 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       const dw = img.width * scale, dh = img.height * scale;
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
-      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.92));
+      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
+      URL.revokeObjectURL(localSource);
       if (!blob) throw new Error("Processing Error");
 
       const fd = new FormData();
       fd.append('file', blob, `std_${Date.now()}.jpg`);
       
-      // 使用代理上传解决跨域拦截
-      const uploadUrl = `${CORS_PROXY}${encodeURIComponent(TARGET_API)}`;
-      const uploadRes = await fetch(uploadUrl, { method: 'POST', body: fd });
-      if (!uploadRes.ok) throw new Error("Sync Failed");
+      const uploadRes = await fetch(TARGET_API, { method: 'POST', body: fd });
+      if (!uploadRes.ok) throw new Error("Upload Failed");
       
       const data = await uploadRes.json();
       const finalUrl = normalizeUrl(data);
-      URL.revokeObjectURL(localSource);
-      return finalUrl || imgUrl;
+      // 关键：追加随机数解决浏览器不刷新的问题
+      return finalUrl ? `${finalUrl}?std=${Date.now()}` : imgUrl;
     } catch (e) {
       console.error("Standardize Error:", e);
       return imgUrl;
@@ -101,7 +101,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       
       onUpdateListing({ optimized: nextOpt });
       if (newMain) setPreviewImage(newMain);
-      alert("Pixels Synced to 1600 HD.");
     } finally {
       setIsProcessing(false);
     }
@@ -121,6 +120,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         others[idx] = newUrl;
         nextOpt.optimized_other_images = others;
       }
+      // 如果当前正在预览这张图，强制刷新预览
+      if (previewImage === url) setPreviewImage(newUrl);
     }
     onUpdateListing({ optimized: nextOpt });
   };
@@ -143,8 +144,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const uploadUrl = `${CORS_PROXY}${encodeURIComponent(TARGET_API)}`;
-      const res = await fetch(uploadUrl, { method: 'POST', body: fd });
+      const res = await fetch(TARGET_API, { method: 'POST', body: fd });
       const data = await res.json();
       const url = normalizeUrl(data);
       if (url) {
@@ -166,13 +166,12 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group">
          {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 gap-3">
             <Loader2 className="animate-spin text-indigo-600" size={32} />
-            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Processing...</span>
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Processing Pixels...</span>
          </div>}
          <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
          
-         {/* 按钮设为常驻显示，并优化布局 */}
          <div className="absolute bottom-4 left-4 right-4 flex justify-center gap-2">
-            <button onClick={() => onUpdateListing({ optimized: undefined })} className="px-3 py-2 bg-white/90 backdrop-blur-md text-slate-500 rounded-xl text-[9px] font-black uppercase shadow-lg flex items-center gap-1.5 hover:bg-slate-100 border border-white transition-all"><RefreshCcw size={12} /> Restore</button>
+            <button onClick={() => { onUpdateListing({ optimized: undefined }); setPreviewImage(listing.cleaned.main_image || ''); }} className="px-3 py-2 bg-white/90 backdrop-blur-md text-slate-500 rounded-xl text-[9px] font-black uppercase shadow-lg flex items-center gap-1.5 hover:bg-slate-100 border border-white transition-all"><RefreshCcw size={12} /> Restore</button>
             <button onClick={handleStandardizeAll} disabled={isProcessing} className="px-3 py-2 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase shadow-xl flex items-center gap-1.5 hover:bg-indigo-700 transition-all"><Maximize2 size={12} /> Standardize All</button>
             <button onClick={() => openEditor(previewImage)} className="px-3 py-2 bg-white/90 backdrop-blur-md text-indigo-600 rounded-xl text-[9px] font-black uppercase shadow-lg flex items-center gap-1.5 border border-white hover:bg-indigo-50 transition-all"><Wand2 size={12} /> Studio</button>
          </div>
