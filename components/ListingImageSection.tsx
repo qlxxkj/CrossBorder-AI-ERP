@@ -14,7 +14,7 @@ interface ListingImageSectionProps {
 
 const IMAGE_HOST_DOMAIN = 'https://img.hmstu.eu.org';
 const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`; 
-const CORS_PROXY = 'https://corsproxy.io/?';
+const IMAGE_PROXY = 'https://images.weserv.nl/?url=';
 
 export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   listing, previewImage, setPreviewImage, onUpdateListing, isSaving, openEditor
@@ -40,22 +40,26 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     
     try {
       const cleanUrl = imgUrl.split('?')[0]; 
-      const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(cleanUrl)}`;
-      const resp = await fetch(proxiedUrl);
-      if (!resp.ok) throw new Error("Proxy Failure");
-      const blobSource = await resp.blob();
-      const localSource = URL.createObjectURL(blobSource);
-
+      const proxiedUrl = `${IMAGE_PROXY}${encodeURIComponent(cleanUrl)}`;
+      
       const img = new Image();
+      img.crossOrigin = "anonymous";
+      
       await new Promise((resolve, reject) => {
         img.onload = resolve;
-        img.onerror = reject;
-        img.src = localSource;
+        img.onerror = () => {
+          // 如果代理失败，尝试直连
+          img.onerror = reject;
+          img.src = cleanUrl;
+        };
+        img.src = proxiedUrl;
       });
 
       const canvas = document.createElement('canvas');
       canvas.width = 1600; canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
+      
+      // 1600 HD 标准化：纯白背景 + 居中
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
@@ -64,21 +68,21 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      URL.revokeObjectURL(localSource);
-      if (!blob) throw new Error("Processing Error");
+      if (!blob) throw new Error("Canvas to Blob failed");
 
       const fd = new FormData();
-      fd.append('file', blob, `std_${Date.now()}.jpg`);
+      fd.append('file', blob, `standard_${Date.now()}.jpg`);
       
       const uploadRes = await fetch(TARGET_API, { method: 'POST', body: fd });
-      if (!uploadRes.ok) throw new Error("Upload Failed");
+      if (!uploadRes.ok) throw new Error("Server Sync Error");
       
       const data = await uploadRes.json();
       const finalUrl = normalizeUrl(data);
-      // 关键：追加随机数解决浏览器不刷新的问题
+      
+      // 返回带唯一标记的 URL 强制浏览器重绘
       return finalUrl ? `${finalUrl}?std=${Date.now()}` : imgUrl;
     } catch (e) {
-      console.error("Standardize Error:", e);
+      console.error("Standardize Pipeline Failed:", e);
       return imgUrl;
     } finally {
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
@@ -165,7 +169,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       <div className="aspect-square bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden relative flex items-center justify-center group">
          {(isSaving || isProcessing) && <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 gap-3">
             <Loader2 className="animate-spin text-indigo-600" size={32} />
-            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Syncing Pixels...</span>
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest animate-pulse">Standardizing Pixels...</span>
          </div>}
          <img src={activeDisplayImage} className="max-w-full max-h-full object-contain transition-all duration-300" />
          
