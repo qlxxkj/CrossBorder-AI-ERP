@@ -19,7 +19,6 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   listing, previewImage, setPreviewImage, onUpdateListing, isSaving, openEditor
 }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [processingUrls, setProcessingUrls] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
   const [hoverImage, setHoverImage] = useState<string | null>(null);
@@ -36,15 +35,16 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
     setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
+      // 增加缓存击穿
       const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl 
-        : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
+        : `${CORS_PROXY}${encodeURIComponent(imgUrl)}&_t=${Date.now()}`;
       
       const img = new Image();
       img.crossOrigin = "anonymous"; 
       
       await new Promise((resolve, reject) => {
-        img.onload = async () => { if ('decode' in img) await img.decode(); resolve(img); };
+        img.onload = () => resolve(img);
         img.onerror = () => reject(new Error("Physical Load Fail"));
         img.src = proxiedUrl;
       });
@@ -53,9 +53,11 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       canvas.width = 1600; canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
       
+      // 强制背景白
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
+      // 等比例缩放绘图
       const scale = Math.min(1500 / img.width, 1500 / img.height);
       const dw = img.width * scale, dh = img.height * scale;
       ctx.imageSmoothingEnabled = true;
@@ -63,7 +65,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Canvas Serialization Failed");
+      if (!blob) throw new Error("Canvas Fail");
 
       const fd = new FormData();
       fd.append('file', blob, `std_${Date.now()}.jpg`);
@@ -71,14 +73,14 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       const res = await fetch(TARGET_API, { method: 'POST', body: fd });
       const data = await res.json();
       
-      // 核心修复：针对特定图床 API 格式解析
-      const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+      // 针对 img.hmstu.eu.org 的特殊返回格式进行适配
+      const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : (data.url || data.data?.url);
       const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : imgUrl;
       
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
       return finalUrl;
     } catch (e) {
-      console.error("1600 Standardize Error:", e);
+      console.error("1600 Standardize Physical Failure:", e);
       setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
       return imgUrl;
     }
@@ -93,7 +95,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         newOthers.push(await processAndUploadImage(u));
       }
       
-      // 深度合并并更新字段
+      // 创建全新引用确保 React 侦测到变化
       const nextOpt = { 
         ...(listing.optimized || {}), 
         optimized_main_image: newMain || effectiveMain, 
@@ -109,7 +111,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
 
   const handleStandardizeOne = async (url: string) => {
     const newUrl = await processAndUploadImage(url);
-    const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
+    const nextOpt = { ...(listing.optimized || {}) };
     
     if (effectiveMain === url) {
       nextOpt.optimized_main_image = newUrl;
@@ -123,7 +125,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       }
       if (previewImage === url) setPreviewImage(newUrl);
     }
-    onUpdateListing({ optimized: nextOpt });
+    onUpdateListing({ optimized: nextOpt as any });
   };
 
   const activeDisplayImage = hoverImage || previewImage;
