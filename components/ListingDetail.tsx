@@ -108,7 +108,71 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     });
   };
 
-  // Fix: Missing translateSite function for localizing a single marketplace
+  const processAndUploadImage = async (imgUrl: string): Promise<string> => {
+    if (!imgUrl) return "";
+    setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
+    
+    return new Promise(async (resolve) => {
+      try {
+        // 使用 Blob 预取技术绕过 Canvas 跨域限制
+        const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
+          ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
+        
+        const response = await fetch(proxied);
+        const blob = await response.blob();
+        const localObjUrl = URL.createObjectURL(blob);
+        
+        const img = new Image();
+        img.src = localObjUrl;
+        await img.decode();
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = 1600; 
+        canvas.height = 1600;
+        const ctx = canvas.getContext('2d')!;
+        
+        // 强制白色背景
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, 1600, 1600);
+        
+        const targetLimit = 1500;
+        const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
+        const dw = img.width * scale;
+        const dh = img.height * scale;
+        const dx = (1600 - dw) / 2;
+        const dy = (1600 - dh) / 2;
+        
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, dx, dy, dw, dh);
+        
+        URL.revokeObjectURL(localObjUrl); // 清理内存
+
+        canvas.toBlob(async (outBlob) => {
+          if (!outBlob) throw new Error("Export fail");
+          const fd = new FormData();
+          fd.append('file', outBlob, `std1600_${Date.now()}.jpg`);
+          try {
+            const res = await fetch(TARGET_API, { method: 'POST', body: fd });
+            const data = await res.json();
+            const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
+            const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
+            
+            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+            resolve(finalUrl || imgUrl);
+          } catch (e) { 
+            setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+            resolve(imgUrl); 
+          }
+        }, 'image/jpeg', 0.98);
+      } catch (e) {
+        console.error("Standardization Error:", e);
+        setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
+        resolve(imgUrl);
+      }
+    });
+  };
+
   const translateSite = async (marketCode: string) => {
     if (!localListing.optimized || isTranslating) return;
     setIsTranslating(true);
@@ -146,7 +210,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     }
   };
 
-  // Fix: Missing translateAllMarkets function for batch localization
   const translateAllMarkets = async () => {
     if (!localListing.optimized || isTranslating) return;
     const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
@@ -188,56 +251,6 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
       setIsTranslating(false);
       setTranslateStatus({ current: 0, total: 0 });
     }
-  };
-
-  const processAndUploadImage = async (imgUrl: string): Promise<string> => {
-    if (!imgUrl) return "";
-    setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
-    return new Promise(async (resolve) => {
-      try {
-        const proxied = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
-          ? imgUrl : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
-        
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.src = proxied;
-        await img.decode();
-        
-        const canvas = document.createElement('canvas');
-        canvas.width = 1600; 
-        canvas.height = 1600;
-        const ctx = canvas.getContext('2d')!;
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, 1600, 1600);
-        
-        const targetLimit = 1500;
-        const scale = Math.min(targetLimit / img.width, targetLimit / img.height);
-        const dw = img.width * scale;
-        const dh = img.height * scale;
-        const dx = (1600 - dw) / 2;
-        const dy = (1600 - dh) / 2;
-        
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, dx, dy, dw, dh);
-        
-        canvas.toBlob(async (blob) => {
-          if (!blob) throw new Error("Blob creation failed");
-          const fd = new FormData();
-          fd.append('file', blob, `std_${Date.now()}.jpg`);
-          const res = await fetch(TARGET_API, { method: 'POST', body: fd });
-          const data = await res.json();
-          const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : data.url;
-          const finalUrl = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
-          setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-          resolve(finalUrl || imgUrl);
-        }, 'image/jpeg', 0.98);
-      } catch (e) {
-        console.error("Image Process Error:", e);
-        setProcessingUrls(prev => { const n = new Set(prev); n.delete(imgUrl); return n; });
-        resolve(imgUrl);
-      }
-    });
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -290,6 +303,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                const mainUrl = localListing.optimized?.optimized_main_image || localListing.cleaned.main_image || "";
                const otherUrls = localListing.optimized?.optimized_other_images || localListing.cleaned.other_images || [];
                
+               // 严格串行处理，确保稳定性
                const processedMain = mainUrl ? await processAndUploadImage(mainUrl) : "";
                const processedOthers = [];
                for (const u of otherUrls) {
