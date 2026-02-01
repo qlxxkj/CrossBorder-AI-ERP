@@ -59,52 +59,37 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
   const [isDrawing, setIsDrawing] = useState(false);
   const [imgObj, setImgObj] = useState<HTMLImageElement | null>(null);
 
-  // 1. 三重加载机制：解决加载失败
-  const fetchAsImage = useCallback((url: string): Promise<HTMLImageElement> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("Load Fail"));
-      img.src = url;
-    });
-  }, []);
-
+  // 1. 深度加载引擎：Fetch -> Blob -> ObjectURL (最强跨域绕过)
   const initImage = useCallback(async (url: string) => {
+    if (!url) return;
     setIsProcessing(true);
     try {
-      // 尝试1: 代理 + 时间戳击穿缓存
-      const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(url)}&_t=${Date.now()}`;
-      const img = await fetchAsImage(proxiedUrl);
-      setImgObj(img);
-    } catch (e) {
-      console.warn("Proxy path 1 failed, trying raw fetch...");
-      try {
-        // 尝试2: 强制 Blob 转换
-        const res = await fetch(`${CORS_PROXY}${encodeURIComponent(url)}`);
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const img = await fetchAsImage(blobUrl);
+      const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(url)}`;
+      const response = await fetch(proxiedUrl);
+      if (!response.ok) throw new Error("Network Response Failure");
+      
+      const blob = await response.blob();
+      const localUrl = URL.createObjectURL(blob);
+      
+      const img = new Image();
+      img.onload = () => {
         setImgObj(img);
-      } catch (e2) {
-        alert("Fatal Pixel Stream Error: Your image source is blocking the engine.");
-      }
-    } finally {
+        setIsProcessing(false);
+        const scale = Math.min((window.innerWidth * 0.6) / img.width, (window.innerHeight * 0.6) / img.height, 1);
+        setZoom(scale);
+      };
+      img.onerror = () => { throw new Error("Canvas Rendering Failure"); };
+      img.src = localUrl;
+    } catch (e) {
+      console.error("Studio Load Error:", e);
+      alert("AMZBot Error: Visual stream blocked by source server. Try downloading and re-uploading.");
       setIsProcessing(false);
     }
-  }, [fetchAsImage]);
+  }, []);
 
-  useEffect(() => { if (imageUrl) initImage(imageUrl); }, [imageUrl, initImage]);
+  useEffect(() => { initImage(imageUrl); }, [imageUrl, initImage]);
 
-  // 初始化缩放适配
-  useEffect(() => {
-    if (imgObj && !isProcessing) {
-      const scale = Math.min((window.innerWidth * 0.6) / imgObj.width, (window.innerHeight * 0.6) / imgObj.height, 1);
-      setZoom(scale);
-    }
-  }, [imgObj]);
-
-  // 2. 渲染循环
+  // 2. 几何绘图循环
   useEffect(() => {
     if (!canvasRef.current || !imgObj) return;
     const canvas = canvasRef.current;
@@ -119,7 +104,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       ctx.save();
       ctx.globalAlpha = opacity;
       ctx.strokeStyle = el.color;
-      ctx.fillStyle = el.fillColor;
       ctx.lineWidth = el.strokeWidth;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -136,7 +120,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         if (el.type === 'crop') {
            ctx.setLineDash([10 / zoom, 10 / zoom]);
            ctx.strokeStyle = '#6366f1';
-           ctx.lineWidth = 4 / zoom;
+           ctx.lineWidth = 3 / zoom;
         }
         if (el.type === 'select-fill') {
           ctx.fillStyle = el.color;
@@ -147,7 +131,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         const r = Math.sqrt(el.w**2 + el.h**2);
         ctx.beginPath();
         ctx.arc(el.x, el.y, r, 0, Math.PI * 2);
-        if (el.type === 'select-fill') { ctx.fillStyle = el.color; ctx.fill(); }
+        // 修正 TS2367: 不再进行无意义的 type 比较
+        if (el.fillColor !== 'transparent') {
+          ctx.fillStyle = el.color;
+          ctx.fill();
+        }
         ctx.stroke();
       } else if (el.type === 'line') {
         ctx.beginPath();
@@ -171,16 +159,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
       }
       ctx.restore();
     });
-  }, [elements, imgObj, selectedId, zoom, opacity, strokeColor]);
+  }, [elements, imgObj, selectedId, zoom, opacity]);
 
-  // 3. 物理坐标换算：核心修复
+  // 3. 物理交互坐标系校准
   const getMousePos = (e: any) => {
     if (!canvasRef.current) return { x: 0, y: 0 };
     const rect = canvasRef.current.getBoundingClientRect();
     const clientX = e.clientX || (e.touches && e.touches[0].clientX);
     const clientY = e.clientY || (e.touches && e.touches[0].clientY);
     
-    // 计算 Canvas 物理像素相对于视口元素的缩放比
+    // 计算当前显示在屏幕上的像素和 Canvas 实际物理像素的比例
     const scaleX = canvasRef.current.width / rect.width;
     const scaleY = canvasRef.current.height / rect.height;
 
@@ -230,16 +218,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
     const id = Math.random().toString(36).substr(2, 9);
     const newEl: EditorElement = {
       id, type: currentTool, x: pos.x, y: pos.y, w: 0, h: 0,
-      color: strokeColor, fillColor: 'transparent',
+      color: strokeColor, fillColor: (currentTool === 'select-fill' ? strokeColor : 'transparent'),
       strokeWidth, fontSize,
       points: (currentTool === 'brush' || currentTool === 'ai-erase') ? [pos] : undefined
     };
 
     if (currentTool === 'text') {
-      const txt = prompt(uiLang === 'zh' ? "输入文字" : "Enter Text");
+      const txt = prompt(uiLang === 'zh' ? "输入文本" : "Input Text");
       if (!txt) return;
       newEl.text = txt;
-      newEl.w = txt.length * fontSize * 0.5;
+      newEl.w = txt.length * fontSize * 0.55;
       newEl.h = fontSize;
       setElements(prev => [...prev, newEl]);
       setSelectedId(id);
@@ -299,41 +287,24 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         try {
           const res = await fetch(TARGET_API, { method: 'POST', body: fd });
           const data = await res.json();
-          const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : (data.url || data.data?.url);
-          const url = rawSrc ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
+          const rawSrc = Array.isArray(data) && data[0]?.src ? data[0].src : (data.url || data.data?.url || data);
+          const url = typeof rawSrc === 'string' ? (rawSrc.startsWith('http') ? rawSrc : `${IMAGE_HOST_DOMAIN}${rawSrc.startsWith('/') ? '' : '/'}${rawSrc}`) : null;
           if (url) onSave(url);
-        } catch (e) { alert("Network Sync Failed"); }
+        } catch (e) { alert("Visual Sync Failed"); }
         finally { setIsProcessing(false); }
       }, 'image/jpeg', 0.98);
     }, 100);
   };
 
-  const executeCrop = () => {
-    const el = elements.find(x => x.id === selectedId && x.type === 'crop');
-    if (!el || !canvasRef.current) return;
-    setIsProcessing(true);
-    const temp = document.createElement('canvas');
-    const cw = Math.abs(el.w); const ch = Math.abs(el.h);
-    if (cw < 5 || ch < 5) return setIsProcessing(false);
-    temp.width = cw; temp.height = ch;
-    const tctx = temp.getContext('2d')!;
-    const sx = el.w > 0 ? el.x : el.x + el.w;
-    const sy = el.h > 0 ? el.y : el.y + el.h;
-    tctx.drawImage(canvasRef.current, sx, sy, cw, ch, 0, 0, cw, ch);
-    const img = new Image();
-    img.onload = () => { setImgObj(img); setElements([]); setSelectedId(null); setIsProcessing(false); };
-    img.src = temp.toDataURL('image/jpeg');
-  };
-
   return (
     <div className="fixed inset-0 z-[1000] bg-slate-950 flex flex-col font-inter select-none overflow-hidden text-white">
-      <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between">
+      <div className="h-16 bg-slate-900 border-b border-white/10 px-6 flex items-center justify-between shadow-2xl">
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X size={24}/></button>
-          <span className="font-black text-[10px] uppercase tracking-[0.2em] text-indigo-400">AMZBot Pixel Master v15.0</span>
+          <span className="font-black text-[10px] uppercase tracking-[0.2em] text-indigo-400">AMZBot Pixel Engine v16.2</span>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => handleCommit(true)} className="px-5 py-2 bg-slate-800 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-700 transition-all"><Maximize2 size={14}/> 1600 Std</button>
+          <button onClick={() => handleCommit(true)} className="px-5 py-2 bg-slate-800 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-700 transition-all"><Maximize2 size={14}/> 1600 HD</button>
           <button onClick={() => handleCommit(false)} disabled={isProcessing} className="px-10 py-2 bg-indigo-600 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-xl shadow-indigo-900/40 hover:bg-indigo-700">
             {isProcessing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Sync Studio
           </button>
@@ -365,7 +336,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
         </div>
 
         <div ref={containerRef} className="flex-1 bg-slate-950 relative overflow-hidden flex items-center justify-center cursor-crosshair" onWheel={handleWheel}>
-          {isProcessing && <div className="absolute inset-0 bg-black/80 backdrop-blur-md z-[1200] flex flex-col items-center justify-center gap-4 animate-in fade-in">
+          {isProcessing && <div className="absolute inset-0 bg-black/80 backdrop-blur-md z-[1200] flex flex-col items-center justify-center gap-4">
              <Loader2 className="animate-spin text-indigo-500" size={48}/>
              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white/50">Processing Pixels...</span>
           </div>}
@@ -379,9 +350,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
                 onMouseUp={() => { setIsDrawing(false); setIsPanning(false); }} 
                 onMouseLeave={() => { setIsDrawing(false); setIsPanning(false); }} 
             />
-            {currentTool === 'crop' && selectedId && (
-              <button onClick={executeCrop} className="absolute -top-14 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-6 py-2 rounded-full font-black text-[10px] uppercase shadow-xl animate-bounce flex items-center gap-2 border border-white/20"><Check size={14}/> Apply Crop</button>
-            )}
           </div>
           
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-md px-6 py-2 rounded-full border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/50 flex gap-4">
@@ -406,7 +374,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            </div>
 
            <div className="space-y-6">
-              <label className="text-[10px] font-black text-amber-400 uppercase tracking-[0.2em] border-b border-white/5 pb-2 block">Typography Scale</label>
+              <label className="text-[10px] font-black text-amber-400 uppercase tracking-[0.2em] border-b border-white/5 pb-2 block">Typography</label>
               <div className="space-y-3">
                  <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase"><span>Font Size</span> <span>{fontSize}px</span></div>
                  <input type="range" min="12" max="600" value={fontSize} onChange={e => { const v = parseInt(e.target.value); setFontSize(v); if(selectedId) setElements(prev => prev.map(el => el.id === selectedId ? {...el, fontSize: v} : el)) }} className="w-full accent-amber-500" />
@@ -414,9 +382,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onClose, onS
            </div>
 
            <div className="space-y-6">
-              <label className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.2em] border-b border-white/5 pb-2 block">Alpha Layer</label>
+              <label className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.2em] border-b border-white/5 pb-2 block">Atmosphere</label>
               <div className="space-y-3">
-                 <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase"><span>Global Opacity</span> <span>{Math.round(opacity * 100)}%</span></div>
+                 <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase"><span>Layer Opacity</span> <span>{Math.round(opacity * 100)}%</span></div>
                  <input type="range" min="0" max="1" step="0.01" value={opacity} onChange={e => setOpacity(parseFloat(e.target.value))} className="w-full accent-emerald-500" />
               </div>
            </div>
