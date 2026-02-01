@@ -29,37 +29,36 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const allImages = [effectiveMain, ...effectiveOthers].filter(Boolean) as string[];
 
   /**
-   * 1600 标准化物理处理逻辑
+   * 1600 物理标准化处理器
    */
   const processAndUploadImage = async (imgUrl: string): Promise<string> => {
     if (!imgUrl) return "";
-    setProcessingUrls(prev => new Set(prev).add(imgUrl));
+    setProcessingUrls(prev => { const n = new Set(prev); n.add(imgUrl); return n; });
     
     try {
-      // 必须使用代理包装，否则 Canvas 无法导出 Blob
       const proxiedUrl = (imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')) 
         ? imgUrl 
         : `${CORS_PROXY}${encodeURIComponent(imgUrl)}`;
       
       const img = new Image();
-      img.crossOrigin = "anonymous"; // 关键：授权 Canvas 读取像素
+      img.crossOrigin = "anonymous"; 
       
       await new Promise((resolve, reject) => {
         img.onload = resolve;
-        img.onerror = () => reject(new Error("Image Load Error"));
+        img.onerror = () => reject(new Error("Image Load Failure"));
         img.src = proxiedUrl;
       });
 
       const canvas = document.createElement('canvas');
-      canvas.width = 1600;
+      canvas.width = 1600; 
       canvas.height = 1600;
       const ctx = canvas.getContext('2d')!;
       
-      // 1. 绘制物理纯白背景
+      // 1. 绘制物理白底
       ctx.fillStyle = '#FFFFFF'; 
       ctx.fillRect(0, 0, 1600, 1600);
       
-      // 2. 居中缩放渲染
+      // 2. 居中缩放计算
       const scale = Math.min(1500 / img.width, 1500 / img.height);
       const dw = img.width * scale;
       const dh = img.height * scale;
@@ -68,9 +67,9 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, (1600 - dw) / 2, (1600 - dh) / 2, dw, dh);
       
-      // 3. 导出 Blob 并上传
+      // 3. 上传结果
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) throw new Error("Blob creation failed");
+      if (!blob) throw new Error("Export Failure");
 
       const fd = new FormData();
       fd.append('file', blob, `std1600_${Date.now()}.jpg`);
@@ -83,8 +82,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; });
       return finalUrl;
     } catch (e) {
-      console.error("Standardize Failed:", e);
-      setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; });
+      console.error("1600 Process Error:", e);
+      setProcessingUrls(p => { const n = new Set(p); n.delete(imgUrl); return n; }); 
       return imgUrl;
     }
   };
@@ -97,13 +96,12 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
       newOthers.push(await processAndUploadImage(u));
     }
     
-    // 合并到 optimized 字段，保留已有的优化文本
+    // 更新至 listings 表的 optimized 字段，自动触发数据库同步
     const nextOpt = { 
       ...(listing.optimized || {}), 
       optimized_main_image: newMain || effectiveMain, 
       optimized_other_images: newOthers 
     };
-    
     onUpdateListing({ optimized: nextOpt as any });
     if (newMain) setPreviewImage(newMain);
     setIsProcessing(false);
@@ -112,7 +110,6 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   const handleStandardizeOne = async (url: string) => {
     const newUrl = await processAndUploadImage(url);
     const nextOpt = JSON.parse(JSON.stringify(listing.optimized || {}));
-    
     if (effectiveMain === url) {
       nextOpt.optimized_main_image = newUrl;
       setPreviewImage(newUrl);
@@ -123,6 +120,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
         others[idx] = newUrl;
         nextOpt.optimized_other_images = others;
       }
+      if (previewImage === url) setPreviewImage(newUrl);
     }
     onUpdateListing({ optimized: nextOpt });
   };
@@ -145,8 +143,8 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
   };
 
   const handleSetMain = (url: string) => {
-    const nextAll = allImages.filter(u => u !== url);
-    onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: url, optimized_other_images: nextAll } as any });
+    const others = allImages.filter(u => u !== url);
+    onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: url, optimized_other_images: others } as any });
     setPreviewImage(url);
   };
 
@@ -157,8 +155,7 @@ export const ListingImageSection: React.FC<ListingImageSectionProps> = ({
        onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_main_image: nextAll[0] || "", optimized_other_images: nextAll.slice(1) } as any });
        setPreviewImage(nextAll[0] || "");
     } else {
-       const nextOthers = effectiveOthers.filter(u => u !== url);
-       onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: nextOthers } as any });
+       onUpdateListing({ optimized: { ...(listing.optimized || {}), optimized_other_images: effectiveOthers.filter(u => u !== url) } as any });
     }
   };
 
