@@ -5,7 +5,7 @@ import { Dashboard } from './components/Dashboard';
 import { ListingsManager } from './components/ListingsManager';
 import { ListingDetail } from './components/ListingDetail';
 import { LandingPage } from './components/LandingPage';
-import { AuthPage } from './components/AuthPage.tsx';
+import { AuthPage } from './components/AuthPage';
 import { TemplateManager } from './components/TemplateManager';
 import { CategoryManager } from './components/CategoryManager';
 import { PricingManager } from './components/PricingManager';
@@ -36,9 +36,11 @@ const App: React.FC = () => {
     if (!isSupabaseConfigured() || !orgId) return;
     setIsSyncing(true);
     try {
+      // 增加 org_id 过滤，确保多租户隔离
       const { data, error } = await supabase
         .from('listings')
         .select('*')
+        .eq('org_id', orgId)
         .order('created_at', { ascending: false });
       if (error) throw error;
       setListings(data || []);
@@ -160,7 +162,7 @@ const App: React.FC = () => {
     try {
       switch(view) {
         case AppView.LISTINGS:
-          return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} isInitialLoading={isSyncing} />;
+          return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} isInitialLoading={isSyncing} userProfile={userProfile} />;
         case AppView.LISTING_DETAIL:
           return selectedListing ? (
             <ListingDetail 
