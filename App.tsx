@@ -75,30 +75,94 @@ const App: React.FC = () => {
 
       if (profileErr) throw profileErr;
 
-      if (!profile) {
-          // 检查是否是被邀请的用户
+        if (!profile || !profile.org_id) {
+            // 检查是否是被邀请的用户（通过邮箱查找且已有组织关联的记录）
+          const userEmail = currentSession?.user?.email;
           const { data: invitedProfile } = await supabase
               .from('user_profiles')
               .select('*')
-              .eq('email', currentSession?.user?.email)
+              .eq('email', userEmail)
+              .not('org_id', 'is', null)
               .maybeSingle();
 
           if (invitedProfile) {
-              // 更新被邀请用户的 ID 为当前真实 UID
-              const { data: updatedProfile } = await supabase
-                  .from('user_profiles')
-                  .update({ id: userId })
-                  .eq('id', invitedProfile.id)
-                  .select()
-                  .single();
-              profile = updatedProfile;
+              // 逻辑：如果是被邀请的用户，继承邀请时的组织和角色
+              if (profile) {
+                  // 如果触发器已经创建了只有 ID 的档案，则更新它并删除邀请占位符
+                  const { data: updatedProfile } = await supabase
+                      .from('user_profiles')
+                      .update({
+                          org_id: invitedProfile.org_id,
+                          role: invitedProfile.role,
+                          email: userEmail,
+                          plan_type: invitedProfile.plan_type || 'Free',
+                          credits_total: invitedProfile.credits_total || 0,
+                          credits_used: invitedProfile.credits_used || 0
+                      })
+                      .eq('id', userId)
+                      .select()
+                      .single();
+
+                  if (invitedProfile.id !== userId) {
+                      await supabase.from('user_profiles').delete().eq('id', invitedProfile.id);
+                  }
+                  profile = updatedProfile;
+                }
           } else {
           // 自主注册：创建新组织并设为租户管理员
-            const newOrgId = crypto.randomUUID();
-            await supabase.from('organizations').insert([{ id: newOrgId, name: `Org_${userId.slice(0, 5)}`, owner_id: userId, plan_type: 'Free', credits_total: 100, credits_used: 0 }]);
-            const { data: newProfile } = await supabase.from('user_profiles').insert([{ id: userId, org_id: newOrgId, role: 'tenant_admin', email: currentSession?.user?.email, plan_type: 'Free', credits_total: 100, credits_used: 0 }]).select().single();
-            profile = newProfile;
-        }
+              // 自主注册逻辑：先检查是否已经创建过组织（防止重复创建）
+              let orgIdToUse: string;
+              const { data: existingOrg } = await supabase
+                  .from('organizations')
+                  .select('id')
+                  .eq('owner_id', userId)
+                  .maybeSingle();
+
+              if (existingOrg) {
+                  orgIdToUse = existingOrg.id;
+              } else {
+                  // 创建新组织并设为租户管理员
+                  orgIdToUse = crypto.randomUUID();
+                  await supabase.from('organizations').insert([{
+                      id: orgIdToUse,
+                      name: '',
+                      owner_id: userId,
+                      plan_type: 'Free',
+                      credits_total: 100,
+                      credits_used: 0
+                  }]);
+              }
+
+              // 强制设置角色为 tenant_admin，并关联组织
+              const profileData = {
+                  org_id: orgIdToUse,
+                  role: 'tenant_admin',
+                  email: userEmail,
+                  plan_type: 'Free',
+                  credits_total: 100,
+                  credits_used: 0
+              };
+
+
+              if (profile) {
+                  // 更新已存在的档案（触发器创建的）
+                  const { data: updatedProfile } = await supabase
+                      .from('user_profiles')
+                      .update(profileData)
+                      .eq('id', userId)
+                      .select()
+                      .single();
+                  profile = updatedProfile;
+              } else {
+                  // 创建全新档案
+                  const { data: newProfile } = await supabase
+                      .from('user_profiles')
+                      .insert([{ id: userId, ...profileData }])
+                      .select()
+                      .single();
+                  profile = newProfile;
+              }
+          }
       }
 
       if (profile?.org_id) {
