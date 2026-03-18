@@ -8,6 +8,7 @@ import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
 
 interface ManualListingModalProps {
   uiLang: UILanguage;
+  orgId: string;
   onClose: () => void;
   onSave: () => void;
 }
@@ -17,7 +18,7 @@ const TARGET_API = `${IMAGE_HOST_DOMAIN}/upload`;
 const CORS_PROXY = 'https://corsproxy.io/?';
 const IMAGE_HOSTING_API = CORS_PROXY + encodeURIComponent(TARGET_API);
 
-export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, onClose, onSave }) => {
+export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, orgId, onClose, onSave }) => {
   const t = useTranslation(uiLang);
   const mainImageInputRef = useRef<HTMLInputElement>(null);
   const otherImagesInputRef = useRef<HTMLInputElement>(null);
@@ -146,6 +147,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
 
       const { error } = await supabase.from('listings').insert([{
         user_id: session.user.id, 
+        org_id: orgId, // 显式保存组织 ID，确保多租户隔离
         asin: cleanedData.asin,
         marketplace: formData.marketplace,
         category_id: formData.category_id === 'ALL' ? null : formData.category_id,
