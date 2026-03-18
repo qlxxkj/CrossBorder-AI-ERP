@@ -5,7 +5,7 @@ import {
   Loader2, Globe, ChevronLeft, ChevronRight, 
   ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink, Edit3, DollarSign
 } from 'lucide-react';
-import { Listing, UILanguage, Category } from '../types';
+import { Listing, UILanguage, Category, UserProfile } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { ManualListingModal } from './ManualListingModal';
@@ -19,6 +19,7 @@ interface ListingsManagerProps {
   lang: UILanguage;
   refreshListings: () => void;
   isInitialLoading?: boolean;
+  userProfile?: UserProfile | null;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200];
@@ -29,7 +30,8 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   setListings, 
   lang, 
   refreshListings,
-  isInitialLoading 
+  isInitialLoading,
+  userProfile 
 }) => {
   const t = useTranslation(lang);
   const [searchTerm, setSearchTerm] = useState('');
@@ -109,10 +111,12 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   const filteredListings = useMemo(() => {
     if (!Array.isArray(listings)) return [];
     return listings.filter(l => {
-      if (!l || !l.cleaned) return false;
+      if (!l) return false;
+      // 这里的 cleaned 检查过于严格，如果数据库里有数据但 cleaned 为空，会导致不显示。
+      // 即使 cleaned 为空，我们也应该显示 ASIN 等基础信息。
       const displayTitle = (l.status === 'optimized' && l.optimized?.optimized_title) 
         ? l.optimized.optimized_title 
-        : (l.cleaned?.title || "");
+        : (l.cleaned?.title || "Untitled Listing");
       
       const safeTitle = String(displayTitle).toLowerCase();
       const safeAsin = String(l.asin || "").toLowerCase();
@@ -191,7 +195,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
-      {isManualModalOpen && <ManualListingModal uiLang={lang} onClose={() => setIsManualModalOpen(false)} onSave={() => { setIsManualModalOpen(false); refreshListings(); }} />}
+      {isManualModalOpen && <ManualListingModal uiLang={lang} orgId={userProfile?.org_id || ''} onClose={() => setIsManualModalOpen(false)} onSave={() => { setIsManualModalOpen(false); refreshListings(); }} />}
       {isExportModalOpen && <ExportModal uiLang={lang} selectedListings={listings.filter(l => selectedIds.has(l.id))} onClose={() => setIsExportModalOpen(false)} onExportSuccess={refreshListings} />}
       
       <div className="flex flex-col gap-2">
@@ -287,17 +291,17 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                   </tr>
                 ))
               ) : paginatedListings.map((listing, index) => {
-                   if (!listing || !listing.cleaned) return null;
+                   if (!listing) return null;
                    
                    // 核心崩溃防护：强制将 price 转换为数字，防止字符串导致 toFixed(2) 报错
                    const rawPrice = (listing.status === 'optimized' && listing.optimized?.optimized_price !== undefined) 
                       ? listing.optimized.optimized_price 
-                      : listing.cleaned.price;
+                      : (listing.cleaned?.price  || 0);
                    const price = Number(rawPrice) || 0;
                    
                    const title = (listing.status === 'optimized' && listing.optimized?.optimized_title) 
                       ? listing.optimized.optimized_title 
-                      : (listing.cleaned.title || "Untitled");
+                      : (listing.cleaned?.title || "Untitled");
                    
                    const catName = categories.find(c => c.id === listing.category_id)?.name || '-';
                    const mkt = AMAZON_MARKETPLACES.find(m => m.code === listing.marketplace);
@@ -313,7 +317,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                       </td>
                       <td className="p-8">
                         <div className="w-14 h-14 rounded-xl bg-white border border-slate-100 overflow-hidden flex items-center justify-center p-1">
-                          <img src={listing.cleaned.main_image || ''} className="max-w-full max-h-full object-contain" onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/100?text=No+Img')} />
+                          <img src={listing.cleaned?.main_image || ''} className="max-w-full max-h-full object-contain" onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/100?text=No+Img')} />
                         </div>
                       </td>
                       <td className="p-8">
