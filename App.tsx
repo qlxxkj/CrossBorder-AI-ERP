@@ -22,25 +22,35 @@ const App: React.FC = () => {
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userPermissions, setUserPermissions] = useState<any[]>([]);
   const [org, setOrg] = useState<Organization | null>(null);
-  const [isInitializing, setIsInitializing] = useState(true); 
+  const [isInitializing, setIsInitializing] = useState(true);
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
-  
+
   // 使用 Ref 记录是否已经处理过初始登录跳转，防止切换 Tab 回来重置视图
   const hasInitiallyRedirected = useRef(false);
 
-  const fetchListings = useCallback(async (orgId: string) => {
-    if (!isSupabaseConfigured() || !orgId) return;
+  const fetchListings = useCallback(async (orgId: string, userId: string) => {
+      if (!isSupabaseConfigured() || !orgId || !userId) return;
     setIsSyncing(true);
     try {
+        // 自动修复：将该用户下未归属组织的数据（插件采集的）自动归属到当前组织
+        supabase
+            .from('listings')
+            .update({ org_id: orgId })
+            .eq('user_id', userId)
+            .is('org_id', null)
+            .then(({ error }) => {
+                if (error) console.warn("Auto-claim background task info:", error);
+            });
       // 增加 org_id 过滤，确保多租户隔离
       const { data, error } = await supabase
         .from('listings')
         .select('*')
-        .eq('org_id', orgId)
+        .or(`org_id.eq.${orgId},user_id.eq.${userId}`)
         .order('created_at', { ascending: false });
       if (error) throw error;
       setListings(data || []);
@@ -66,16 +76,50 @@ const App: React.FC = () => {
       if (profileErr) throw profileErr;
 
       if (!profile) {
-        const newOrgId = crypto.randomUUID();
-        await supabase.from('organizations').insert([{ id: newOrgId, name: `Org_${userId.slice(0, 5)}`, owner_id: userId, plan_type: 'Free', credits_total: 100, credits_used: 0 }]);
-        const { data: newProfile } = await supabase.from('user_profiles').insert([{ id: userId, org_id: newOrgId, role: 'tenant_admin', email: currentSession?.user?.email, plan_type: 'Free', credits_total: 100, credits_used: 0 }]).select().single();
-        profile = newProfile;
+          // 检查是否是被邀请的用户
+          const { data: invitedProfile } = await supabase
+              .from('user_profiles')
+              .select('*')
+              .eq('email', currentSession?.user?.email)
+              .maybeSingle();
+
+          if (invitedProfile) {
+              // 更新被邀请用户的 ID 为当前真实 UID
+              const { data: updatedProfile } = await supabase
+                  .from('user_profiles')
+                  .update({ id: userId })
+                  .eq('id', invitedProfile.id)
+                  .select()
+                  .single();
+              profile = updatedProfile;
+          } else {
+          // 自主注册：创建新组织并设为租户管理员
+            const newOrgId = crypto.randomUUID();
+            await supabase.from('organizations').insert([{ id: newOrgId, name: `Org_${userId.slice(0, 5)}`, owner_id: userId, plan_type: 'Free', credits_total: 100, credits_used: 0 }]);
+            const { data: newProfile } = await supabase.from('user_profiles').insert([{ id: userId, org_id: newOrgId, role: 'tenant_admin', email: currentSession?.user?.email, plan_type: 'Free', credits_total: 100, credits_used: 0 }]).select().single();
+            profile = newProfile;
+        }
       }
 
       if (profile?.org_id) {
         const { data: orgData } = await supabase.from('organizations').select('*').eq('id', profile.org_id).maybeSingle();
         setOrg(orgData);
-        fetchListings(profile.org_id);
+          fetchListings(profile.org_id, profile.id);
+
+          // 获取角色权限
+          if (profile.role === 'tenant_admin' || profile.role === 'super_admin' || profile.role === 'admin') {
+              setUserPermissions([]); // 内置管理员在 Sidebar 特殊处理
+          } else {
+              const { data: roleData } = await supabase
+                  .from('roles')
+                  .select('permissions')
+                  .eq('id', profile.role)
+                  .eq('org_id', profile.org_id)
+                  .maybeSingle();
+              if (roleData) {
+                  setUserPermissions(roleData.permissions || []);
+              }
+          }
       }
       setUserProfile(profile);
     } catch (err) {
@@ -104,7 +148,7 @@ const App: React.FC = () => {
 
       if (newSession) {
         fetchIdentity(newSession.user.id, newSession);
-        
+
         // 关键逻辑：只有在显式 SIGNED_IN 且当前在 Landing/Auth 页面时才重置视图
         if (event === 'SIGNED_IN' && !hasInitiallyRedirected.current) {
           setView(AppView.DASHBOARD);
@@ -162,26 +206,26 @@ const App: React.FC = () => {
     try {
       switch(view) {
         case AppView.LISTINGS:
-          return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id)} isInitialLoading={isSyncing} userProfile={userProfile} />;
+              return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id, userProfile.id)} isInitialLoading={isSyncing} userProfile={userProfile} />;
         case AppView.LISTING_DETAIL:
           return selectedListing ? (
-            <ListingDetail 
-              listing={selectedListing} 
-              onBack={() => setView(AppView.LISTINGS)} 
-              onUpdate={(u) => { 
-                setListings(prev => prev.map(l => l.id === u.id ? u : l)); 
-                setSelectedListing(u); 
-              }} 
+            <ListingDetail
+              listing={selectedListing}
+              onBack={() => setView(AppView.LISTINGS)}
+              onUpdate={(u) => {
+                setListings(prev => prev.map(l => l.id === u.id ? u : l));
+                setSelectedListing(u);
+              }}
               onDelete={async (id) => {
                 await supabase.from('listings').delete().eq('id', id);
                 setListings(prev => prev.filter(l => l.id !== id));
                 setView(AppView.LISTINGS);
               }}
-              onNext={() => { 
-                const idx = listings.findIndex(l => l.id === selectedListing.id); 
+              onNext={() => {
+                const idx = listings.findIndex(l => l.id === selectedListing.id);
                 if (idx < listings.length - 1) { setSelectedListing(listings[idx + 1]); }
-              }} 
-              uiLang={lang} 
+              }}
+              uiLang={lang}
             />
           ) : null;
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
@@ -189,10 +233,10 @@ const App: React.FC = () => {
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
         case AppView.BILLING: return <BillingCenter uiLang={lang} />;
         case AppView.ADMIN: return <AdminDashboard uiLang={lang} />;
-        case AppView.SYSTEM_MGMT: return <SystemManagement uiLang={lang} orgId={userProfile?.org_id || ''} orgData={org} onOrgUpdate={setOrg} activeSubTab={systemSubTab} onSubTabChange={setSystemSubTab} />;
+          case AppView.SYSTEM_MGMT: return <SystemManagement uiLang={lang} orgId={userProfile?.org_id || ''} orgData={org} currentUserProfile={userProfile} permissions={userPermissions} onOrgUpdate={(newOrg) => setOrg(newOrg)} activeSubTab={systemSubTab} onSubTabChange={setSystemSubTab} />;
         case AppView.DASHBOARD:
         default:
-          return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id)} />;
+              return <Dashboard listings={listings} lang={lang} userProfile={userProfile} onNavigate={handleTabChange} onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} isSyncing={isSyncing} onRefresh={() => userProfile?.org_id && fetchListings(userProfile.org_id, userProfile.id)} />;
       }
     } catch (err) {
       console.error("View Crash:", err);
@@ -220,8 +264,17 @@ const App: React.FC = () => {
   return (
     <div className="flex min-h-screen bg-slate-50 overflow-hidden">
       {showSidebar && (
-        <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} lang={lang} userProfile={userProfile} session={session} onLogout={() => supabase.auth.signOut()} onLogoClick={() => setView(AppView.LANDING)} />
-      )}
+    <Sidebar
+        activeTab={activeTab}
+        setActiveTab={handleTabChange}
+        lang={lang}
+        userProfile={userProfile}
+        permissions={userPermissions}
+        session={session}
+        onLogout={() => supabase.auth.signOut()}
+        onLogoClick={() => setView(AppView.LANDING)}
+    />
+    )}
       <main className={`${showSidebar ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative transition-all duration-500`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
           {view === AppView.LANDING ? <LandingPage onLogin={handleLandingLogin} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :

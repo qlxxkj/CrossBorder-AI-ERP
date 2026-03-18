@@ -1,18 +1,20 @@
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Users, Shield, Building, Plus, Trash2, Mail, Edit3, Loader2, 
-  Check, X, Save, ShieldCheck, MapPin, UserCheck, Phone, 
+import {
+  Users, Shield, Building, Plus, Trash2, Mail, Edit3, Loader2,
+  Check, X, Save, ShieldCheck, MapPin, UserCheck, Phone,
   Settings, Key, RefreshCw, Power
 } from 'lucide-react';
 import { UILanguage, Organization, UserProfile, Role, RolePermission } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { useTranslation } from '../lib/i18n';
 
-interface SystemManagementProps {
+export interface SystemManagementProps {
   uiLang: UILanguage;
   orgId: string;
   orgData: Organization | null;
+  currentUserProfile: UserProfile | null;
+  permissions: any[];
   onOrgUpdate: (org: Organization) => void;
   activeSubTab?: 'users' | 'roles' | 'org';
   onSubTabChange?: (tab: 'users' | 'roles' | 'org') => void;
@@ -29,12 +31,12 @@ const MENU_OPTIONS = [
   { id: 'system:users', label: 'userMgmt', desc: 'Member management' },
 ];
 
-export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgId, orgData, onOrgUpdate, activeSubTab = 'users', onSubTabChange }) => {
+export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, permissions, onOrgUpdate, activeSubTab = 'users', onSubTabChange }: SystemManagementProps) => {
   const t = useTranslation(uiLang);
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
-  
+
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
@@ -47,10 +49,30 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
     contact_phone: orgData?.contact_phone || ''
   });
 
-  useEffect(() => {
-    if (activeSubTab === 'users') fetchMembers();
-    if (activeSubTab === 'roles') fetchRoles();
-  }, [activeSubTab, orgId]);
+    const isSuper = currentUserProfile?.role === 'super_admin' || currentUserProfile?.role === 'admin';
+    const isTenantAdmin = currentUserProfile?.role === 'tenant_admin';
+
+    // 过滤可见的标签页
+    const canSeeUsers = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:users');
+    const canSeeRoles = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:roles');
+    const canSeeOrg = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:org');
+
+    useEffect(() => {
+        if (activeSubTab === 'users' && canSeeUsers) fetchMembers();
+        if (activeSubTab === 'roles' && canSeeRoles) fetchRoles();
+    }, [activeSubTab, orgId, canSeeUsers, canSeeRoles]);
+
+
+    useEffect(() => {
+        if (orgData) {
+            setOrgForm({
+                name: orgData.name || '',
+                address: orgData.address || '',
+                contact_name: orgData.contact_name || '',
+                contact_phone: orgData.contact_phone || ''
+            });
+        }
+    }, [orgData]);
 
   const fetchMembers = async () => {
     setLoading(true);
@@ -97,7 +119,7 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
       .from('user_profiles')
       .update({ is_suspended: newStatus })
       .eq('id', user.id);
-    
+
     if (!error) {
       setMembers(members.map(m => m.id === user.id ? { ...m, is_suspended: newStatus } : m));
     }
@@ -211,14 +233,14 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
                         </td>
                         <td className="py-6 px-4 text-right">
                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                              <button 
+                              <button
                                 onClick={() => handleResetPassword(m.id)}
-                                title={t('resetPassword')} 
+                                title={t('resetPassword')}
                                 className="p-2.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl"
                               >
                                 <RefreshCw size={16}/>
                               </button>
-                              <button 
+                              <button
                                 onClick={() => handleToggleStatus(m)}
                                 title={m.is_suspended ? t('activate') : t('suspend')}
                                 className={`p-2.5 rounded-xl ${m.is_suspended ? 'text-green-600 hover:bg-green-50' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'}`}
@@ -313,8 +335,8 @@ export const SystemManagement: React.FC<SystemManagementProps> = ({ uiLang, orgI
                  )}
                  <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('roleMgmt')}</label>
-                   <select 
-                    value={editingMember?.role || 'user'} 
+                   <select
+                    value={editingMember?.role || 'user'}
                     onChange={e => setEditingMember(prev => prev ? {...prev, role: e.target.value as any} : null)}
                     className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
                    >
@@ -415,7 +437,7 @@ const OrgField = ({ label, icon, children }: any) => (
 );
 
 const Checkbox = ({ checked, onChange }: { checked: boolean, onChange: (v: boolean) => void }) => (
-  <button 
+  <button
     onClick={() => onChange(!checked)}
     className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-200 hover:border-indigo-400'}`}
   >

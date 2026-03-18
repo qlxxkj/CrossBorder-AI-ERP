@@ -4,7 +4,7 @@ import { CleanedData, OptimizedData } from "../types";
 
 const UNIFIED_OPTIMIZE_PROMPT = (Brand: string, timestamp: number) => `
 Act as a Senior Amazon Listing Expert. REWRITE the product data for maximum conversion.
-[UNIQUE_SESSION_ID: ${timestamp}] 
+[UNIQUE_SESSION_ID: ${timestamp}]
 
 [CRITICAL REMOVAL]
 1. DELETE BRAND: Completely remove "${Brand}" and variants like "${Brand.toUpperCase()}".
@@ -13,19 +13,19 @@ Act as a Senior Amazon Listing Expert. REWRITE the product data for maximum conv
 
 [CONTENT REQUIREMENTS]
 1. RADICAL REWRITE: Generate a COMPLETELY NEW title structure. Do NOT use the same word order as the source. Use high-converting synonyms. MAX 150 characters.
-2. 5 DISTINCT BULLETS: 5 unique points. Each MUST start with "UPPERCASE_KEYWORD: ". 
+2. 5 DISTINCT BULLETS: 5 unique points. Each MUST start with "UPPERCASE_KEYWORD: ".
    - Points must cover: [Material], [Design], [Usage], [Compatibility], [Guarantee].
    - MAX 300 characters each.
 3. DESCRIPTION: Pro HTML. 1200-1700 characters.
 4. SEARCH KEYWORDS: Highly relevant. STRICTLY MAX 200 characters total.
 
-Return ONLY a flat JSON object with these EXACT keys: 
+Return ONLY a flat JSON object with these EXACT keys:
 "optimized_title", "optimized_features", "optimized_description", "search_keywords".
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
   const result: any = {};
-  
+
   const extractText = (val: any): string => {
     if (typeof val === 'string') return val;
     if (val && typeof val === 'object') return val.text || val.content || val.value || val.string || JSON.stringify(val);
@@ -36,9 +36,9 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   result.optimized_title = extractText(raw.optimized_title || raw.title || raw.product_title || "").slice(0, 150);
   result.optimized_description = extractText(raw.optimized_description || raw.description || raw.product_description || "").slice(0, 1700);
   result.search_keywords = extractText(raw.search_keywords || raw.keywords || raw.optimized_search_keywords || "").slice(0, 200);
-  
-  let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features : 
-              Array.isArray(raw.features) ? raw.features : 
+
+  let feats = Array.isArray(raw.optimized_features) ? raw.optimized_features :
+              Array.isArray(raw.features) ? raw.features :
               Array.isArray(raw.bullet_points) ? raw.bullet_points : [];
 
   result.optimized_features = feats
@@ -68,11 +68,11 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   result.optimized_width = extractText(raw.optimized_width || raw.item_width || "");
   result.optimized_height = extractText(raw.optimized_height || raw.item_height || "");
   result.optimized_size_unit = extractText(raw.optimized_size_unit || raw.item_size_unit || "");
-  
+
   // Image handling
   result.optimized_main_image = raw.optimized_main_image || raw.main_image || "";
   result.optimized_other_images = Array.isArray(raw.optimized_other_images) ? raw.optimized_other_images : (Array.isArray(raw.other_images) ? raw.other_images : []);
-  
+
   return result as OptimizedData;
 };
 
@@ -89,13 +89,13 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
   try {
     const brandToKill = cleanedData.brand || "UNKNOWN_BRAND";
     const sourceCopy = { ...cleanedData };
-    
+
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: UNIFIED_OPTIMIZE_PROMPT(brandToKill, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}\n\n[TASK] Completely rewrite the title. Avoid old structure.`,
-      config: { 
+      config: {
         responseMimeType: "application/json",
-        temperature: 1.0 
+        temperature: 1.0
       }
     });
     const rawData = extractJSONObject(response.text || "{}");
@@ -131,9 +131,25 @@ export const editImageWithAI = async (base64: string, prompt: string): Promise<s
       }
     });
     if (!response.candidates) throw new Error("No response");
-    for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) return part.inlineData.data;
-    }
+      const candidate = response.candidates?.[0];
+      const content = candidate?.content;
+      const parts = content?.parts;
+    // for (const part of response.candidates[0].content.parts) {
+    //   if (part.inlineData) return part.inlineData.data;
+    // }
+      if (!parts) {
+          throw new Error('No valid response parts found');
+          // 或者返回默认值：return '';
+      }
+
+      for (const part of parts) {
+          if (part.inlineData?.data) {
+              return part.inlineData.data;
+          }
+      }
+
+      // 如果没有找到数据，返回空字符串或抛出错误
+      return '';
     throw new Error("No image returned");
   } catch (error: any) { throw new Error(`Gemini Image Edit Error: ${error.message}`); }
 };

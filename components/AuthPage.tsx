@@ -68,7 +68,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang 
       <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-300">
         <div className="p-10">
           <div className="text-center mb-10">
-            <button 
+            <button
               onClick={onLogoClick}
               className="inline-flex items-center justify-center w-14 h-14 bg-blue-600 rounded-2xl text-white font-black text-2xl mb-6 shadow-xl shadow-blue-100 hover:scale-105 transition-transform"
             >
@@ -173,3 +173,5 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang 
     </div>
   );
 };
+
+export default AuthPage;

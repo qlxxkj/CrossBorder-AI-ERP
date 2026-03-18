@@ -16,7 +16,8 @@ export interface Organization {
 export interface UserProfile {
   id: string;
   org_id: string | null;
-  role: 'super_admin' | 'tenant_admin' | 'user' | 'admin';
+//   role: 'super_admin' | 'tenant_admin' | 'user' | 'admin';
+  role: string; // 支持内置角色和自定义角色 ID
   email?: string; // 新增 Email
   is_suspended?: boolean;
   last_login_at?: string;
@@ -107,7 +108,7 @@ export interface Listing {
   user_id?: string;
   org_id?: string; // 归属于组织
   asin: string;
-  marketplace: string; 
+  marketplace: string;
   category_id?: string;
   url?: string;
   created_at: string;
@@ -187,8 +188,8 @@ export enum AppView {
   CATEGORIES = 'CATEGORIES',
   PRICING = 'PRICING',
   BILLING = 'BILLING',
-  ADMIN = 'ADMIN', 
-  SYSTEM_MGMT = 'SYSTEM_MGMT' 
+  ADMIN = 'ADMIN',
+  SYSTEM_MGMT = 'SYSTEM_MGMT'
 }
 
 export type UILanguage = 'en' | 'zh' | 'ja' | 'de' | 'fr' | 'es';
