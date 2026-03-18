@@ -175,7 +175,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
           uiLang={uiLang}
         />
 
-        <EditBlock label="Product Title" value={getVal('optimized_title', 'title')} onChange={v => handleFieldUpdate('optimized_title', v)} onBlur={onSync} limit={200} className="text-xl font-black" />
+        <EditBlock label="Product Title" value={getVal('optimized_title', 'title')} onChange={(v: string) => handleFieldUpdate('optimized_title', v)} onBlur={onSync} limit={200} className="text-xl font-black" />
 
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -206,8 +206,8 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
           </div>
         </div>
 
-        <EditBlock label="Description (HTML)" value={getVal('optimized_description', 'description')} onChange={v => handleFieldUpdate('optimized_description', v)} onBlur={onSync} limit={2000} isMono className="min-h-[200px] text-xs" />
-        <EditBlock label="Search Keywords" value={getVal('search_keywords', 'search_keywords')} onChange={v => handleFieldUpdate('search_keywords', v)} onBlur={onSync} limit={500} className="bg-amber-50/20 border-amber-100" />
+        <EditBlock label="Description (HTML)" value={getVal('optimized_description', 'description')} onChange={(v: string) => handleFieldUpdate('optimized_description', v)} onBlur={onSync} limit={2000} isMono className="min-h-[200px] text-xs" />
+        <EditBlock label="Search Keywords" value={getVal('search_keywords', 'search_keywords')} onChange={(v: string) => handleFieldUpdate('search_keywords', v)} onBlur={onSync} limit={500} className="bg-amber-50/20 border-amber-100" />
       </div>
     </div>
   );
