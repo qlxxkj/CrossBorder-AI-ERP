@@ -32,6 +32,8 @@ const App: React.FC = () => {
 
   // 使用 Ref 记录是否已经处理过初始登录跳转，防止切换 Tab 回来重置视图
   const hasInitiallyRedirected = useRef(false);
+  const [initError, setInitError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const fetchListings = useCallback(async (orgId: string, userId: string) => {
       if (!isSupabaseConfigured() || !orgId || !userId) return;
@@ -66,6 +68,8 @@ const App: React.FC = () => {
       setIsInitializing(false);
       return;
     }
+      setInitError(null);
+      console.log("Starting Identity Sync for user:", userId);
     try {
       let { data: profile, error: profileErr } = await supabase
         .from('user_profiles')
@@ -73,23 +77,34 @@ const App: React.FC = () => {
         .eq('id', userId)
         .maybeSingle();
 
-      if (profileErr) throw profileErr;
+      if (profileErr) {
+        console.error("Initial profile fetch error:", profileErr);
+        throw profileErr;
+      }
 
         if (!profile || !profile.org_id) {
+            console.log("Profile missing or uninitialized (no org_id). Checking invitations...");
+            const userEmail = currentSession?.user?.email;
+            if (!userEmail) throw new Error("User email missing from session");
+
             // 检查是否是被邀请的用户（通过邮箱查找且已有组织关联的记录）
-          const userEmail = currentSession?.user?.email;
-          const { data: invitedProfile } = await supabase
+            const { data: invitedProfile, error: inviteErr } = await supabase
               .from('user_profiles')
               .select('*')
               .eq('email', userEmail)
               .not('org_id', 'is', null)
               .maybeSingle();
+            if (inviteErr) {
+                console.error("Invitation check error:", inviteErr);
+                throw inviteErr;
+            }
 
           if (invitedProfile) {
+              console.log("Invited profile found. Linking to UID:", userId);
               // 逻辑：如果是被邀请的用户，继承邀请时的组织和角色
               if (profile) {
                   // 如果触发器已经创建了只有 ID 的档案，则更新它并删除邀请占位符
-                  const { data: updatedProfile } = await supabase
+                  const { data: updatedProfile, error: updateErr } = await supabase
                       .from('user_profiles')
                       .update({
                           org_id: invitedProfile.org_id,
@@ -102,28 +117,29 @@ const App: React.FC = () => {
                       .eq('id', userId)
                       .select()
                       .single();
-
-                  if (invitedProfile.id !== userId) {
-                      await supabase.from('user_profiles').delete().eq('id', invitedProfile.id);
-                  }
-                  profile = updatedProfile;
+                    if (updateErr) throw updateErr;
+                    profile = updatedProfile;
                 }
           } else {
           // 自主注册：创建新组织并设为租户管理员
+              console.log("No invitation found. Proceeding with self-registration...");
               // 自主注册逻辑：先检查是否已经创建过组织（防止重复创建）
               let orgIdToUse: string;
-              const { data: existingOrg } = await supabase
+              const { data: existingOrg, error: orgFetchErr } = await supabase
                   .from('organizations')
                   .select('id')
                   .eq('owner_id', userId)
                   .maybeSingle();
+              if (orgFetchErr) throw orgFetchErr;
 
               if (existingOrg) {
+                  console.log("Existing organization found for user:", existingOrg.id);
                   orgIdToUse = existingOrg.id;
               } else {
+                  console.log("Creating new organization for user...");
                   // 创建新组织并设为租户管理员
                   orgIdToUse = crypto.randomUUID();
-                  await supabase.from('organizations').insert([{
+                  const { error: orgInsertErr } =  await supabase.from('organizations').insert([{
                       id: orgIdToUse,
                       name: '',
                       owner_id: userId,
@@ -131,6 +147,10 @@ const App: React.FC = () => {
                       credits_total: 100,
                       credits_used: 0
                   }]);
+                  if (orgInsertErr) {
+                      console.error("Organization creation failed:", orgInsertErr);
+                      throw orgInsertErr;
+                  }
               }
 
               // 强制设置角色为 tenant_admin，并关联组织
@@ -145,49 +165,78 @@ const App: React.FC = () => {
 
 
               if (profile) {
+                  console.log("Updating existing uninitialized profile...");
                   // 更新已存在的档案（触发器创建的）
-                  const { data: updatedProfile } = await supabase
+                  const { data: updatedProfile, error: updateErr } = await supabase
                       .from('user_profiles')
                       .update(profileData)
                       .eq('id', userId)
                       .select()
                       .single();
+                  if (updateErr) throw updateErr;
                   profile = updatedProfile;
               } else {
+                  console.log("Creating new tenant_admin profile...");
                   // 创建全新档案
-                  const { data: newProfile } = await supabase
+                  const { data: newProfile, error: insertErr } = await supabase
                       .from('user_profiles')
                       .insert([{ id: userId, ...profileData }])
                       .select()
                       .single();
+                  if (insertErr) throw insertErr;
                   profile = newProfile;
               }
           }
       }
 
       if (profile?.org_id) {
-        const { data: orgData } = await supabase.from('organizations').select('*').eq('id', profile.org_id).maybeSingle();
+        console.log("Fetching organization data for org:", profile.org_id);
+        const { data: orgData, error: orgErr } = await supabase.from('organizations').select('*').eq('id', profile.org_id).maybeSingle();
+        if (orgErr) throw orgErr;
         setOrg(orgData);
-          fetchListings(profile.org_id, profile.id);
+        fetchListings(profile.org_id, profile.id);
 
           // 获取角色权限
           if (profile.role === 'tenant_admin' || profile.role === 'super_admin' || profile.role === 'admin') {
               setUserPermissions([]); // 内置管理员在 Sidebar 特殊处理
           } else {
-              const { data: roleData } = await supabase
-                  .from('roles')
-                  .select('permissions')
-                  .eq('id', profile.role)
-                  .eq('org_id', profile.org_id)
-                  .maybeSingle();
-              if (roleData) {
-                  setUserPermissions(roleData.permissions || []);
-              }
+            const { data: roleData, error: roleErr } = await supabase
+                .from('roles')
+                .select('permissions')
+                .eq('id', profile.role)
+                .eq('org_id', profile.org_id)
+                .maybeSingle();
+            if (roleErr) throw roleErr;
+            if (roleData) {
+                setUserPermissions(roleData.permissions || []);
+            }
           }
       }
+
+      if (!profile) throw new Error("Failed to resolve user profile");
+
       setUserProfile(profile);
-    } catch (err) {
-      console.error("Identity Sync Error:", err);
+      console.log("Identity Sync Complete. Role:", profile.role);
+    } catch (err: any) {
+        console.error("Identity Sync Critical Error:", err);
+        const errMsg = err.message || "Unknown initialization error";
+
+        // Handle specific schema error by redirecting to login
+        if (errMsg.includes("column user_profiles.email does not exist")) {
+            console.log("Detected missing email column. Redirecting to login with error.");
+            await supabase.auth.signOut();
+            setSession(null);
+            setAuthError("Database schema mismatch: column 'user_profiles.email' is missing. Please run the migration SQL.");
+            setView(AppView.AUTH);
+        } else if (errMsg.includes("row-level security policy")) {
+            console.log("Detected RLS violation. Redirecting to login with error.");
+            await supabase.auth.signOut();
+            setSession(null);
+            setAuthError(`Database permission error: ${errMsg}. Please check your Supabase RLS policies.`);
+            setView(AppView.AUTH);
+        } else {
+            setInitError(errMsg);
+        }
     } finally {
       setIsInitializing(false);
     }
@@ -258,6 +307,27 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
+
+      if (initError) {
+          return (
+              <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20 text-center space-y-6">
+                  <div className="w-20 h-20 bg-red-50 rounded-[2rem] flex items-center justify-center text-red-500 shadow-inner">
+                      <AlertCircle size={40} />
+                  </div>
+                  <div className="space-y-2">
+                      <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Initialization Failed</h3>
+                      <p className="text-slate-400 text-sm font-medium max-w-md mx-auto">{initError}</p>
+                  </div>
+                  <button
+                      onClick={() => window.location.reload()}
+                      className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all active:scale-95"
+                  >
+                      Retry Connection
+                  </button>
+              </div>
+          );
+      }
+
     if (!userProfile && (view !== AppView.LANDING && view !== AppView.AUTH)) {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center bg-white p-20">
@@ -342,7 +412,7 @@ const App: React.FC = () => {
       <main className={`${showSidebar ? 'ml-64' : 'w-full'} flex-1 h-screen overflow-hidden relative transition-all duration-500`}>
         <div className="h-full overflow-y-auto custom-scrollbar">
           {view === AppView.LANDING ? <LandingPage onLogin={handleLandingLogin} uiLang={lang} onLanguageChange={setLang} onLogoClick={() => setView(AppView.LANDING)} /> :
-           view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => setView(AppView.LANDING)} /> :
+                      view === AppView.AUTH ? <AuthPage onBack={() => setView(AppView.LANDING)} uiLang={lang} onLogoClick={() => setView(AppView.LANDING)} externalError={authError} /> :
            renderContent()}
         </div>
       </main>

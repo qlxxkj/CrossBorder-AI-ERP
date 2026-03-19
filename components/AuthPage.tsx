@@ -9,15 +9,24 @@ interface AuthPageProps {
   onBack: () => void;
   onLogoClick: () => void;
   uiLang: UILanguage;
+  externalError?: string | null;
 }
 
-export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang }) => {
+export const AuthPage: React.FC<AuthPageProps> = ({ onBack, onLogoClick, uiLang, externalError }) => {
   const t = useTranslation(uiLang);
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+    const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(
+        externalError ? { type: 'error', text: externalError } : null
+    );
+
+    useEffect(() => {
+        if (externalError) {
+            setMessage({ type: 'error', text: externalError });
+        }
+    }, [externalError]);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
