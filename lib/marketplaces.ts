@@ -27,4 +27,8 @@ export const AMAZON_MARKETPLACES: MarketplaceConfig[] = [
   { code: 'AU', name: 'Australia', flag: '🇦🇺', currency: '$', lang: 'en', domain: 'amazon.com.au' },
   { code: 'SG', name: 'Singapore', flag: '🇸🇬', currency: '$', lang: 'en', domain: 'amazon.sg' },
   { code: 'EG', name: 'Egypt', flag: '🇪🇬', currency: 'E£', lang: 'ar', domain: 'amazon.eg' },
+  { code: 'ZY_ERP', name: '智赢ERP', flag: '📦', currency: 'CNY', lang: 'zh', domain: 'zyerp.com' },
+  { code: 'MELI', name: 'Mercado Libre', flag: '📦', currency: 'USD', lang: 'es', domain: 'mercadolibre.com' },
+  { code: 'OZON', name: 'OZON', flag: '📦', currency: 'RUB', lang: 'ru', domain: 'ozon.ru' },
+  { code: 'TIKTOK', name: 'TikTok Shop', flag: '📱', currency: 'USD', lang: 'en', domain: 'tiktok.com' },
 ];

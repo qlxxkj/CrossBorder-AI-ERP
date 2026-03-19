@@ -61,9 +61,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
 
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-2">
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">
-            {lang === 'zh' ? '数据概览' : 'Overview'}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">
+              {lang === 'zh' ? '数据概览' : 'Overview'}
+            </h2>
+            {userProfile?.org_id && (
+              <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-black uppercase tracking-widest border border-indigo-100">
+                {lang === 'zh' ? '组织: ' : 'Org: '} {userProfile.org_id.slice(0, 8)}...
+              </span>
+            )}
+          </div>
           <p className="text-slate-400 font-medium text-sm">Monitor your cross-border business performance.</p>
         </div>
         

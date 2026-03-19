@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  LayoutDashboard, List, Tags, Coins, Layout, ShieldCheck,
-  Settings, LogOut, ChevronRight, Crown, Zap,
+import { 
+  LayoutDashboard, List, Tags, Coins, Layout, ShieldCheck, 
+  Settings, LogOut, ChevronRight, Crown, Zap, 
   CreditCard, ArrowUpRight, Mail, ChevronDown, Building, Users, Shield
 } from 'lucide-react';
 import { UILanguage, UserProfile } from '../types';
@@ -24,13 +24,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isSystemExpanded, setIsSystemExpanded] = useState(activeTab.startsWith('system'));
   const menuRef = useRef<HTMLDivElement>(null);
-
+  
   const isSuper = userProfile.role === 'super_admin' || userProfile.role === 'admin';
   const isTenantAdmin = userProfile.role === 'tenant_admin';
 
-    // 检查是否有系统管理权限
-    // 1. 内置管理员角色（tenant_admin, admin, super_admin）默认拥有
-    // 2. 自定义角色检查 permissions 数组中是否有以 'system:' 开头的 menu_id
+  // 检查是否有系统管理权限
+  // 1. 内置管理员角色（tenant_admin, admin, super_admin）默认拥有
+  // 2. 自定义角色检查 permissions 数组中是否有以 'system:' 开头的 menu_id
   const hasSystemAccess = isTenantAdmin || isSuper || permissions.some(p => p.menu_id?.startsWith('system:'));
 
   const userEmail = session?.user?.email || 'User';
@@ -70,12 +70,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
 
       <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-1">
         {navItems.map(item => (
-          <button
+          <button 
             key={item.id}
-            onClick={() => setActiveTab(item.id)}
+            onClick={() => setActiveTab(item.id)} 
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 ${
-              activeTab === item.id
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
+              activeTab === item.id 
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
@@ -85,25 +85,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
 
         {hasSystemAccess && (
           <div className="space-y-1">
-            <button
-              onClick={() => setIsSystemExpanded(!isSystemExpanded)}
+            <button 
+              onClick={() => setIsSystemExpanded(!isSystemExpanded)} 
               className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
                 activeTab.startsWith('system')
-                  ? 'bg-indigo-600 text-white shadow-lg'
+                  ? 'bg-indigo-600 text-white shadow-lg' 
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
               <div className="flex items-center gap-3">
-                <Settings size={18} />
+                <Settings size={18} /> 
                 <span className="text-sm font-bold">{t('systemMgmt')}</span>
               </div>
               <ChevronDown size={14} className={`transition-transform duration-300 ${isSystemExpanded ? 'rotate-180' : ''}`} />
             </button>
-
+            
             {isSystemExpanded && (
               <div className="pl-4 space-y-1 mt-1 animate-in slide-in-from-top-2 duration-300">
                 {systemSubItems.filter(sub => isTenantAdmin || isSuper || permissions.some(p => p.menu_id === sub.id)).map(sub => (
-                  <button
+                  <button 
                     key={sub.id}
                     onClick={() => setActiveTab(sub.id)}
                     className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
@@ -119,11 +119,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
         )}
 
         {isSuper && (
-          <button
-            onClick={() => setActiveTab('admin')}
+          <button 
+            onClick={() => setActiveTab('admin')} 
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
-              activeTab === 'admin'
-                ? 'bg-amber-600 text-white shadow-lg'
+              activeTab === 'admin' 
+                ? 'bg-amber-600 text-white shadow-lg' 
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
@@ -147,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
                      </p>
                   </div>
                </div>
-
+               
                <div className="grid grid-cols-1 gap-3">
                   <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-xl">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Plan</span>
@@ -163,9 +163,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
                   </div>
                </div>
             </div>
-
+            
             <div className="p-2 space-y-1">
-               <button
+               <button 
                 onClick={() => { setActiveTab('billing'); setShowUserMenu(false); }}
                 className="w-full flex items-center justify-between p-4 text-[10px] font-black uppercase text-slate-300 hover:bg-slate-700 hover:text-white rounded-2xl transition-all group"
                >
@@ -175,8 +175,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
                  </div>
                  <ArrowUpRight size={14} className="text-slate-500 group-hover:text-white" />
                </button>
-
-               <button
+               
+               <button 
                 onClick={onLogout}
                 className="w-full flex items-center gap-3 p-4 text-[10px] font-black uppercase text-red-400 hover:bg-red-500/10 rounded-2xl transition-all group"
                >
@@ -187,7 +187,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
           </div>
         )}
 
-        <button
+        <button 
           onClick={() => setShowUserMenu(!showUserMenu)}
           className={`w-full p-2.5 rounded-2xl border transition-all flex items-center gap-3 text-left ${
             showUserMenu ? 'bg-slate-800 border-slate-700 shadow-inner' : 'bg-transparent border-transparent hover:bg-slate-800'

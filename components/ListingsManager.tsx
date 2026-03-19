@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Search, CheckCircle, Trash2, Download, Package, 
   Loader2, Globe, ChevronLeft, ChevronRight, 
-  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink, Edit3, DollarSign
+  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink, Edit3, DollarSign, Copy
 } from 'lucide-react';
 import { Listing, UILanguage, Category, UserProfile } from '../types';
 import { useTranslation } from '../lib/i18n';
@@ -31,7 +31,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   lang, 
   refreshListings,
   isInitialLoading,
-  userProfile 
+  userProfile
 }) => {
   const t = useTranslation(lang);
   const [searchTerm, setSearchTerm] = useState('');
@@ -222,6 +222,14 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.code}</option>)}
             </select>
           </div>
+          <button 
+            onClick={refreshListings} 
+            disabled={isInitialLoading}
+            className="p-4 bg-white border border-slate-200 rounded-3xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm flex items-center justify-center disabled:opacity-50"
+            title="Refresh Data"
+          >
+            <RefreshCcw size={20} className={isInitialLoading ? 'animate-spin' : ''} />
+          </button>
         </div>
 
         <div className="flex flex-wrap gap-3 w-full xl:w-auto">
@@ -296,7 +304,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                    // 核心崩溃防护：强制将 price 转换为数字，防止字符串导致 toFixed(2) 报错
                    const rawPrice = (listing.status === 'optimized' && listing.optimized?.optimized_price !== undefined) 
                       ? listing.optimized.optimized_price 
-                      : (listing.cleaned?.price  || 0);
+                      : (listing.cleaned?.price || 0);
                    const price = Number(rawPrice) || 0;
                    
                    const title = (listing.status === 'optimized' && listing.optimized?.optimized_title) 
@@ -369,8 +377,56 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               }
               {!isInitialLoading && paginatedListings.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="p-20 text-center text-slate-300 font-black uppercase tracking-widest text-sm italic">
-                    No matching listings found.
+                  <td colSpan={9} className="p-20 text-center">
+                    <div className="flex flex-col items-center justify-center space-y-8 max-w-md mx-auto">
+                      <div className="w-24 h-24 bg-slate-50 rounded-[2.5rem] flex items-center justify-center text-slate-200 shadow-inner">
+                        <Package size={48} />
+                      </div>
+                      
+                      <div className="space-y-3">
+                        <h3 className="text-xl font-black text-slate-900 tracking-tight">
+                          {lang === 'zh' ? '暂无产品数据' : 'No Listings Found'}
+                        </h3>
+                        <p className="text-slate-500 text-sm font-medium leading-relaxed">
+                          {lang === 'zh' 
+                            ? '系统现已支持自动同步。如果您在插件中登录了相同账号并采集了数据，点击下方按钮即可完成归集。' 
+                            : 'System now supports auto-sync. If you collected data using the same account in the extension, click the button below to sync.'}
+                        </p>
+                      </div>
+
+                      <div className="w-full space-y-4">
+                        <button 
+                          onClick={refreshListings}
+                          className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-xl shadow-indigo-100"
+                        >
+                          <RefreshCcw size={16} />
+                          {lang === 'zh' ? '立即刷新并同步' : 'Refresh & Sync Now'}
+                        </button>
+
+                        <div className="pt-6 border-t border-slate-100">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 text-center">
+                            {lang === 'zh' ? '进阶：手动配置 Token (可选)' : 'Advanced: Manual Token (Optional)'}
+                          </p>
+                          <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <code className="text-[10px] font-mono font-black text-slate-500 flex-1 truncate text-left">
+                              {userProfile?.org_id || '---'}
+                            </code>
+                            <button 
+                              onClick={() => {
+                                if (userProfile?.org_id) {
+                                  navigator.clipboard.writeText(userProfile.org_id);
+                                  alert(lang === 'zh' ? 'Token 已复制' : 'Token copied');
+                                }
+                              }}
+                              className="p-2 text-indigo-600 hover:bg-white rounded-xl transition-all shadow-sm"
+                              title="Copy Token"
+                            >
+                              <Copy size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               )}

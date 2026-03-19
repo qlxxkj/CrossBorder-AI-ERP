@@ -107,6 +107,10 @@ const findHeaderRowIndex = (rows: any[][]): number => {
   return maxScore > 50 ? bestIdx : 2; 
 };
 
+const ZY_ERP_HEADERS = [
+  '父SKU(必填)', 'SKU', '成人', '颜色', '尺码', '品牌', '分类', '中文简称', '英文简称', '库存', '币种', '成本价(必填)', '运费', '挂号模板', '海关编码', '申报价(美元)', '分销价', '毛重(克)', '包装尺寸', '适用人群', '材料', '包装材料', '金属', '珠宝', '语言', '标题(必填)', '关键字', '要点1', '要点2', '要点3', '要点4', '要点5', '简介', '产品图', '简介图', '参考网址', '安全等级', '产品级别'
+];
+
 export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const t = useTranslation(uiLang);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -118,6 +122,74 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const [templateSearchQuery, setTemplateSearchQuery] = useState('');
   const [uploadMarketplace, setUploadMarketplace] = useState('US');
   const [uploadCategory, setUploadCategory] = useState('ALL');
+
+  const createPresetTemplate = async (name: string, headers: string[], marketplace: string) => {
+    if (!isSupabaseConfigured()) return;
+    setIsUploading(true);
+    try {
+      const mappings: Record<string, any> = {};
+      let imgCount = 0, bulletCount = 0;
+
+      headers.forEach((h, i) => {
+        const key = `col_${i}`;
+        const humanField = h.toLowerCase();
+        let source: any = 'custom', field = '';
+
+        const isMatch = (regex: RegExp) => humanField.match(regex);
+
+        if (isMatch(/sku/)) { 
+          source = 'listing'; 
+          field = humanField.includes('父') ? 'parent_asin' : 'asin'; 
+        }
+        else if (isMatch(/标题/)) { source = 'listing'; field = 'title'; }
+        else if (isMatch(/产品图/)) { 
+          imgCount++; 
+          source = 'listing'; 
+          field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; 
+        }
+        else if (isMatch(/要点/)) { 
+          bulletCount++; 
+          source = 'listing'; 
+          field = `feature${bulletCount}`; 
+        }
+        else if (isMatch(/成本价|分销价/)) { source = 'listing'; field = 'price'; }
+        else if (isMatch(/简介/)) { source = 'listing'; field = 'description'; }
+        else if (isMatch(/品牌/)) { source = 'listing'; field = 'brand'; }
+        else if (isMatch(/关键字/)) { source = 'listing'; field = 'search_keywords'; }
+        else if (isMatch(/毛重/)) { source = 'listing'; field = 'item_weight_value'; }
+        else if (isMatch(/分类/)) { source = 'listing'; field = 'category'; }
+        else if (isMatch(/运费/)) { source = 'listing'; field = 'shipping'; }
+
+        mappings[key] = { 
+          header: h, 
+          source, 
+          listingField: field, 
+          defaultValue: '',
+          templateDefault: '',
+          randomType: 'alphanumeric'
+        };
+      });
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data: inserted, error: insertError } = await supabase.from('templates').insert([{
+        user_id: session?.user?.id,
+        name: name,
+        headers: headers,
+        mappings: mappings,
+        marketplace: marketplace,
+        category_id: null,
+        created_at: new Date().toISOString()
+      }]).select();
+
+      if (insertError) throw insertError;
+      if (inserted) await fetchTemplates(inserted[0].id);
+    } catch (err: any) {
+      alert("Failed to create preset: " + err.message);
+    } finally {
+      setIsUploading(true);
+      setTimeout(() => setIsUploading(false), 500);
+    }
+  };
 
   useEffect(() => {
     fetchTemplates();
@@ -214,26 +286,37 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
 
         foundHeaders.forEach((h, i) => {
           const apiField = String(techRow[i] || '').toLowerCase().trim();
+          const humanField = String(humanRow[i] || '').toLowerCase().trim();
           const key = `col_${i}`;
           const userDataVal = String(userDataRow[i] || '').trim();
           
           let source: any = 'custom', field = '';
           
-          if (apiField.match(/item_sku|sku|external_product_id/)) { source = 'listing'; field = 'asin'; }
-          else if (apiField.match(/item_name|title|product_name/)) { source = 'listing'; field = 'title'; }
-          else if (apiField.match(/image_url|image_location|main_image|main_image_url/)) { 
+          // 匹配逻辑：优先匹配技术字段，其次匹配人类可读字段（支持中文）
+          const isMatch = (regex: RegExp) => apiField.match(regex) || humanField.match(regex);
+
+          if (isMatch(/item_sku|sku|external_product_id|父sku/)) { 
+            source = 'listing'; 
+            field = humanField.includes('父') ? 'parent_asin' : 'asin'; 
+          }
+          else if (isMatch(/item_name|title|product_name|标题/)) { source = 'listing'; field = 'title'; }
+          else if (isMatch(/image_url|image_location|main_image|main_image_url|产品图/)) { 
             imgCount++; 
             source = 'listing'; 
             field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; 
           }
-          else if (apiField.match(/bullet_point|feature_index|bullet/)) { 
+          else if (isMatch(/bullet_point|feature_index|bullet|要点/)) { 
             bulletCount++; 
             source = 'listing'; 
             field = `feature${bulletCount}`; 
           }
-          else if (apiField.match(/standard_price|price/)) { source = 'listing'; field = 'price'; }
-          else if (apiField.match(/product_description|description/)) { source = 'listing'; field = 'description'; }
-          else if (apiField.match(/brand_name|brand/)) { source = 'listing'; field = 'brand'; }
+          else if (isMatch(/standard_price|price|成本价|分销价/)) { source = 'listing'; field = 'price'; }
+          else if (isMatch(/product_description|description|简介/)) { source = 'listing'; field = 'description'; }
+          else if (isMatch(/brand_name|brand|品牌/)) { source = 'listing'; field = 'brand'; }
+          else if (isMatch(/keyword|关键字/)) { source = 'listing'; field = 'search_keywords'; }
+          else if (isMatch(/weight|毛重/)) { source = 'listing'; field = 'item_weight_value'; }
+          else if (isMatch(/category|分类/)) { source = 'listing'; field = 'category'; }
+          else if (isMatch(/shipping|运费/)) { source = 'listing'; field = 'shipping'; }
           else {
             if (userDataVal) {
               source = 'template_default';
@@ -338,6 +421,13 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           </div>
           <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all uppercase">
             {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {t('uploadTemplate')}
+          </button>
+          <button 
+            onClick={() => createPresetTemplate('智赢ERP标准模板', ZY_ERP_HEADERS, 'ZY_ERP')} 
+            disabled={isUploading} 
+            className="px-6 py-4 bg-slate-100 text-slate-900 rounded-2xl font-black text-xs flex items-center gap-3 shadow-sm hover:bg-slate-200 transition-all uppercase"
+          >
+            <Sparkles size={16} className="text-indigo-600" /> {uiLang === 'zh' ? '智赢ERP预设' : 'ZY ERP Preset'}
           </button>
         </div>
         <input type="file" ref={fileInputRef} className="hidden" accept=".xlsm,.xlsx" onChange={handleFileUpload} />

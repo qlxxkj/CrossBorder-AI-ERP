@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import {
-  Users, Shield, Building, Plus, Trash2, Mail, Edit3, Loader2,
-  Check, X, Save, ShieldCheck, MapPin, UserCheck, Phone,
+import { 
+  Users, Shield, Building, Plus, Trash2, Mail, Edit3, Loader2, 
+  Check, X, Save, ShieldCheck, MapPin, UserCheck, Phone, 
   Settings, Key, RefreshCw, Power
 } from 'lucide-react';
 import { UILanguage, Organization, UserProfile, Role, RolePermission } from '../types';
@@ -36,11 +36,13 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
-
+  
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [editingMember, setEditingMember] = useState<UserProfile | null>(null);
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState('user');
 
   const [orgForm, setOrgForm] = useState({
     name: orgData?.name || '',
@@ -49,30 +51,29 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
     contact_phone: orgData?.contact_phone || ''
   });
 
-    const isSuper = currentUserProfile?.role === 'super_admin' || currentUserProfile?.role === 'admin';
-    const isTenantAdmin = currentUserProfile?.role === 'tenant_admin';
+  const isSuper = currentUserProfile?.role === 'super_admin' || currentUserProfile?.role === 'admin';
+  const isTenantAdmin = currentUserProfile?.role === 'tenant_admin';
 
-    // 过滤可见的标签页
-    const canSeeUsers = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:users');
-    const canSeeRoles = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:roles');
-    const canSeeOrg = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:org');
+  // 过滤可见的标签页
+  const canSeeUsers = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:users');
+  const canSeeRoles = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:roles');
+  const canSeeOrg = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:org');
 
-    useEffect(() => {
-        if (activeSubTab === 'users' && canSeeUsers) fetchMembers();
-        if (activeSubTab === 'roles' && canSeeRoles) fetchRoles();
-    }, [activeSubTab, orgId, canSeeUsers, canSeeRoles]);
+  useEffect(() => {
+    if (activeSubTab === 'users' && canSeeUsers) fetchMembers();
+    if (activeSubTab === 'roles' && canSeeRoles) fetchRoles();
+  }, [activeSubTab, orgId, canSeeUsers, canSeeRoles]);
 
-
-    useEffect(() => {
-        if (orgData) {
-            setOrgForm({
-                name: orgData.name || '',
-                address: orgData.address || '',
-                contact_name: orgData.contact_name || '',
-                contact_phone: orgData.contact_phone || ''
-            });
-        }
-    }, [orgData]);
+  useEffect(() => {
+    if (orgData) {
+      setOrgForm({
+        name: orgData.name || '',
+        address: orgData.address || '',
+        contact_name: orgData.contact_name || '',
+        contact_phone: orgData.contact_phone || ''
+      });
+    }
+  }, [orgData]);
 
   const fetchMembers = async () => {
     setLoading(true);
@@ -103,13 +104,27 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
 
   const handleSaveMember = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
     if (editingMember) {
-      setLoading(true);
       await supabase.from('user_profiles').update({ role: editingMember.role }).eq('id', editingMember.id);
-      fetchMembers();
-      setShowMemberModal(false);
-      setLoading(false);
+    } else {
+      // 添加新成员：创建一个占位 ID 的 profile，等待用户登录时认领
+      const placeholderId = crypto.randomUUID();
+      await supabase.from('user_profiles').insert([{
+        id: placeholderId,
+        org_id: orgId,
+        role: newMemberRole,
+        email: newMemberEmail,
+        credits_total: 0,
+        credits_used: 0,
+        plan_type: 'Free'
+      }]);
+      setNewMemberEmail('');
+      setNewMemberRole('user');
     }
+    fetchMembers();
+    setShowMemberModal(false);
+    setLoading(false);
   };
 
   const handleToggleStatus = async (user: UserProfile) => {
@@ -119,7 +134,7 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
       .from('user_profiles')
       .update({ is_suspended: newStatus })
       .eq('id', user.id);
-
+    
     if (!error) {
       setMembers(members.map(m => m.id === user.id ? { ...m, is_suspended: newStatus } : m));
     }
@@ -173,9 +188,9 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
           </div>
         </div>
         <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
-          <TabButton active={activeSubTab === 'users'} onClick={() => onSubTabChange?.('users')} icon={<Users size={16}/>} label={t('userMgmt')} />
-          <TabButton active={activeSubTab === 'roles'} onClick={() => onSubTabChange?.('roles')} icon={<Shield size={16}/>} label={t('roleMgmt')} />
-          <TabButton active={activeSubTab === 'org'} onClick={() => onSubTabChange?.('org')} icon={<Building size={16}/>} label={t('orgMgmt')} />
+          {canSeeUsers && <TabButton active={activeSubTab === 'users'} onClick={() => onSubTabChange?.('users')} icon={<Users size={16}/>} label={t('userMgmt')} />}
+          {canSeeRoles && <TabButton active={activeSubTab === 'roles'} onClick={() => onSubTabChange?.('roles')} icon={<Shield size={16}/>} label={t('roleMgmt')} />}
+          {canSeeOrg && <TabButton active={activeSubTab === 'org'} onClick={() => onSubTabChange?.('org')} icon={<Building size={16}/>} label={t('orgMgmt')} />}
         </div>
       </div>
 
@@ -233,14 +248,14 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
                         </td>
                         <td className="py-6 px-4 text-right">
                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                              <button
+                              <button 
                                 onClick={() => handleResetPassword(m.id)}
-                                title={t('resetPassword')}
+                                title={t('resetPassword')} 
                                 className="p-2.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl"
                               >
                                 <RefreshCw size={16}/>
                               </button>
-                              <button
+                              <button 
                                 onClick={() => handleToggleStatus(m)}
                                 title={m.is_suspended ? t('activate') : t('suspend')}
                                 className={`p-2.5 rounded-xl ${m.is_suspended ? 'text-green-600 hover:bg-green-50' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'}`}
@@ -301,6 +316,21 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
                   <OrgField label={t('orgName')} icon={<Building size={14}/>}>
                     <input value={orgForm.name} onChange={e => setOrgForm({...orgForm, name: e.target.value})} className="org-input" />
                   </OrgField>
+                  <OrgField label="Organization ID (Collection Token)" icon={<Key size={14}/>}>
+                    <div className="flex gap-2">
+                      <input readOnly value={orgId} className="org-input bg-slate-100 cursor-not-allowed text-[10px] font-mono" />
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(orgId);
+                          alert(uiLang === 'zh' ? '已复制到剪贴板' : 'Copied to clipboard');
+                        }}
+                        className="px-4 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 transition-all"
+                      >
+                        <Save size={16} />
+                      </button>
+                    </div>
+                    <p className="text-[9px] text-slate-400 font-bold mt-1 uppercase tracking-tighter">Use this ID in your Chrome Extension to sync collected data.</p>
+                  </OrgField>
                   <OrgField label={t('orgAddress')} icon={<MapPin size={14}/>}>
                     <textarea value={orgForm.address} onChange={e => setOrgForm({...orgForm, address: e.target.value})} className="org-input min-h-[100px]" />
                   </OrgField>
@@ -330,19 +360,29 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
                  {!editingMember && (
                    <div className="space-y-2">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('emailAddr')}</label>
-                     <input type="email" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="name@company.com" />
+                     <input 
+                      type="email" 
+                      required 
+                      value={newMemberEmail}
+                      onChange={e => setNewMemberEmail(e.target.value)}
+                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
+                      placeholder="name@company.com" 
+                     />
                    </div>
                  )}
                  <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('roleMgmt')}</label>
-                   <select
-                    value={editingMember?.role || 'user'}
-                    onChange={e => setEditingMember(prev => prev ? {...prev, role: e.target.value as any} : null)}
+                   <select 
+                    value={editingMember ? editingMember.role : newMemberRole} 
+                    onChange={e => editingMember ? setEditingMember({...editingMember, role: e.target.value}) : setNewMemberRole(e.target.value)}
                     className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
                    >
                      <option value="user">User</option>
                      <option value="admin">Admin</option>
                      <option value="tenant_admin">Owner</option>
+                      {roles.map(r => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
                    </select>
                  </div>
                  <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">{t('save')}</button>
@@ -437,7 +477,7 @@ const OrgField = ({ label, icon, children }: any) => (
 );
 
 const Checkbox = ({ checked, onChange }: { checked: boolean, onChange: (v: boolean) => void }) => (
-  <button
+  <button 
     onClick={() => onChange(!checked)}
     className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-200 hover:border-indigo-400'}`}
   >
