@@ -4,7 +4,7 @@ import { X, Upload, Plus, Trash2, Loader2, Save, Image as ImageIcon, Ruler, Weig
 import { UILanguage, CleanedData, Category } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
+import { MARKETPLACES } from '../lib/marketplaces';
 
 interface ManualListingModalProps {
   uiLang: UILanguage;
@@ -195,7 +195,7 @@ export const ManualListingModal: React.FC<ManualListingModalProps> = ({ uiLang, 
                         onChange={(e) => setFormData(p => ({ ...p, marketplace: e.target.value }))}
                         className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold appearance-none cursor-pointer focus:ring-4 focus:ring-indigo-500/10 transition-all"
                       >
-                        {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.name}</option>)}
+                        {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.name}</option>)}
                       </select>
                       <Globe className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={16} />
                     </div>

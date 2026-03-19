@@ -8,7 +8,7 @@ export interface MarketplaceConfig {
   domain: string;
 }
 
-export const AMAZON_MARKETPLACES: MarketplaceConfig[] = [
+export const MARKETPLACES: MarketplaceConfig[] = [
   { code: 'US', name: 'United States', flag: '🇺🇸', currency: '$', lang: 'en', domain: 'amazon.com' },
   { code: 'CA', name: 'Canada', flag: '🇨🇦', currency: '$', lang: 'en', domain: 'amazon.ca' },
   { code: 'MX', name: 'Mexico', flag: '🇲🇽', currency: '$', lang: 'es', domain: 'amazon.com.mx' },

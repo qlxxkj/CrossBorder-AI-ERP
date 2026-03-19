@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Globe, Tags, Coins, Save, Loader2, Info, Percent, Truck, Calculator, DollarSign, RefreshCw } from 'lucide-react';
 import { PriceAdjustment, ExchangeRate, Category, UILanguage } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
+import { MARKETPLACES } from '../lib/marketplaces';
 
 interface PricingManagerProps {
   uiLang: UILanguage;
@@ -125,7 +125,7 @@ export const PricingManager: React.FC<PricingManagerProps> = ({ uiLang }) => {
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none"
                 >
                   <option value="ALL">ALL MARKETPLACES</option>
-                  {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.code}</option>)}
+                  {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.code}</option>)}
                 </select>
               </div>
               <div className="space-y-2">
@@ -214,7 +214,7 @@ export const PricingManager: React.FC<PricingManagerProps> = ({ uiLang }) => {
                   onChange={e => setNewRate({...newRate, marketplace: e.target.value})}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none"
                 >
-                  {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.code} ({m.currency})</option>)}
+                  {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.code} ({m.currency})</option>)}
                 </select>
               </div>
               <div className="space-y-2">
@@ -239,7 +239,7 @@ export const PricingManager: React.FC<PricingManagerProps> = ({ uiLang }) => {
           </form>
 
           <div className="grid grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-            {AMAZON_MARKETPLACES.map(m => {
+            {MARKETPLACES.map(m => {
               const rateEntry = exchangeRates.find(r => r.marketplace === m.code);
               return (
                 <div key={m.code} className={`p-5 rounded-3xl border transition-all flex items-center gap-4 ${rateEntry ? 'bg-white border-slate-100' : 'bg-slate-50/50 border-dashed border-slate-100 opacity-40'}`}>

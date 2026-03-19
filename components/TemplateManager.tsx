@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Trash2, Layout, Save, FileSpreadsheet, Loader2, Search, Globe, Tags, Sparkles } from 'lucide-react';
+import { Upload, Trash2, Layout, Save, FileSpreadsheet, Loader2, Search, Globe, Tags, Sparkles, Plus, X } from 'lucide-react';
 import { ExportTemplate, UILanguage, FieldMapping, Category } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
+import { MARKETPLACES } from '../lib/marketplaces';
 import * as XLSX from 'xlsx';
 
 interface TemplateManagerProps {
@@ -13,9 +13,11 @@ interface TemplateManagerProps {
 
 const LISTING_SOURCE_FIELDS = [
   { value: 'asin', label: 'ASIN / SKU' },
+  { value: 'parent_asin', label: 'Parent ASIN / SKU' },
   { value: 'title', label: 'Title (Optimized or Cleaned)' },
   { value: 'price', label: 'Standard Price' },
   { value: 'shipping', label: 'Shipping Cost' },
+  { value: 'currency', label: 'Currency Code' },
   { value: 'brand', label: 'Brand Name' },
   { value: 'description', label: 'Description (Optimized or Cleaned)' },
   { value: 'item_weight_value', label: 'Item Weight Value' },
@@ -38,6 +40,11 @@ const LISTING_SOURCE_FIELDS = [
   { value: 'other_image6', label: 'Other Image 6' },
   { value: 'other_image7', label: 'Other Image 7' },
   { value: 'other_image8', label: 'Other Image 8' },
+  { value: 'category', label: 'Category Path' },
+  { value: 'search_keywords', label: 'Search Keywords' },
+  { value: 'color', label: 'Color' },
+  { value: 'size', label: 'Size' },
+  { value: 'material', label: 'Material' },
 ];
 
 const HIGH_CONFIDENCE_KEYWORDS = [
@@ -122,43 +129,68 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
   const [templateSearchQuery, setTemplateSearchQuery] = useState('');
   const [uploadMarketplace, setUploadMarketplace] = useState('US');
   const [uploadCategory, setUploadCategory] = useState('ALL');
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [manualTemplateName, setManualTemplateName] = useState('');
+  const [manualHeaders, setManualHeaders] = useState('');
+  const [manualMarketplace, setManualMarketplace] = useState('ZY_ERP');
 
-  const createPresetTemplate = async (name: string, headers: string[], marketplace: string) => {
-    if (!isSupabaseConfigured()) return;
+  const getAutoMapping = (h: string, imgCount: { val: number }, bulletCount: { val: number }) => {
+    const humanField = h.toLowerCase();
+    let source: any = 'custom', field = '';
+
+    const isMatch = (regex: RegExp) => humanField.match(regex);
+
+    if (isMatch(/sku/)) { 
+      source = 'listing'; 
+      field = humanField.includes('父') ? 'parent_asin' : 'asin'; 
+    }
+    else if (isMatch(/标题/)) { source = 'listing'; field = 'title'; }
+    else if (isMatch(/产品图/)) { 
+      imgCount.val++; 
+      source = 'listing'; 
+      field = imgCount.val === 1 ? 'main_image' : `other_image${imgCount.val - 1}`; 
+    }
+    else if (isMatch(/要点/)) { 
+      bulletCount.val++; 
+      source = 'listing'; 
+      field = `feature${bulletCount.val}`; 
+    }
+    else if (isMatch(/成本价|分销价/)) { source = 'listing'; field = 'price'; }
+    else if (isMatch(/简介/)) { source = 'listing'; field = 'description'; }
+    else if (isMatch(/品牌/)) { source = 'listing'; field = 'brand'; }
+    else if (isMatch(/关键字/)) { source = 'listing'; field = 'search_keywords'; }
+    else if (isMatch(/毛重/)) { source = 'listing'; field = 'item_weight_value'; }
+    else if (isMatch(/分类/)) { source = 'listing'; field = 'category'; }
+    else if (isMatch(/运费/)) { source = 'listing'; field = 'shipping'; }
+    else if (isMatch(/币种/)) { source = 'listing'; field = 'currency'; }
+    else if (isMatch(/颜色/)) { source = 'listing'; field = 'color'; }
+    else if (isMatch(/尺码/)) { source = 'listing'; field = 'size'; }
+    else if (isMatch(/材料/)) { source = 'listing'; field = 'material'; }
+
+    return { source, field };
+  };
+
+  const handleManualCreate = async () => {
+    if (!manualTemplateName || !manualHeaders) {
+      alert(uiLang === 'zh' ? "请填写模板名称和表头" : "Please fill in template name and headers");
+      return;
+    }
+
+    const headers = manualHeaders.split(/[\t,\n]/).map(h => h.trim()).filter(h => h !== '');
+    if (headers.length === 0) {
+      alert(uiLang === 'zh' ? "表头不能为空" : "Headers cannot be empty");
+      return;
+    }
+
     setIsUploading(true);
     try {
       const mappings: Record<string, any> = {};
-      let imgCount = 0, bulletCount = 0;
+      const imgCount = { val: 0 };
+      const bulletCount = { val: 0 };
 
       headers.forEach((h, i) => {
         const key = `col_${i}`;
-        const humanField = h.toLowerCase();
-        let source: any = 'custom', field = '';
-
-        const isMatch = (regex: RegExp) => humanField.match(regex);
-
-        if (isMatch(/sku/)) { 
-          source = 'listing'; 
-          field = humanField.includes('父') ? 'parent_asin' : 'asin'; 
-        }
-        else if (isMatch(/标题/)) { source = 'listing'; field = 'title'; }
-        else if (isMatch(/产品图/)) { 
-          imgCount++; 
-          source = 'listing'; 
-          field = imgCount === 1 ? 'main_image' : `other_image${imgCount - 1}`; 
-        }
-        else if (isMatch(/要点/)) { 
-          bulletCount++; 
-          source = 'listing'; 
-          field = `feature${bulletCount}`; 
-        }
-        else if (isMatch(/成本价|分销价/)) { source = 'listing'; field = 'price'; }
-        else if (isMatch(/简介/)) { source = 'listing'; field = 'description'; }
-        else if (isMatch(/品牌/)) { source = 'listing'; field = 'brand'; }
-        else if (isMatch(/关键字/)) { source = 'listing'; field = 'search_keywords'; }
-        else if (isMatch(/毛重/)) { source = 'listing'; field = 'item_weight_value'; }
-        else if (isMatch(/分类/)) { source = 'listing'; field = 'category'; }
-        else if (isMatch(/运费/)) { source = 'listing'; field = 'shipping'; }
+        const { source, field } = getAutoMapping(h, imgCount, bulletCount);
 
         mappings[key] = { 
           header: h, 
@@ -169,6 +201,67 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           randomType: 'alphanumeric'
         };
       });
+
+      // Manual templates don't have binary data or row indices
+      mappings['__is_manual'] = true;
+      mappings['__sheet_name'] = 'Sheet1';
+      mappings['__data_start_row_idx'] = 1; // Data starts at row 2 (index 1) for manual templates
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data: inserted, error: insertError } = await supabase.from('templates').insert([{
+        user_id: session?.user?.id,
+        name: manualTemplateName,
+        headers: headers,
+        mappings: mappings,
+        marketplace: manualMarketplace,
+        category_id: null,
+        created_at: new Date().toISOString()
+      }]).select();
+
+      if (insertError) throw insertError;
+      if (inserted) {
+        await fetchTemplates(inserted[0].id);
+        setShowManualModal(false);
+        setManualTemplateName('');
+        setManualHeaders('');
+      }
+    } catch (err: any) {
+      alert("Failed to create template: " + err.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const createPresetTemplate = async (type: 'ZY_ERP') => {
+    if (!isSupabaseConfigured()) return;
+    setIsUploading(true);
+    try {
+      const name = type === 'ZY_ERP' ? '智赢ERP标准模板' : 'Custom Template';
+      const headers = type === 'ZY_ERP' ? ZY_ERP_HEADERS : [];
+      const marketplace = type === 'ZY_ERP' ? 'ZY_ERP' : 'AMAZON_US';
+
+      const mappings: Record<string, any> = {};
+      const imgCount = { val: 0 };
+      const bulletCount = { val: 0 };
+
+      headers.forEach((h, i) => {
+        const key = `col_${i}`;
+        const { source, field } = getAutoMapping(h, imgCount, bulletCount);
+
+        mappings[key] = { 
+          header: h, 
+          source, 
+          listingField: field, 
+          defaultValue: '',
+          templateDefault: '',
+          randomType: 'alphanumeric'
+        };
+      });
+
+      // Manual templates don't have binary data or row indices
+      mappings['__is_manual'] = true;
+      mappings['__sheet_name'] = 'Sheet1';
+      mappings['__data_start_row_idx'] = 1; // Data starts at row 2 (index 1) for manual templates
 
       const { data: { session } } = await supabase.auth.getSession();
       const { data: inserted, error: insertError } = await supabase.from('templates').insert([{
@@ -317,6 +410,10 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           else if (isMatch(/weight|毛重/)) { source = 'listing'; field = 'item_weight_value'; }
           else if (isMatch(/category|分类/)) { source = 'listing'; field = 'category'; }
           else if (isMatch(/shipping|运费/)) { source = 'listing'; field = 'shipping'; }
+          else if (isMatch(/币种/)) { source = 'listing'; field = 'currency'; }
+          else if (isMatch(/颜色/)) { source = 'listing'; field = 'color'; }
+          else if (isMatch(/尺码/)) { source = 'listing'; field = 'size'; }
+          else if (isMatch(/材料/)) { source = 'listing'; field = 'material'; }
           else {
             if (userDataVal) {
               source = 'template_default';
@@ -387,7 +484,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       .filter(item => item.header && item.header.toLowerCase().includes(fieldSearchQuery.toLowerCase()));
   }, [selectedTemplate, fieldSearchQuery]);
 
-  const getFlag = (code: string) => AMAZON_MARKETPLACES.find(m => m.code === code)?.flag || '🌍';
+  const getFlag = (code: string) => MARKETPLACES.find(m => m.code === code)?.flag || '🌍';
   const getCategoryName = (id?: string) => categories.find(c => c.id === id)?.name || 'Default';
 
   return (
@@ -405,7 +502,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               onChange={(e) => setUploadMarketplace(e.target.value)}
               className="pl-12 pr-10 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase tracking-widest appearance-none outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
             >
-              {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.code}</option>)}
+              {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.code}</option>)}
             </select>
           </div>
           <div className="relative">
@@ -419,11 +516,18 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
+          <button 
+            onClick={() => setShowManualModal(true)} 
+            disabled={isUploading} 
+            className="px-6 py-4 bg-white text-slate-900 border border-slate-200 rounded-2xl font-black text-xs flex items-center gap-3 shadow-sm hover:bg-slate-50 transition-all uppercase"
+          >
+            <Plus size={16} className="text-indigo-600" /> {uiLang === 'zh' ? '手动新增' : 'Manual Create'}
+          </button>
           <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all uppercase">
             {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {t('uploadTemplate')}
           </button>
           <button 
-            onClick={() => createPresetTemplate('智赢ERP标准模板', ZY_ERP_HEADERS, 'ZY_ERP')} 
+            onClick={() => createPresetTemplate('ZY_ERP')} 
             disabled={isUploading} 
             className="px-6 py-4 bg-slate-100 text-slate-900 rounded-2xl font-black text-xs flex items-center gap-3 shadow-sm hover:bg-slate-200 transition-all uppercase"
           >
@@ -473,7 +577,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                       onChange={(e) => setSelectedTemplate({...selectedTemplate, marketplace: e.target.value})}
                       className="bg-slate-900 text-white px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest outline-none cursor-pointer"
                      >
-                       {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.code}</option>)}
+                       {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.code}</option>)}
                      </select>
                      <select 
                       value={selectedTemplate.category_id || 'ALL'} 
@@ -545,6 +649,111 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
           )}
         </div>
       </div>
+
+      {showManualModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden border border-white/20 animate-in fade-in zoom-in duration-300">
+            <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg">
+                  <Plus size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">
+                    {uiLang === 'zh' ? '手动新增导出模板' : 'Create Manual Template'}
+                  </h3>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Custom Header Calibration</p>
+                </div>
+              </div>
+              <button onClick={() => setShowManualModal(false)} className="p-3 hover:bg-slate-100 rounded-2xl transition-all text-slate-400 hover:text-slate-900">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                  {uiLang === 'zh' ? '快速预设' : 'Quick Presets'}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => createPresetTemplate('ZY_ERP').then(() => { setShowManualModal(false); fetchTemplates(); })}
+                    className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black uppercase border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                  >
+                    Zhiying ERP (智赢)
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="flex-1 h-px bg-slate-100"></div>
+                <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Or Create Custom</span>
+                <div className="flex-1 h-px bg-slate-100"></div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                  {uiLang === 'zh' ? '模板名称' : 'Template Name'}
+                </label>
+                <input 
+                  type="text" 
+                  value={manualTemplateName}
+                  onChange={(e) => setManualTemplateName(e.target.value)}
+                  placeholder={uiLang === 'zh' ? "例如：智赢ERP自定义模板" : "e.g. ZY ERP Custom"}
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                  {uiLang === 'zh' ? '所属平台' : 'Platform'}
+                </label>
+                <select 
+                  value={manualMarketplace}
+                  onChange={(e) => setManualMarketplace(e.target.value)}
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xs uppercase tracking-widest outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all appearance-none"
+                >
+                  {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.name}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                  {uiLang === 'zh' ? '自定义表头 (用逗号或制表符分隔)' : 'Custom Headers (Comma or Tab separated)'}
+                </label>
+                <textarea 
+                  value={manualHeaders}
+                  onChange={(e) => setManualHeaders(e.target.value)}
+                  placeholder={uiLang === 'zh' ? "父SKU, SKU, 标题, 成本价..." : "Parent SKU, SKU, Title, Price..."}
+                  rows={5}
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-3xl font-bold text-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all resize-none custom-scrollbar"
+                />
+                <p className="text-[9px] font-bold text-slate-400 italic ml-1">
+                  {uiLang === 'zh' ? '提示：您可以直接从 Excel 复制表头并粘贴到此处。' : 'Tip: You can copy headers directly from Excel and paste them here.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-8 bg-slate-50/50 border-t border-slate-50 flex items-center justify-end gap-4">
+              <button 
+                onClick={() => setShowManualModal(false)}
+                className="px-8 py-4 bg-white text-slate-900 border border-slate-200 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-50 transition-all"
+              >
+                {uiLang === 'zh' ? '取消' : 'Cancel'}
+              </button>
+              <button 
+                onClick={handleManualCreate}
+                disabled={isUploading}
+                className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center gap-2"
+              >
+                {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                {uiLang === 'zh' ? '创建并配置' : 'Create & Configure'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

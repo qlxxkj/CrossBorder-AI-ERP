@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { DollarSign, Truck, ListFilter, Plus, RefreshCw, Loader2, Sparkles } from 'lucide-react';
 import { Listing, OptimizedData, UILanguage, ExchangeRate, PriceAdjustment } from '../types';
 import { LogisticsEditor, calculateMarketLogistics, calculateMarketPrice } from './LogisticsEditor';
-import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
+import { MARKETPLACES } from '../lib/marketplaces';
 import { translateListingWithAI } from '../services/geminiService';
 import { translateListingWithOpenAI } from '../services/openaiService';
 import { translateListingWithDeepSeek } from '../services/deepseekService';
@@ -44,7 +44,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
     if (!listing.optimized || isTranslating) return;
     setIsTranslating(true);
     try {
-      const market = AMAZON_MARKETPLACES.find(m => m.code === marketCode);
+      const market = MARKETPLACES.find(m => m.code === marketCode);
       const targetLang = market?.name || marketCode;
       
       let translation;
@@ -70,7 +70,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
 
   const translateAllMarkets = async () => {
     if (!listing.optimized || isTranslating) return;
-    const marketsToTranslate = AMAZON_MARKETPLACES.filter(m => m.code !== 'US');
+    const marketsToTranslate = MARKETPLACES.filter(m => m.code !== 'US');
     setIsTranslating(true);
     setTranslateStatus({ current: 0, total: marketsToTranslate.length });
 
@@ -135,7 +135,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
       <div className="px-8 py-6 bg-slate-50/50 flex flex-wrap gap-2 border-b border-slate-100 items-center justify-between">
          <div className="flex flex-wrap gap-1.5 flex-1">
            <button onClick={() => setActiveMarket('US')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${activeMarket === 'US' ? 'bg-slate-900 text-white shadow-lg' : 'bg-white text-slate-400 border border-slate-200'}`}>🇺🇸 Master</button>
-           {AMAZON_MARKETPLACES.filter(m => m.code !== 'US').map(m => {
+           {MARKETPLACES.filter(m => m.code !== 'US').map(m => {
               const isTranslated = !!listing.translations?.[m.code];
               return (
                 <button key={m.code} onClick={() => { setActiveMarket(m.code); if (!isTranslated) translateSite(m.code); }} className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${activeMarket === m.code ? 'bg-indigo-600 text-white shadow-md' : isTranslated ? 'bg-white text-slate-500 border border-slate-200' : 'bg-white text-slate-300 border-2 border-dashed border-slate-100 opacity-60'}`}>

@@ -4,7 +4,7 @@ import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Globe, AlertCircle
 import { Listing, ExportTemplate, UILanguage, FieldMapping, OptimizedData, Category, PriceAdjustment, ExchangeRate } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
+import { MARKETPLACES } from '../lib/marketplaces';
 import * as XLSX from 'xlsx';
 
 interface ExportModalProps {
@@ -117,7 +117,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   };
 
   const filteredMarketplaces = useMemo(() => {
-    return AMAZON_MARKETPLACES;
+    return MARKETPLACES;
   }, []);
 
   const filteredTemplates = useMemo(() => {
@@ -207,16 +207,28 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   };
 
   const handleExportTemplate = async () => {
+    const isManual = selectedTemplate?.mappings?.__is_manual === true;
     const fileBinary = selectedTemplate?.mappings?.['__binary'];
-    if (!selectedTemplate || !fileBinary) return;
+    if (!selectedTemplate || (!fileBinary && !isManual)) return;
+    
     setExporting(true); setExportStatus('Injecting Data...');
     try {
-      const bytes = safeDecode(fileBinary);
-      const workbook = XLSX.read(bytes, { type: 'array' });
-      const tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[0];
-      const sheet = workbook.Sheets[tplSheetName];
+      let workbook: XLSX.WorkBook;
+      let tplSheetName: string;
       
-      const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] ?? 3;
+      if (isManual) {
+        workbook = XLSX.utils.book_new();
+        tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || 'Sheet1';
+        const ws = XLSX.utils.aoa_to_sheet([selectedTemplate.headers]);
+        XLSX.utils.book_append_sheet(workbook, ws, tplSheetName);
+      } else {
+        const bytes = safeDecode(fileBinary as string);
+        workbook = XLSX.read(bytes, { type: 'array' });
+        tplSheetName = selectedTemplate.mappings?.['__sheet_name'] || workbook.SheetNames[0];
+      }
+      
+      const sheet = workbook.Sheets[tplSheetName];
+      const dataStartRowIdx = selectedTemplate.mappings?.['__data_start_row_idx'] ?? (isManual ? 1 : 3);
       const mappingKeys = Object.keys(selectedTemplate.mappings || {}).filter(k => k.startsWith('col_'));
 
       let maxRow = dataStartRowIdx;
@@ -297,6 +309,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'item_width') val = formatExportVal(getEffectiveValue('optimized_width', 'item_width'));
             else if (f === 'item_height') val = formatExportVal(getEffectiveValue('optimized_height', 'item_height'));
             else if (f === 'item_size_unit') val = getLocalizedUnitName(getEffectiveValue('optimized_size_unit', 'item_size_unit'), targetMarket);
+            else if (f === 'parent_asin') val = listing.cleaned.parent_asin || '';
+            else if (f === 'currency') {
+              const mkt = MARKETPLACES.find(m => m.code === targetMarket);
+              val = mkt?.currency || 'USD';
+            }
+            else if (f === 'color') val = listing.cleaned.color || '';
+            else if (f === 'size') val = listing.cleaned.size || '';
+            else if (f === 'material') val = listing.cleaned.material || '';
+            else if (f === 'category') val = listing.cleaned.category || '';
+            else if (f === 'search_keywords') val = getEffectiveValue('search_keywords', 'search_keywords');
           } 
           else if (mapping.source === 'custom') val = mapping.defaultValue || '';
           else if (mapping.source === 'random') val = generateRandomValue(mapping.randomType);

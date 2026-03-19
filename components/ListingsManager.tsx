@@ -10,7 +10,7 @@ import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { ManualListingModal } from './ManualListingModal';
 import { ExportModal } from './ExportModal';
-import { AMAZON_MARKETPLACES } from '../lib/marketplaces';
+import { MARKETPLACES } from '../lib/marketplaces';
 
 interface ListingsManagerProps {
   onSelectListing: (listing: Listing) => void;
@@ -153,8 +153,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   };
 
   const getAmazonUrl = (asin: string, mktCode: string) => {
-    const mkt = AMAZON_MARKETPLACES.find(m => m.code === mktCode);
-    const domain = mkt?.domain || 'amazon.com';
+    const mkt = MARKETPLACES.find(m => m.code === mktCode);
+    if (!mkt || !mkt.domain) return null;
+    const domain = mkt.domain;
     return `https://${domain}/dp/${asin}`;
   };
 
@@ -170,7 +171,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
             <div className="flex -space-x-1.5">
               {translations.slice(0, 4).map(code => (
                 <span key={code} className="text-xs grayscale-[0.3]" title={code}>
-                  {AMAZON_MARKETPLACES.find(m => m.code === code)?.flag || '🏳️'}
+                  {MARKETPLACES.find(m => m.code === code)?.flag || '🏳️'}
                 </span>
               ))}
               {translations.length > 4 && <span className="text-[8px] font-black text-slate-300 pl-1">+{translations.length - 4}</span>}
@@ -183,7 +184,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
             <div className="flex -space-x-1.5">
               {exports.slice(0, 4).map(code => (
                 <span key={code} className="text-xs drop-shadow-sm" title={`Exported to ${code}`}>
-                  {AMAZON_MARKETPLACES.find(m => m.code === code)?.flag || '🏳️'}
+                  {MARKETPLACES.find(m => m.code === code)?.flag || '🏳️'}
                 </span>
               ))}
             </div>
@@ -219,7 +220,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
             <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={18} />
             <select value={filterMarketplace} onChange={(e) => setFilterMarketplace(e.target.value)} className="w-full pl-12 pr-8 py-4 bg-white border border-slate-200 rounded-3xl font-black text-[10px] uppercase tracking-widest outline-none shadow-sm cursor-pointer appearance-none">
               <option value="ALL">All Sites</option>
-              {AMAZON_MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.code}</option>)}
+              {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.code}</option>)}
             </select>
           </div>
           <button 
@@ -312,8 +313,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                       : (listing.cleaned?.title || "Untitled");
                    
                    const catName = categories.find(c => c.id === listing.category_id)?.name || '-';
-                   const mkt = AMAZON_MARKETPLACES.find(m => m.code === listing.marketplace);
+                   const mkt = MARKETPLACES.find(m => m.code === listing.marketplace);
                    const sequenceNum = (currentPage - 1) * itemsPerPage + index + 1;
+                   const asinUrl = getAmazonUrl(listing.asin || '', listing.marketplace || 'US');
                    
                    return (
                     <tr key={listing.id} className={`hover:bg-slate-50/50 transition-all group cursor-pointer ${selectedIds.has(listing.id) ? 'bg-indigo-50/20' : ''}`} onClick={() => onSelectListing(listing)}>
@@ -345,16 +347,20 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                       </td>
                       <td className="p-8">
                         <div className="flex flex-col gap-1">
-                          <a 
-                            href={getAmazonUrl(listing.asin || '', listing.marketplace || 'US')}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="flex items-center gap-1 group/asin"
-                          >
-                            <span className="font-mono text-[11px] font-black text-slate-400 group-hover/asin:text-blue-600 transition-colors underline decoration-dotted decoration-slate-300">{listing.asin || 'N/A'}</span>
-                            <ExternalLink size={10} className="text-slate-200 group-hover/asin:text-blue-500" />
-                          </a>
+                          {asinUrl ? (
+                            <a 
+                              href={asinUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex items-center gap-1 group/asin"
+                            >
+                              <span className="font-mono text-[11px] font-black text-slate-400 group-hover/asin:text-blue-600 transition-colors underline decoration-dotted decoration-slate-300">{listing.asin || 'N/A'}</span>
+                              <ExternalLink size={10} className="text-slate-200 group-hover/asin:text-blue-500" />
+                            </a>
+                          ) : (
+                            <span className="font-mono text-[11px] font-black text-slate-400">{listing.asin || 'N/A'}</span>
+                          )}
                           <span className="block mt-1 text-[8px] font-black text-slate-300 uppercase">{mkt?.flag} {listing.marketplace}</span>
                         </div>
                       </td>
