@@ -45,6 +45,8 @@ const LISTING_SOURCE_FIELDS = [
   { value: 'color', label: 'Color' },
   { value: 'size', label: 'Size' },
   { value: 'material', label: 'Material' },
+  { value: 'zy_dimensions', label: 'ZY ERP: Dimensions (L*W*H)' },
+  { value: 'zy_images', label: 'ZY ERP: All Images (Main|Sub1|Sub2)' },
 ];
 
 const HIGH_CONFIDENCE_KEYWORDS = [
@@ -145,7 +147,9 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
       field = humanField.includes('父') ? 'parent_asin' : 'asin'; 
     }
     else if (isMatch(/标题/)) { source = 'listing'; field = 'title'; }
-    else if (isMatch(/产品图/)) { 
+    else if (humanField === '产品图') { source = 'listing'; field = 'zy_images'; }
+    else if (humanField === '包装尺寸') { source = 'listing'; field = 'zy_dimensions'; }
+    else if (isMatch(/image_url|image_location|main_image|main_image_url/)) { 
       imgCount.val++; 
       source = 'listing'; 
       field = imgCount.val === 1 ? 'main_image' : `other_image${imgCount.val - 1}`; 

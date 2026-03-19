@@ -319,6 +319,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             else if (f === 'material') val = listing.cleaned.material || '';
             else if (f === 'category') val = listing.cleaned.category || '';
             else if (f === 'search_keywords') val = getEffectiveValue('search_keywords', 'search_keywords');
+            else if (f === 'zy_dimensions') {
+              const l = formatExportVal(getEffectiveValue('optimized_length', 'item_length'));
+              const w = formatExportVal(getEffectiveValue('optimized_width', 'item_width'));
+              const h = formatExportVal(getEffectiveValue('optimized_height', 'item_height'));
+              val = (l || w || h) ? `${l || 0}*${w || 0}*${h || 0}` : '';
+            }
+            else if (f === 'zy_images') {
+              const main = getEffectiveValue('optimized_main_image', 'main_image');
+              const localOthers = (localizedOpt as any)?.optimized_other_images || [];
+              const masterOthers = masterOpt?.optimized_other_images || [];
+              const cleanOthers = cleaned.other_images || [];
+              const others = localOthers.length > 0 ? localOthers : (masterOthers.length > 0 ? masterOthers : cleanOthers);
+              val = [main, ...others].filter(img => img && String(img).trim() !== "").join('|');
+            }
           } 
           else if (mapping.source === 'custom') val = mapping.defaultValue || '';
           else if (mapping.source === 'random') val = generateRandomValue(mapping.randomType);
