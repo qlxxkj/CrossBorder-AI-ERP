@@ -28,7 +28,7 @@ const App: React.FC = () => {
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
+  const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org' | 'billing'>('users');
   
   // 使用 Ref 记录是否已经处理过初始登录跳转，防止切换 Tab 回来重置视图
   const hasInitiallyRedirected = useRef(false);

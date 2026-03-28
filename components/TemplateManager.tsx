@@ -506,6 +506,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
               onChange={(e) => setUploadMarketplace(e.target.value)}
               className="pl-12 pr-10 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase tracking-widest appearance-none outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
             >
+              <option value="ALL">🌍 ALL</option>
               {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.code}</option>)}
             </select>
           </div>
@@ -581,6 +582,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                       onChange={(e) => setSelectedTemplate({...selectedTemplate, marketplace: e.target.value})}
                       className="bg-slate-900 text-white px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest outline-none cursor-pointer"
                      >
+                       <option value="ALL">ALL</option>
                        {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.code}</option>)}
                      </select>
                      <select 
@@ -718,6 +720,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ uiLang }) => {
                   onChange={(e) => setManualMarketplace(e.target.value)}
                   className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xs uppercase tracking-widest outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all appearance-none"
                 >
+                  <option value="ALL">🌍 ALL Platforms</option>
                   {MARKETPLACES.map(m => <option key={m.code} value={m.code}>{m.flag} {m.name}</option>)}
                 </select>
               </div>

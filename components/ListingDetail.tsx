@@ -9,6 +9,7 @@ import { ImageEditor } from './ImageEditor';
 import { SourcingModal } from './SourcingModal';
 import { SourcingFormModal } from './SourcingFormModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { checkAndDeductCredits } from '../lib/creditService';
 import { optimizeListingWithAI } from '../services/geminiService';
 import { optimizeListingWithOpenAI } from '../services/openaiService';
 import { optimizeListingWithDeepSeek } from '../services/deepseekService';
@@ -69,11 +70,25 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-inter text-slate-900">
       <ListingTopBar onBack={onBack} engine={engine} setEngine={setEngine} onOptimize={async () => {
+        if (!localListing.user_id) {
+          alert(uiLang === 'zh' ? "无法获取用户信息，请重新登录" : "User info missing, please re-login");
+          return;
+        }
+        
         setIsOptimizing(true);
         try {
+          // Check and deduct credits
+          const creditRes = await checkAndDeductCredits(localListing.user_id, engine, 'optimization');
+          if (!creditRes.success) {
+            alert(uiLang === 'zh' ? `积分不足: ${creditRes.message}` : creditRes.message);
+            return;
+          }
+
           const opt = engine === 'openai' ? await optimizeListingWithOpenAI(localListing.cleaned) : engine === 'deepseek' ? await optimizeListingWithDeepSeek(localListing.cleaned) : await optimizeListingWithAI(localListing.cleaned);
           const next: Listing = { ...localListing, optimized: { ...opt, optimized_main_image: localListing.optimized?.optimized_main_image, optimized_other_images: localListing.optimized?.optimized_other_images }, status: 'optimized' as const };
           updateListingData(next);
+        } catch (err: any) {
+          alert("Optimization failed: " + err.message);
         } finally { setIsOptimizing(false); }
       }} isOptimizing={isOptimizing} onSave={() => syncToSupabase(localListing)} onDelete={() => onDelete(localListing.id)} isSaving={isSaving} onNext={onNext} uiLang={uiLang} />
       

@@ -333,15 +333,26 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               val = (l || w || h) ? `${l || 0}*${w || 0}*${h || 0}` : '';
             }
             else if (f === 'zy_images') {
-              const main = (localizedOpt as any)?.optimized_main_image || masterOpt?.optimized_main_image || (listing.status === 'optimized' ? "" : cleaned.main_image) || "";
-              const localOthers = (localizedOpt as any)?.optimized_other_images;
-              const masterOthers = masterOpt?.optimized_other_images;
-              const cleanOthers = cleaned.other_images || [];
-              
-              let others: string[] = [];
-              if (Array.isArray(localOthers) && localOthers.length > 0) others = localOthers;
-              else if (Array.isArray(masterOthers) && masterOthers.length > 0) others = masterOthers;
-              else if (listing.status !== 'optimized') others = cleanOthers;
+              // 统一逻辑：主图 + 附图，且尊重优化后的删除状态
+              const main = (() => {
+                const local = (localizedOpt as any)?.optimized_main_image;
+                const master = masterOpt?.optimized_main_image;
+                if (local !== undefined && local !== null && String(local).trim() !== "") return local;
+                if (master !== undefined && master !== null && String(master).trim() !== "") return master;
+                if (listing.status === 'optimized' || listing.status === 'optimizing') return "";
+                return cleaned.main_image || "";
+              })();
+
+              const others = (() => {
+                const localOthers = (localizedOpt as any)?.optimized_other_images;
+                const masterOthers = masterOpt?.optimized_other_images;
+                const cleanOthers = cleaned.other_images || [];
+
+                if (Array.isArray(localOthers) && localOthers.length > 0) return localOthers;
+                if (Array.isArray(masterOthers) && masterOthers.length > 0) return masterOthers;
+                if (listing.status === 'optimized' || listing.status === 'optimizing') return [];
+                return cleanOthers;
+              })();
               
               val = [main, ...others].filter(img => img && String(img).trim() !== "").join('|');
             }

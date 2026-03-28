@@ -4,6 +4,7 @@ import { DollarSign, Truck, ListFilter, Plus, RefreshCw, Loader2, Sparkles } fro
 import { Listing, OptimizedData, UILanguage, ExchangeRate, PriceAdjustment } from '../types';
 import { LogisticsEditor, calculateMarketLogistics, calculateMarketPrice } from './LogisticsEditor';
 import { MARKETPLACES } from '../lib/marketplaces';
+import { checkAndDeductCredits } from '../lib/creditService';
 import { translateListingWithAI } from '../services/geminiService';
 import { translateListingWithOpenAI } from '../services/openaiService';
 import { translateListingWithDeepSeek } from '../services/deepseekService';
@@ -44,6 +45,18 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
     if (!listing.optimized || isTranslating) return;
     setIsTranslating(true);
     try {
+      if (!listing.user_id) {
+        alert(uiLang === 'zh' ? "无法获取用户信息，请重新登录" : "User info missing, please re-login");
+        return;
+      }
+
+      // Check and deduct credits
+      const creditRes = await checkAndDeductCredits(listing.user_id, engine, 'translation');
+      if (!creditRes.success) {
+        alert(uiLang === 'zh' ? `积分不足: ${creditRes.message}` : creditRes.message);
+        return;
+      }
+
       const market = MARKETPLACES.find(m => m.code === marketCode);
       const targetLang = market?.langName || marketCode;
       
@@ -75,12 +88,24 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
     setTranslateStatus({ current: 0, total: marketsToTranslate.length });
 
     try {
+      if (!listing.user_id) {
+        alert(uiLang === 'zh' ? "无法获取用户信息，请重新登录" : "User info missing, please re-login");
+        return;
+      }
+
       let currentTrans = { ...(listing.translations || {}) };
 
       for (let i = 0; i < marketsToTranslate.length; i++) {
         const m = marketsToTranslate[i];
         setTranslateStatus({ current: i + 1, total: marketsToTranslate.length });
         
+        // Check and deduct credits for each site
+        const creditRes = await checkAndDeductCredits(listing.user_id, engine, 'translation');
+        if (!creditRes.success) {
+          alert(uiLang === 'zh' ? `积分不足(已翻译${i}个): ${creditRes.message}` : `Insufficient credits (translated ${i}): ${creditRes.message}`);
+          break;
+        }
+
         let translation;
         if (engine === 'openai') translation = await translateListingWithOpenAI(listing.optimized, m.langName);
         else if (engine === 'deepseek') translation = await translateListingWithDeepSeek(listing.optimized, m.langName);

@@ -24,6 +24,7 @@ export interface UserProfile {
   credits_total: number;
   credits_used: number;
   plan_type: 'Free' | 'Pro' | 'Elite';
+  last_credit_reset_at?: string; // 上次重置免费积分的时间
 }
 
 export interface RolePermission {
@@ -144,6 +145,14 @@ export interface ExchangeRate {
   marketplace: string;
   rate: number;
   created_at: string;
+}
+
+export interface BillingConfig {
+  id: string;
+  service_name: string; // 'openai', 'gemini', 'deepseek'
+  action_type: 'optimization' | 'translation';
+  credit_cost: number;
+  updated_at: string;
 }
 
 export interface FieldMapping {

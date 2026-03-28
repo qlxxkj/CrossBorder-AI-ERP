@@ -3,9 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Shield, Building, Plus, Trash2, Mail, Edit3, Loader2, 
   Check, X, Save, ShieldCheck, MapPin, UserCheck, Phone, 
-  Settings, Key, RefreshCw, Power
+  Settings, Key, RefreshCw, Power, Coins, Sparkles, CreditCard
 } from 'lucide-react';
-import { UILanguage, Organization, UserProfile, Role, RolePermission } from '../types';
+import { UILanguage, Organization, UserProfile, Role, RolePermission, BillingConfig } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { useTranslation } from '../lib/i18n';
 
@@ -16,8 +16,8 @@ export interface SystemManagementProps {
   currentUserProfile: UserProfile | null;
   permissions: any[];
   onOrgUpdate: (org: Organization) => void;
-  activeSubTab?: 'users' | 'roles' | 'org';
-  onSubTabChange?: (tab: 'users' | 'roles' | 'org') => void;
+  activeSubTab?: 'users' | 'roles' | 'org' | 'billing';
+  onSubTabChange?: (tab: 'users' | 'roles' | 'org' | 'billing') => void;
 }
 
 const MENU_OPTIONS = [
@@ -36,6 +36,7 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [billingConfigs, setBillingConfigs] = useState<BillingConfig[]>([]);
   
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [showRoleModal, setShowRoleModal] = useState(false);
@@ -58,11 +59,13 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
   const canSeeUsers = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:users');
   const canSeeRoles = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:roles');
   const canSeeOrg = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:org');
+  const canSeeBilling = isSuper;
 
   useEffect(() => {
     if (activeSubTab === 'users' && canSeeUsers) fetchMembers();
     if (activeSubTab === 'roles' && canSeeRoles) fetchRoles();
-  }, [activeSubTab, orgId, canSeeUsers, canSeeRoles]);
+    if (activeSubTab === 'billing' && canSeeBilling) fetchBillingConfigs();
+  }, [activeSubTab, orgId, canSeeUsers, canSeeRoles, canSeeBilling]);
 
   useEffect(() => {
     if (orgData) {
@@ -87,6 +90,43 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
     const { data } = await supabase.from('roles').select('*').eq('org_id', orgId);
     setRoles(data || []);
     setLoading(false);
+  };
+
+  const fetchBillingConfigs = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('billing_configs').select('*').order('service_name', { ascending: true });
+    
+    // If no configs, initialize with defaults
+    if (!data || data.length === 0) {
+      const defaults = [
+        { service_name: 'openai', action_type: 'optimization', credit_cost: 5 },
+        { service_name: 'openai', action_type: 'translation', credit_cost: 2 },
+        { service_name: 'gemini', action_type: 'optimization', credit_cost: 3 },
+        { service_name: 'gemini', action_type: 'translation', credit_cost: 1 },
+        { service_name: 'deepseek', action_type: 'optimization', credit_cost: 2 },
+        { service_name: 'deepseek', action_type: 'translation', credit_cost: 1 },
+      ];
+      
+      const { data: inserted } = await supabase.from('billing_configs').insert(
+        defaults.map(d => ({ ...d, updated_at: new Date().toISOString() }))
+      ).select();
+      
+      if (inserted) setBillingConfigs(inserted);
+    } else {
+      setBillingConfigs(data);
+    }
+    setLoading(false);
+  };
+
+  const handleUpdateBillingConfig = async (id: string, cost: number) => {
+    const { error } = await supabase
+      .from('billing_configs')
+      .update({ credit_cost: cost, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    
+    if (!error) {
+      setBillingConfigs(prev => prev.map(c => c.id === id ? { ...c, credit_cost: cost } : c));
+    }
   };
 
   const handleSaveOrg = async () => {
@@ -191,6 +231,7 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
           {canSeeUsers && <TabButton active={activeSubTab === 'users'} onClick={() => onSubTabChange?.('users')} icon={<Users size={16}/>} label={t('userMgmt')} />}
           {canSeeRoles && <TabButton active={activeSubTab === 'roles'} onClick={() => onSubTabChange?.('roles')} icon={<Shield size={16}/>} label={t('roleMgmt')} />}
           {canSeeOrg && <TabButton active={activeSubTab === 'org'} onClick={() => onSubTabChange?.('org')} icon={<Building size={16}/>} label={t('orgMgmt')} />}
+          {canSeeBilling && <TabButton active={activeSubTab === 'billing'} onClick={() => onSubTabChange?.('billing')} icon={<Coins size={16}/>} label={uiLang === 'zh' ? '计费配置' : 'Billing Config'} />}
         </div>
       </div>
 
@@ -343,6 +384,62 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
                     <input value={orgForm.contact_phone} onChange={e => setOrgForm({...orgForm, contact_phone: e.target.value})} className="org-input" />
                   </OrgField>
                </div>
+            </div>
+          </div>
+        )}
+
+        {activeSubTab === 'billing' && canSeeBilling && (
+          <div className="p-10 space-y-10 animate-in slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight text-sm">
+                <Coins className="text-amber-500" size={18} /> {uiLang === 'zh' ? '计费配置' : 'Billing Configuration'}
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {['openai', 'gemini', 'deepseek'].map(service => (
+                <div key={service} className="bg-slate-50 rounded-[2rem] p-8 border border-slate-100 space-y-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">
+                      <Sparkles size={20} className={service === 'openai' ? 'text-green-500' : service === 'gemini' ? 'text-blue-500' : 'text-indigo-500'} />
+                    </div>
+                    <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">{service}</h4>
+                  </div>
+
+                  <div className="space-y-4">
+                    {billingConfigs.filter(c => c.service_name === service).map(config => (
+                      <div key={config.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                            {config.action_type === 'optimization' ? (uiLang === 'zh' ? '优化' : 'Optimization') : (uiLang === 'zh' ? '翻译' : 'Translation')}
+                          </span>
+                          <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">Per Action</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input 
+                            type="number" 
+                            value={config.credit_cost} 
+                            onChange={e => handleUpdateBillingConfig(config.id, parseInt(e.target.value) || 0)}
+                            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-black text-base text-slate-900 outline-none focus:border-indigo-500 transition-all"
+                          />
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Credits</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <div className="p-6 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-4">
+              <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-amber-600 shrink-0"><Settings size={20}/></div>
+              <div>
+                <h4 className="text-xs font-black text-amber-900 uppercase tracking-tight">Billing Logic Note</h4>
+                <p className="text-[10px] text-amber-700 font-medium leading-relaxed mt-1">
+                  Costs are applied per user action. Monthly free credits (100) are reset on the 1st of each month. 
+                  Changes to these values take effect immediately for all users.
+                </p>
+              </div>
             </div>
           </div>
         )}
