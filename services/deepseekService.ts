@@ -57,11 +57,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .map((f: any) => extractText(f).trim())
     .filter((f: string) => f.length > 0)
     .slice(0, 5)
-    .map((f: any) => {
-      let s = String(f).slice(0, 300);
-      if (!s.includes(":")) return "OUTSTANDING FEATURE: " + s;
-      return s;
-    });
+    .map((f: any) => String(f).slice(0, 300));
     
   while (result.optimized_features.length < 5) {
     result.optimized_features.push("DURABLE CONSTRUCTION: Crafted from heavy-duty materials for exceptional longevity.");

@@ -45,7 +45,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
     setIsTranslating(true);
     try {
       const market = MARKETPLACES.find(m => m.code === marketCode);
-      const targetLang = market?.name || marketCode;
+      const targetLang = market?.langName || marketCode;
       
       let translation;
       if (engine === 'openai') translation = await translateListingWithOpenAI(listing.optimized, targetLang);
@@ -82,9 +82,9 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         setTranslateStatus({ current: i + 1, total: marketsToTranslate.length });
         
         let translation;
-        if (engine === 'openai') translation = await translateListingWithOpenAI(listing.optimized, m.name);
-        else if (engine === 'deepseek') translation = await translateListingWithDeepSeek(listing.optimized, m.name);
-        else translation = await translateListingWithAI(listing.optimized, m.name);
+        if (engine === 'openai') translation = await translateListingWithOpenAI(listing.optimized, m.langName);
+        else if (engine === 'deepseek') translation = await translateListingWithDeepSeek(listing.optimized, m.langName);
+        else translation = await translateListingWithAI(listing.optimized, m.langName);
 
         const logistics = calculateMarketLogistics(listing, m.code);
         const priceData = calculateMarketPrice(listing, m.code, rates, adjustments);

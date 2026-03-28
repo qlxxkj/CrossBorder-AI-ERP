@@ -46,13 +46,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
     .map((f: any) => extractText(f).trim())
     .filter((f: string) => f.length > 0)
     .slice(0, 10) // Allow more during processing, but will trim to 5 in UI if needed
-    .map((f: any) => {
-      let s = String(f).slice(0, 500);
-      if (!s.includes(":") || s.indexOf(":") > 60) {
-        return "PRODUCT DETAIL: " + s;
-      }
-      return s;
-    });
+    .map((f: any) => String(f).slice(0, 500));
     
   // Minimum 5 features requirement
   if (result.optimized_features.length < 5 && result.optimized_title !== "") {

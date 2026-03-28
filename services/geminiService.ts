@@ -44,12 +44,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   result.optimized_features = feats
     .map((f: any) => extractText(f).trim())
     .filter((f: string) => f.length > 0)
-    .slice(0, 5)
-    .map((f: string) => {
-      let s = f.slice(0, 300);
-      if (!s.includes(":")) return "PREMIUM FEATURE: " + s;
-      return s;
-    });
+    .slice(0, 5);
 
   const fallbacks = [
     "DURABLE MATERIALS: Engineered with high-grade components for long-term reliability.",

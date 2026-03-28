@@ -280,7 +280,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             }
             else if (f === 'brand') val = cleaned.brand || '';
             else if (f === 'description') val = getEffectiveValue('optimized_description', 'description');
-            else if (f === 'main_image') val = getEffectiveValue('optimized_main_image', 'main_image');
+            else if (f === 'main_image') {
+              const local = (localizedOpt as any)?.optimized_main_image;
+              const master = masterOpt?.optimized_main_image;
+              if (local !== undefined && local !== null && String(local).trim() !== "") val = local;
+              else if (master !== undefined && master !== null && String(master).trim() !== "") val = master;
+              else if (listing.status === 'optimized' || listing.status === 'optimizing') val = ""; // If optimized but empty, it's deleted
+              else val = cleaned.main_image || "";
+            }
             else if (f?.startsWith('feature')) {
               const idx = parseInt(f.replace('feature', '')) - 1;
               // 针对 Feature 的三级回溯
@@ -294,13 +301,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
             }
             else if (f?.startsWith('other_image')) {
               const idx = parseInt(f.replace('other_image', '')) - 1;
-              // 针对附图的三级回溯
-              const localOthers = (localizedOpt as any)?.optimized_other_images || [];
-              const masterOthers = masterOpt?.optimized_other_images || [];
+              const localOthers = (localizedOpt as any)?.optimized_other_images;
+              const masterOthers = masterOpt?.optimized_other_images;
               const cleanOthers = cleaned.other_images || [];
 
-              if (localOthers[idx]) val = localOthers[idx];
-              else if (masterOthers[idx]) val = masterOthers[idx];
+              if (Array.isArray(localOthers) && localOthers[idx] !== undefined) val = localOthers[idx];
+              else if (Array.isArray(masterOthers) && masterOthers[idx] !== undefined) val = masterOthers[idx];
+              else if (listing.status === 'optimized' || listing.status === 'optimizing') val = "";
               else val = cleanOthers[idx] || "";
             }
             else if (f === 'item_weight_value') val = formatExportVal(getEffectiveValue('optimized_weight_value', 'item_weight_value'));
@@ -326,11 +333,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
               val = (l || w || h) ? `${l || 0}*${w || 0}*${h || 0}` : '';
             }
             else if (f === 'zy_images') {
-              const main = getEffectiveValue('optimized_main_image', 'main_image');
-              const localOthers = (localizedOpt as any)?.optimized_other_images || [];
-              const masterOthers = masterOpt?.optimized_other_images || [];
+              const main = (localizedOpt as any)?.optimized_main_image || masterOpt?.optimized_main_image || (listing.status === 'optimized' ? "" : cleaned.main_image) || "";
+              const localOthers = (localizedOpt as any)?.optimized_other_images;
+              const masterOthers = masterOpt?.optimized_other_images;
               const cleanOthers = cleaned.other_images || [];
-              const others = localOthers.length > 0 ? localOthers : (masterOthers.length > 0 ? masterOthers : cleanOthers);
+              
+              let others: string[] = [];
+              if (Array.isArray(localOthers) && localOthers.length > 0) others = localOthers;
+              else if (Array.isArray(masterOthers) && masterOthers.length > 0) others = masterOthers;
+              else if (listing.status !== 'optimized') others = cleanOthers;
+              
               val = [main, ...others].filter(img => img && String(img).trim() !== "").join('|');
             }
           } 
