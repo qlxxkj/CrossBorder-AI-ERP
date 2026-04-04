@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   LayoutDashboard, List, Tags, Coins, Layout, ShieldCheck, 
-  Settings, LogOut, ChevronRight, Crown, Zap, 
+  Settings, LogOut, ChevronRight, Crown, Zap, Package,
   CreditCard, ArrowUpRight, Mail, ChevronDown, Building, Users, Shield
 } from 'lucide-react';
 import { UILanguage, UserProfile } from '../types';
@@ -59,8 +59,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
     { id: 'system:org', icon: <Building size={16} />, label: t('orgMgmt') },
     { id: 'system:roles', icon: <Shield size={16} />, label: t('roleMgmt') },
     { id: 'system:users', icon: <Users size={16} />, label: t('userMgmt') },
-    { id: 'system:billing_unit', icon: <CreditCard size={16} />, label: lang === 'zh' ? '计费单价' : 'Unit Price' },
-    { id: 'system:billing_consumption', icon: <Coins size={16} />, label: lang === 'zh' ? '计费消耗' : 'Consumption' },
+  ];
+
+  const adminSubItems = [
+    { id: 'admin:users', label: 'Users', icon: <Users size={16} /> },
+    { id: 'admin:plans', label: 'Plans', icon: <Package size={16} /> },
+    { id: 'admin:billing_unit', label: lang === 'zh' ? '计费单价' : 'Unit Price', icon: <CreditCard size={16} /> },
+    { id: 'admin:billing_consumption', label: lang === 'zh' ? '计费消耗' : 'Consumption', icon: <Coins size={16} /> },
   ];
 
   return (
@@ -121,16 +126,39 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
         )}
 
         {isSuper && (
-          <button 
-            onClick={() => setActiveTab('admin')} 
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
-              activeTab === 'admin' 
-                ? 'bg-amber-600 text-white shadow-lg' 
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <ShieldCheck size={18} /> <span className="text-sm font-bold">Admin Panel</span>
-          </button>
+          <div className="space-y-1">
+            <button 
+              onClick={() => setActiveTab('admin')} 
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+                activeTab === 'admin' || activeTab.startsWith('admin:')
+                  ? 'bg-amber-600 text-white shadow-lg' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <ShieldCheck size={18} /> <span className="text-sm font-bold">Admin Panel</span>
+              </div>
+              <ChevronRight size={14} className={`transition-transform duration-300 ${activeTab === 'admin' || activeTab.startsWith('admin:') ? 'rotate-90' : ''}`} />
+            </button>
+            
+            {(activeTab === 'admin' || activeTab.startsWith('admin:')) && (
+              <div className="ml-4 pl-4 border-l border-slate-800 space-y-1 animate-in slide-in-from-top-2 duration-300">
+                {adminSubItems.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`w-full flex items-center gap-3 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                      activeTab === item.id 
+                        ? 'text-amber-400 bg-amber-400/10' 
+                        : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    {item.icon} {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </nav>
 

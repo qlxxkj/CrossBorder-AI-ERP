@@ -28,7 +28,8 @@ const App: React.FC = () => {
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org' | 'billing_unit' | 'billing_consumption'>('users');
+  const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
+  const [adminSubTab, setAdminSubTab] = useState<'users' | 'plans' | 'billing_unit' | 'billing_consumption'>('users');
   
   // 使用 Ref 记录是否已经处理过初始登录跳转，防止切换 Tab 回来重置视图
   const hasInitiallyRedirected = useRef(false);
@@ -307,6 +308,10 @@ const App: React.FC = () => {
       const sub = tab.split(':')[1] as any;
       setSystemSubTab(sub); setView(AppView.SYSTEM_MGMT); return;
     }
+    if (tab.startsWith('admin:')) {
+      const sub = tab.split(':')[1] as any;
+      setAdminSubTab(sub); setView(AppView.ADMIN); return;
+    }
     switch(tab) {
       case 'dashboard': setView(AppView.DASHBOARD); break;
       case 'listings': setView(AppView.LISTINGS); break;
@@ -379,7 +384,7 @@ const App: React.FC = () => {
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
         case AppView.BILLING: return <BillingCenter uiLang={lang} />;
-        case AppView.ADMIN: return <AdminDashboard uiLang={lang} />;
+        case AppView.ADMIN: return <AdminDashboard uiLang={lang} activeSubTab={adminSubTab} onSubTabChange={setAdminSubTab} />;
         case AppView.SYSTEM_MGMT: return <SystemManagement uiLang={lang} orgId={userProfile?.org_id || ''} orgData={org} currentUserProfile={userProfile} permissions={userPermissions} onOrgUpdate={(newOrg) => setOrg(newOrg)} activeSubTab={systemSubTab} onSubTabChange={setSystemSubTab} />;
         case AppView.DASHBOARD:
         default:
