@@ -190,6 +190,16 @@ export interface SubscriptionPlan {
   features_zh: string[];
 }
 
+export interface UsageLog {
+  id: string;
+  user_id: string;
+  service_name: string;
+  action_type: 'optimization' | 'translation';
+  tokens_used: number;
+  credits_deducted: number;
+  created_at: string;
+}
+
 export enum AppView {
   LANDING = 'LANDING',
   AUTH = 'AUTH',

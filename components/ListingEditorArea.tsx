@@ -78,7 +78,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
       }
 
       // 3. Deduct credits based on tokens
-      await deductCreditsByTokens(listing.user_id, tokens);
+      await deductCreditsByTokens(listing.user_id, tokens, engine, 'translation');
       if (onRefreshProfile) onRefreshProfile();
 
       const logistics = calculateMarketLogistics(listing, marketCode);
@@ -139,7 +139,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         }
 
         // 3. Deduct credits based on tokens
-        await deductCreditsByTokens(listing.user_id, tokens);
+        await deductCreditsByTokens(listing.user_id, tokens, engine, 'translation');
         if (onRefreshProfile) onRefreshProfile();
 
         const logistics = calculateMarketLogistics(listing, m.code);

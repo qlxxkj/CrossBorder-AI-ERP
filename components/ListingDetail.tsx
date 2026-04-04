@@ -93,7 +93,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
               : await optimizeListingWithAI(localListing.cleaned);
 
           // 3. Deduct credits based on tokens
-          await deductCreditsByTokens(localListing.user_id, tokens);
+          await deductCreditsByTokens(localListing.user_id, tokens, engine, 'optimization');
           if (onRefreshProfile) onRefreshProfile();
 
           const next: Listing = { 

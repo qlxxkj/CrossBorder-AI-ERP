@@ -44,9 +44,14 @@ export const checkUserCredits = async (userId: string): Promise<{ success: boole
 };
 
 /**
- * Deducts credits based on actual token usage.
+ * Deducts credits based on actual token usage and logs the usage.
  */
-export const deductCreditsByTokens = async (userId: string, tokens: number): Promise<{ success: boolean; message?: string }> => {
+export const deductCreditsByTokens = async (
+  userId: string, 
+  tokens: number, 
+  serviceName: string, 
+  actionType: 'optimization' | 'translation'
+): Promise<{ success: boolean; message?: string }> => {
   // 1. Get tokens per credit setting
   const { data: config } = await supabase
     .from('billing_management')
@@ -56,7 +61,7 @@ export const deductCreditsByTokens = async (userId: string, tokens: number): Pro
     .maybeSingle();
   
   const tokensPerCredit = config?.value || 1000;
-  const cost = tokens / tokensPerCredit;
+  const cost = Number((tokens / tokensPerCredit).toFixed(4));
 
   // 2. Get current profile
   const { data: profile } = await supabase
@@ -68,12 +73,29 @@ export const deductCreditsByTokens = async (userId: string, tokens: number): Pro
   if (!profile) return { success: false, message: 'Profile not found' };
 
   // 3. Update used credits
-  const { error } = await supabase
+  const { error: updateError } = await supabase
     .from('user_profiles')
     .update({ credits_used: profile.credits_used + cost })
     .eq('id', userId);
 
-  if (error) return { success: false, message: error.message };
+  if (updateError) return { success: false, message: updateError.message };
+
+  // 4. Log usage
+  const { error: logError } = await supabase
+    .from('usage_logs')
+    .insert([{
+      user_id: userId,
+      service_name: serviceName,
+      action_type: actionType,
+      tokens_used: tokens,
+      credits_deducted: cost
+    }]);
+
+  if (logError) {
+    console.warn("Failed to write usage log:", logError);
+    // We don't return false here because credits were already deducted
+  }
+
   return { success: true };
 };
 
