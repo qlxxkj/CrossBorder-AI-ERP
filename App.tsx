@@ -294,6 +294,32 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, [fetchIdentity]);
 
+  // 3. Real-time User Profile Listener
+  useEffect(() => {
+    if (!session?.user?.id || !isSupabaseConfigured()) return;
+
+    const channel = supabase
+      .channel(`user_profile_changes_${session.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'user_profiles',
+          filter: `id=eq.${session.user.id}`,
+        },
+        (payload) => {
+          console.log('User profile real-time update:', payload.new);
+          setUserProfile(prev => prev ? { ...prev, ...payload.new } : payload.new as UserProfile);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id]);
+
   const handleLandingLogin = () => {
     if (session) {
       setView(AppView.DASHBOARD);
@@ -383,7 +409,7 @@ const App: React.FC = () => {
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
-        case AppView.BILLING: return <BillingCenter uiLang={lang} />;
+        case AppView.BILLING: return <BillingCenter uiLang={lang} userProfile={userProfile} />;
         case AppView.ADMIN: return <AdminDashboard uiLang={lang} activeSubTab={adminSubTab} onSubTabChange={setAdminSubTab} />;
         case AppView.SYSTEM_MGMT: return <SystemManagement uiLang={lang} orgId={userProfile?.org_id || ''} orgData={org} currentUserProfile={userProfile} permissions={userPermissions} onOrgUpdate={(newOrg) => setOrg(newOrg)} activeSubTab={systemSubTab} onSubTabChange={setSystemSubTab} />;
         case AppView.DASHBOARD:

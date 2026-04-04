@@ -9,10 +9,10 @@ import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface BillingCenterProps {
   uiLang: UILanguage;
+  userProfile: UserProfile | null;
 }
 
-export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang, userProfile }) => {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -24,15 +24,8 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
   const fetchData = async () => {
     if (!isSupabaseConfigured()) return;
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const [profileRes, plansRes] = await Promise.all([
-        session ? supabase.from('user_profiles').select('*').eq('id', session.user.id).maybeSingle() : Promise.resolve({ data: null }),
-        supabase.from('subscription_plans').select('*').order('price_usd', { ascending: true })
-      ]);
-      
-      if (profileRes.data) setProfile(profileRes.data);
-      if (plansRes.data) setPlans(plansRes.data);
+      const { data: plansRes } = await supabase.from('subscription_plans').select('*').order('price_usd', { ascending: true });
+      if (plansRes) setPlans(plansRes);
     } catch (err) {
       console.error("Billing Fetch Error:", err);
     } finally {
@@ -41,7 +34,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
   };
 
   const handlePay = async (plan: SubscriptionPlan, method: 'alipay' | 'paypal') => {
-    if (plan.id === 'Free' || plan.id === profile?.plan_type) return;
+    if (plan.id === 'Free' || plan.id === userProfile?.plan_type) return;
 
     setProcessingId(plan.id);
     try {
@@ -89,6 +82,8 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
     </div>
   );
 
+  const creditsLeft = (userProfile?.credits_total || 0) - (userProfile?.credits_used || 0);
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-12 animate-in fade-in duration-500 pb-24">
       <div className="flex flex-col md:flex-row items-center justify-between gap-6">
@@ -107,14 +102,14 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
         <div className="bg-white px-8 py-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-8">
            <div className="text-right">
              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{uiLang === 'zh' ? '我的剩余点数' : 'Credits Remaining'}</p>
-             <p className="text-3xl font-black text-indigo-600">{(profile?.credits_total || 0) - (profile?.credits_used || 0)}</p>
+             <p className="text-3xl font-black text-indigo-600">{creditsLeft}</p>
            </div>
            <div className="w-px h-12 bg-slate-100"></div>
            <div>
              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{uiLang === 'zh' ? '当前方案' : 'Current Plan'}</p>
              <span className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-slate-900 text-white rounded-full text-[10px] font-black uppercase tracking-widest mt-1">
                <Crown size={12} className="text-amber-400" />
-               {profile?.plan_type || 'Free'}
+               {userProfile?.plan_type || 'Free'}
              </span>
            </div>
         </div>
@@ -122,7 +117,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {plans.map(plan => {
-          const isCurrent = (profile?.plan_type || 'Free') === plan.id;
+          const isCurrent = (userProfile?.plan_type || 'Free') === plan.id;
           const currencySym = uiLang === 'zh' ? '¥' : '$';
           const price = uiLang === 'zh' ? (plan.price_cny || 0) : (plan.price_usd || 0);
           const features = uiLang === 'zh' ? (plan.features_zh || []) : (plan.features || []);
