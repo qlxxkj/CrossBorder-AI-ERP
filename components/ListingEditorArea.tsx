@@ -18,10 +18,11 @@ interface ListingEditorAreaProps {
   onSync: () => void;
   engine: 'gemini' | 'openai' | 'deepseek';
   uiLang: UILanguage;
+  onRefreshProfile?: () => void;
 }
 
 export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
-  listing, activeMarket, setActiveMarket, updateListing, onSync, engine, uiLang
+  listing, activeMarket, setActiveMarket, updateListing, onSync, engine, uiLang, onRefreshProfile
 }) => {
   const isUS = activeMarket === 'US';
   const [isTranslating, setIsTranslating] = useState(false);
@@ -78,6 +79,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
 
       // 3. Deduct credits based on tokens
       await deductCreditsByTokens(listing.user_id, tokens);
+      if (onRefreshProfile) onRefreshProfile();
 
       const logistics = calculateMarketLogistics(listing, marketCode);
       const priceData = calculateMarketPrice(listing, marketCode, rates, adjustments);
@@ -138,6 +140,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
 
         // 3. Deduct credits based on tokens
         await deductCreditsByTokens(listing.user_id, tokens);
+        if (onRefreshProfile) onRefreshProfile();
 
         const logistics = calculateMarketLogistics(listing, m.code);
         const priceData = calculateMarketPrice(listing, m.code, rates, adjustments);

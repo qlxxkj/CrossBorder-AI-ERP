@@ -404,12 +404,13 @@ const App: React.FC = () => {
                 if (idx < listings.length - 1) { setSelectedListing(listings[idx + 1]); }
               }} 
               uiLang={lang} 
+              onRefreshProfile={() => session?.user?.id && fetchIdentity(session.user.id, session)}
             />
           ) : null;
         case AppView.TEMPLATES: return <TemplateManager uiLang={lang} />;
         case AppView.CATEGORIES: return <CategoryManager uiLang={lang} />;
         case AppView.PRICING: return <PricingManager uiLang={lang} />;
-        case AppView.BILLING: return <BillingCenter uiLang={lang} userProfile={userProfile} />;
+        case AppView.BILLING: return <BillingCenter uiLang={lang} userProfile={userProfile} onRefreshProfile={() => session?.user?.id && fetchIdentity(session.user.id, session)} />;
         case AppView.ADMIN: return <AdminDashboard uiLang={lang} activeSubTab={adminSubTab} onSubTabChange={setAdminSubTab} />;
         case AppView.SYSTEM_MGMT: return <SystemManagement uiLang={lang} orgId={userProfile?.org_id || ''} orgData={org} currentUserProfile={userProfile} permissions={userPermissions} onOrgUpdate={(newOrg) => setOrg(newOrg)} activeSubTab={systemSubTab} onSubTabChange={setSystemSubTab} />;
         case AppView.DASHBOARD:

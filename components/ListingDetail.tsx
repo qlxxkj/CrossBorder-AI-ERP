@@ -21,9 +21,10 @@ interface ListingDetailProps {
   onDelete: (id: string) => Promise<void>;
   onNext: () => void;
   uiLang: UILanguage;
+  onRefreshProfile?: () => void;
 }
 
-export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onDelete, onNext, uiLang }) => {
+export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onDelete, onNext, uiLang, onRefreshProfile }) => {
   const [activeMarket, setActiveMarket] = useState('US');
   const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -93,6 +94,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
           // 3. Deduct credits based on tokens
           await deductCreditsByTokens(localListing.user_id, tokens);
+          if (onRefreshProfile) onRefreshProfile();
 
           const next: Listing = { 
             ...localListing, 
@@ -138,6 +140,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
                   onSync={() => syncToSupabase(localListing)} 
                   engine={engine}
                   uiLang={uiLang} 
+                  onRefreshProfile={onRefreshProfile}
                 />
              </div>
           </div>

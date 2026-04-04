@@ -10,9 +10,10 @@ import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 interface BillingCenterProps {
   uiLang: UILanguage;
   userProfile: UserProfile | null;
+  onRefreshProfile?: () => void;
 }
 
-export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang, userProfile }) => {
+export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang, userProfile, onRefreshProfile }) => {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
