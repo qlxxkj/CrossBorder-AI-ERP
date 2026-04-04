@@ -27,6 +27,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
   const [showUnitPriceModal, setShowUnitPriceModal] = useState(false);
   const [editingUnitPrice, setEditingUnitPrice] = useState<BillingUnitPrice | null>(null);
 
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<SubscriptionPlan | null>(null);
+
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [editingConfig, setEditingConfig] = useState<BillingConfig | null>(null);
+
   useEffect(() => {
     fetchData();
   }, [activeSubTab]);
@@ -97,7 +103,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
     if (editingUnitPrice.id) {
       await supabase.from('billing_unit_prices').update(data).eq('id', editingUnitPrice.id);
     } else {
-      await supabase.from('billing_unit_prices').insert([{ ...data, id: crypto.randomUUID() }]);
+      const { id, ...rest } = data;
+      await supabase.from('billing_unit_prices').insert([{ ...rest, id: crypto.randomUUID() }]);
     }
     await fetchBillingUnitPrices();
     setShowUnitPriceModal(false);
@@ -109,6 +116,64 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
     setLoading(true);
     await supabase.from('billing_unit_prices').delete().eq('id', id);
     await fetchBillingUnitPrices();
+    setLoading(false);
+  };
+
+  const handleSavePlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPlan) return;
+    setLoading(true);
+    if (editingPlan.id) {
+      const { id, ...rest } = editingPlan;
+      const existing = plans.find(p => p.id === id);
+      if (existing) {
+        await supabase.from('subscription_plans').update(rest).eq('id', id);
+      } else {
+        await supabase.from('subscription_plans').insert([editingPlan]);
+      }
+    } else {
+      // New plan needs an ID
+      const newId = prompt(uiLang === 'zh' ? '请输入套餐ID (例如: Pro, Elite)' : 'Enter Plan ID (e.g. Pro, Elite)', 'NewPlan');
+      if (newId) {
+        await supabase.from('subscription_plans').insert([{ ...editingPlan, id: newId }]);
+      }
+    }
+    const { data } = await supabase.from('subscription_plans').select('*').order('price_usd', { ascending: true });
+    if (data) setPlans(data);
+    setShowPlanModal(false);
+    setLoading(false);
+  };
+
+  const handleDeletePlan = async (id: string) => {
+    if (!window.confirm(uiLang === 'zh' ? '确定删除吗？' : 'Are you sure?')) return;
+    setLoading(true);
+    await supabase.from('subscription_plans').delete().eq('id', id);
+    const { data } = await supabase.from('subscription_plans').select('*').order('price_usd', { ascending: true });
+    if (data) setPlans(data);
+    setLoading(false);
+  };
+
+  const handleSaveBillingConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingConfig) return;
+    setLoading(true);
+    const data = { ...editingConfig, updated_at: new Date().toISOString() };
+    if (editingConfig.id) {
+      await supabase.from('billing_configs').update(data).eq('id', editingConfig.id);
+    } else {
+      const { id, ...rest } = data;
+      await supabase.from('billing_configs').insert([{ ...rest, id: crypto.randomUUID() }]);
+    }
+    await fetchBillingConfigs();
+    setShowConfigModal(false);
+    setLoading(false);
+  };
+
+  const handleDeleteBillingConfig = async (id: string) => {
+    if (!window.confirm(uiLang === 'zh' ? '确定删除吗？' : 'Are you sure?')) return;
+    setLoading(true);
+    await supabase.from('billing_configs').delete().eq('id', id);
+    await fetchBillingConfigs();
     setLoading(false);
   };
 
@@ -279,40 +344,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
           </div>
         </div>
       ) : activeSubTab === 'plans' ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-           {plans.map(plan => (
-             <div key={plan.id} className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm space-y-8 flex flex-col">
-                <div className="flex justify-between items-start">
-                   <div>
-                     <h4 className="text-2xl font-black text-slate-900">{uiLang === 'zh' ? (plan.name_zh || plan.id) : (plan.name || plan.id)}</h4>
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{plan.id}</p>
-                   </div>
-                   <div className="text-right">
-                     <p className="text-3xl font-black text-slate-900">{uiLang === 'zh' ? `¥${plan.price_cny}` : `$${plan.price_usd}`}</p>
-                   </div>
-                </div>
+        <div className="space-y-6">
+          <div className="flex justify-end">
+            <button 
+              onClick={() => { setEditingPlan({ id: '', name: '', name_zh: '', price_usd: 0, price_cny: 0, credits: 0, features: [], features_zh: [] }); setShowPlanModal(true); }}
+              className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl"
+            >
+              <Plus size={14}/> {uiLang === 'zh' ? '新增套餐' : 'Add Plan'}
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+             {plans.map(plan => (
+               <div key={plan.id} className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm space-y-8 flex flex-col group relative">
+                  <div className="absolute top-6 right-6 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={() => { setEditingPlan(plan); setShowPlanModal(true); }} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-lg"><Edit3 size={16}/></button>
+                    <button onClick={() => handleDeletePlan(plan.id)} className="p-2 text-slate-400 hover:text-red-500 bg-slate-50 rounded-lg"><Trash2 size={16}/></button>
+                  </div>
+                  <div className="flex justify-between items-start">
+                     <div>
+                       <h4 className="text-2xl font-black text-slate-900">{uiLang === 'zh' ? (plan.name_zh || plan.id) : (plan.name || plan.id)}</h4>
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{plan.id}</p>
+                     </div>
+                     <div className="text-right">
+                       <p className="text-3xl font-black text-slate-900">{uiLang === 'zh' ? `¥${plan.price_cny}` : `$${plan.price_usd}`}</p>
+                     </div>
+                  </div>
 
-                <div className="space-y-4 flex-1">
-                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
-                      <p className="text-[10px] font-black text-slate-400 uppercase">Included Credits</p>
-                      <p className="text-xl font-black text-indigo-600">{(plan.credits || 0).toLocaleString()}</p>
-                   </div>
-                   
-                   <div className="space-y-2">
-                      <p className="text-[10px] font-black text-slate-400 uppercase ml-1">Plan Features</p>
-                      {(uiLang === 'zh' ? (plan.features_zh || []) : (plan.features || [])).map((f, i) => (
-                        <div key={i} className="flex items-center gap-2 text-xs font-bold text-slate-500">
-                          <Check size={12} className="text-indigo-400" /> {f}
-                        </div>
-                      ))}
-                   </div>
-                </div>
-
-                <button className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2">
-                   <Settings size={16} /> Edit Config
-                </button>
-             </div>
-           ))}
+                  <div className="space-y-4 flex-1">
+                     <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
+                        <p className="text-[10px] font-black text-slate-400 uppercase">Included Credits</p>
+                        <p className="text-xl font-black text-indigo-600">{(plan.credits || 0).toLocaleString()}</p>
+                     </div>
+                     
+                     <div className="space-y-2">
+                        <p className="text-[10px] font-black text-slate-400 uppercase ml-1">Plan Features</p>
+                        {(uiLang === 'zh' ? (plan.features_zh || []) : (plan.features || [])).map((f, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs font-bold text-slate-500">
+                            <Check size={12} className="text-indigo-400" /> {f}
+                          </div>
+                        ))}
+                     </div>
+                  </div>
+               </div>
+             ))}
+          </div>
         </div>
       ) : (
         <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm p-10 space-y-10 animate-in slide-in-from-bottom-4 duration-500 relative overflow-hidden min-h-[500px]">
@@ -351,7 +426,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {billingUnitPrices.map(price => (
+                {billingUnitPrices.filter(p => p.unit_type === 'token_per_credit').map(price => (
                   <div key={price.id} className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 group hover:border-indigo-500 transition-all">
                     <div className="flex justify-between items-start mb-4">
                       <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-600 shadow-sm"><CreditCard size={20}/></div>
@@ -364,7 +439,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                     <div className="mt-4 flex items-baseline gap-2">
                       <span className="text-2xl font-black text-slate-900">{price.value}</span>
                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        {price.unit_type === 'token_per_credit' ? 'Tokens/Credit' : 'Credits/Action'}
+                        Tokens/Credit
                       </span>
                     </div>
                   </div>
@@ -372,39 +447,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {['openai', 'gemini', 'deepseek'].map(service => (
-                <div key={service} className="bg-slate-50 rounded-[2rem] p-8 border border-slate-100 space-y-6">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">
-                      <Sparkles size={20} className={service === 'openai' ? 'text-green-500' : service === 'gemini' ? 'text-blue-500' : 'text-indigo-500'} />
-                    </div>
-                    <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">{service}</h4>
-                  </div>
-
-                  <div className="space-y-4">
-                    {billingConfigs.filter(c => c.service_name === service).map(config => (
-                      <div key={config.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                            {config.action_type === 'optimization' ? (uiLang === 'zh' ? '优化' : 'Optimization') : (uiLang === 'zh' ? '翻译' : 'Translation')}
-                          </span>
-                          <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">Per Action</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <input 
-                            type="number" 
-                            value={config.credit_cost} 
-                            onChange={e => handleUpdateBillingConfig(config.id, parseInt(e.target.value) || 0)}
-                            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-black text-base text-slate-900 outline-none focus:border-indigo-500 transition-all"
-                          />
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Credits</span>
-                        </div>
+            <div className="space-y-8">
+              <div className="flex justify-end">
+                <button 
+                  onClick={() => { setEditingConfig({ id: '', service_name: 'openai', action_type: 'optimization', credit_cost: 0, updated_at: '' }); setShowConfigModal(true); }}
+                  className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl"
+                >
+                  <Plus size={14}/> {uiLang === 'zh' ? '新增消耗配置' : 'Add Consumption Config'}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {['openai', 'gemini', 'deepseek'].map(service => (
+                  <div key={service} className="bg-slate-50 rounded-[2rem] p-8 border border-slate-100 space-y-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">
+                        <Sparkles size={20} className={service === 'openai' ? 'text-green-500' : service === 'gemini' ? 'text-blue-500' : 'text-indigo-500'} />
                       </div>
-                    ))}
+                      <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">{service}</h4>
+                    </div>
+
+                    <div className="space-y-4">
+                      {billingConfigs.filter(c => c.service_name === service).map(config => (
+                        <div key={config.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3 group relative">
+                          <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                            <button onClick={() => { setEditingConfig(config); setShowConfigModal(true); }} className="p-1.5 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-lg"><Edit3 size={14}/></button>
+                            <button onClick={() => handleDeleteBillingConfig(config.id)} className="p-1.5 text-slate-400 hover:text-red-500 bg-slate-50 rounded-lg"><Trash2 size={14}/></button>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                              {config.action_type === 'optimization' ? (uiLang === 'zh' ? '优化' : 'Optimization') : (uiLang === 'zh' ? '翻译' : 'Translation')}
+                            </span>
+                            <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">Per Action</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <input 
+                              type="number" 
+                              value={config.credit_cost} 
+                              onChange={e => handleUpdateBillingConfig(config.id, parseInt(e.target.value) || 0)}
+                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-black text-base text-slate-900 outline-none focus:border-indigo-500 transition-all"
+                            />
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Credits</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -437,8 +526,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                       className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
                     >
                       <option value="token_per_credit">Token per Credit</option>
-                      <option value="credit_per_optimization">Credit per Optimization</option>
-                      <option value="credit_per_translation">Credit per Translation</option>
                     </select>
                  </div>
                  <div className="space-y-2">
@@ -448,6 +535,91 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                       required 
                       value={editingUnitPrice.value}
                       onChange={e => setEditingUnitPrice({...editingUnitPrice, value: parseFloat(e.target.value) || 0})}
+                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
+                    />
+                 </div>
+                 <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">{uiLang === 'zh' ? '保存' : 'Save'}</button>
+              </form>
+           </div>
+        </div>
+      )}
+      {/* 计费套餐编辑弹窗 */}
+      {showPlanModal && editingPlan && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+           <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+                 <h3 className="font-black text-slate-900 uppercase tracking-tight">{uiLang === 'zh' ? '套餐配置' : 'Plan Config'}</h3>
+                 <button onClick={() => setShowPlanModal(false)}><X size={24}/></button>
+              </div>
+              <form onSubmit={handleSavePlan} className="p-8 grid grid-cols-2 gap-6">
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Name (EN)</label>
+                    <input required value={editingPlan.name} onChange={e => setEditingPlan({...editingPlan, name: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Name (ZH)</label>
+                    <input required value={editingPlan.name_zh} onChange={e => setEditingPlan({...editingPlan, name_zh: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Price (USD)</label>
+                    <input type="number" required value={editingPlan.price_usd} onChange={e => setEditingPlan({...editingPlan, price_usd: parseFloat(e.target.value) || 0})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Price (CNY)</label>
+                    <input type="number" required value={editingPlan.price_cny} onChange={e => setEditingPlan({...editingPlan, price_cny: parseFloat(e.target.value) || 0})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                 </div>
+                 <div className="space-y-2 col-span-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Credits</label>
+                    <input type="number" required value={editingPlan.credits} onChange={e => setEditingPlan({...editingPlan, credits: parseInt(e.target.value) || 0})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                 </div>
+                 <div className="col-span-2 flex justify-end gap-4 mt-4">
+                    <button type="button" onClick={() => setShowPlanModal(false)} className="px-8 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">Cancel</button>
+                    <button type="submit" className="px-12 py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">{uiLang === 'zh' ? '保存' : 'Save'}</button>
+                 </div>
+              </form>
+           </div>
+        </div>
+      )}
+
+      {/* 消耗配置编辑弹窗 */}
+      {showConfigModal && editingConfig && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+           <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+                 <h3 className="font-black text-slate-900 uppercase tracking-tight">{uiLang === 'zh' ? '消耗配置' : 'Consumption Config'}</h3>
+                 <button onClick={() => setShowConfigModal(false)}><X size={24}/></button>
+              </div>
+              <form onSubmit={handleSaveBillingConfig} className="p-8 space-y-6">
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">AI Engine</label>
+                    <select 
+                      value={editingConfig.service_name} 
+                      onChange={e => setEditingConfig({...editingConfig, service_name: e.target.value})}
+                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="deepseek">DeepSeek</option>
+                    </select>
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Action Type</label>
+                    <select 
+                      value={editingConfig.action_type} 
+                      onChange={e => setEditingConfig({...editingConfig, action_type: e.target.value as any})}
+                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
+                    >
+                      <option value="optimization">Optimization</option>
+                      <option value="translation">Translation</option>
+                    </select>
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Credit Cost</label>
+                    <input 
+                      type="number"
+                      required 
+                      value={editingConfig.credit_cost}
+                      onChange={e => setEditingConfig({...editingConfig, credit_cost: parseInt(e.target.value) || 0})}
                       className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
                     />
                  </div>
