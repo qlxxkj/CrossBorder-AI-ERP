@@ -155,7 +155,6 @@ export interface BillingManagement {
   value?: number; // for credit_setting
   service_name?: string; // for unit_price
   action_type?: 'optimization' | 'translation'; // for unit_price
-  credit_cost?: number; // for unit_price
   price_usd?: number; // for unit_price
   price_cny?: number; // for unit_price
   updated_at: string;

@@ -79,7 +79,7 @@ const extractJSONObject = (text: string) => {
   } catch (e) { return null; }
 };
 
-export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
+export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<{ data: OptimizedData; tokens: number }> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const brandToKill = cleanedData.brand || "UNKNOWN_BRAND";
@@ -95,11 +95,12 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<O
     });
     const rawData = extractJSONObject(response.text || "{}");
     if (!rawData) throw new Error("Format error.");
-    return normalizeOptimizedData(rawData);
+    const tokens = response.usageMetadata?.totalTokenCount || 0;
+    return { data: normalizeOptimizedData(rawData), tokens };
   } catch (error: any) { throw new Error(`Gemini Error: ${error.message}`); }
 };
 
-export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
+export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `Translate to "${targetLangName}". JSON ONLY. Use keys: optimized_title, optimized_features, optimized_description, search_keywords. NO brands. Data: ${JSON.stringify(sourceData)}`;
   try {
@@ -109,7 +110,8 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
       config: { responseMimeType: "application/json" }
     });
     const rawData = extractJSONObject(response.text || "{}");
-    return normalizeOptimizedData(rawData || {});
+    const tokens = response.usageMetadata?.totalTokenCount || 0;
+    return { data: normalizeOptimizedData(rawData || {}), tokens };
   } catch (error: any) { throw new Error(`Gemini Translation Error: ${error.message}`); }
 };
 

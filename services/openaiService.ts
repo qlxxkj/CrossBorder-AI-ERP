@@ -76,7 +76,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   return result as OptimizedData;
 };
 
-export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promise<OptimizedData> => {
+export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promise<{ data: OptimizedData; tokens: number }> => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OpenAI Key missing.");
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -99,10 +99,11 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData): Promi
   if (!response.ok) throw new Error(`OpenAI Status: ${response.status}`);
   const data = await response.json();
   const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
-  return normalizeOptimizedData(raw);
+  const tokens = data.usage?.total_tokens || 0;
+  return { data: normalizeOptimizedData(raw), tokens };
 };
 
-export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
+export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OpenAI Key missing.");
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -142,5 +143,6 @@ ${JSON.stringify(sourceData)}`;
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("Empty AI response");
   
-  return normalizeOptimizedData(JSON.parse(content));
+  const tokens = data.usage?.total_tokens || 0;
+  return { data: normalizeOptimizedData(JSON.parse(content)), tokens };
 };

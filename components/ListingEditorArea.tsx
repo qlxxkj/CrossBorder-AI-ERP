@@ -4,7 +4,7 @@ import { DollarSign, Truck, ListFilter, Plus, RefreshCw, Loader2, Sparkles } fro
 import { Listing, OptimizedData, UILanguage, ExchangeRate, PriceAdjustment } from '../types';
 import { LogisticsEditor, calculateMarketLogistics, calculateMarketPrice } from './LogisticsEditor';
 import { MARKETPLACES } from '../lib/marketplaces';
-import { checkAndDeductCredits } from '../lib/creditService';
+import { checkUserCredits, deductCreditsByTokens } from '../lib/creditService';
 import { translateListingWithAI } from '../services/geminiService';
 import { translateListingWithOpenAI } from '../services/openaiService';
 import { translateListingWithDeepSeek } from '../services/deepseekService';
@@ -50,8 +50,8 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         return;
       }
 
-      // Check and deduct credits
-      const creditRes = await checkAndDeductCredits(listing.user_id, engine, 'translation');
+      // 1. Pre-check credits
+      const creditRes = await checkUserCredits(listing.user_id);
       if (!creditRes.success) {
         alert(uiLang === 'zh' ? `积分不足: ${creditRes.message}` : creditRes.message);
         return;
@@ -61,9 +61,23 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
       const targetLang = market?.langName || marketCode;
       
       let translation;
-      if (engine === 'openai') translation = await translateListingWithOpenAI(listing.optimized, targetLang);
-      else if (engine === 'deepseek') translation = await translateListingWithDeepSeek(listing.optimized, targetLang);
-      else translation = await translateListingWithAI(listing.optimized, targetLang);
+      let tokens = 0;
+      if (engine === 'openai') {
+        const res = await translateListingWithOpenAI(listing.optimized, targetLang);
+        translation = res.data;
+        tokens = res.tokens;
+      } else if (engine === 'deepseek') {
+        const res = await translateListingWithDeepSeek(listing.optimized, targetLang);
+        translation = res.data;
+        tokens = res.tokens;
+      } else {
+        const res = await translateListingWithAI(listing.optimized, targetLang);
+        translation = res.data;
+        tokens = res.tokens;
+      }
+
+      // 3. Deduct credits based on tokens
+      await deductCreditsByTokens(listing.user_id, tokens);
 
       const logistics = calculateMarketLogistics(listing, marketCode);
       const priceData = calculateMarketPrice(listing, marketCode, rates, adjustments);
@@ -99,17 +113,31 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         const m = marketsToTranslate[i];
         setTranslateStatus({ current: i + 1, total: marketsToTranslate.length });
         
-        // Check and deduct credits for each site
-        const creditRes = await checkAndDeductCredits(listing.user_id, engine, 'translation');
+        // 1. Pre-check credits for each site
+        const creditRes = await checkUserCredits(listing.user_id);
         if (!creditRes.success) {
           alert(uiLang === 'zh' ? `积分不足(已翻译${i}个): ${creditRes.message}` : `Insufficient credits (translated ${i}): ${creditRes.message}`);
           break;
         }
 
         let translation;
-        if (engine === 'openai') translation = await translateListingWithOpenAI(listing.optimized, m.langName);
-        else if (engine === 'deepseek') translation = await translateListingWithDeepSeek(listing.optimized, m.langName);
-        else translation = await translateListingWithAI(listing.optimized, m.langName);
+        let tokens = 0;
+        if (engine === 'openai') {
+          const res = await translateListingWithOpenAI(listing.optimized, m.langName);
+          translation = res.data;
+          tokens = res.tokens;
+        } else if (engine === 'deepseek') {
+          const res = await translateListingWithDeepSeek(listing.optimized, m.langName);
+          translation = res.data;
+          tokens = res.tokens;
+        } else {
+          const res = await translateListingWithAI(listing.optimized, m.langName);
+          translation = res.data;
+          tokens = res.tokens;
+        }
+
+        // 3. Deduct credits based on tokens
+        await deductCreditsByTokens(listing.user_id, tokens);
 
         const logistics = calculateMarketLogistics(listing, m.code);
         const priceData = calculateMarketPrice(listing, m.code, rates, adjustments);

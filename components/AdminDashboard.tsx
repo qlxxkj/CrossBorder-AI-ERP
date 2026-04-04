@@ -61,17 +61,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
     const { data } = await supabase.from('billing_management').select('*').order('updated_at', { ascending: false });
     if (!data || data.length === 0) {
       const defaults: Partial<BillingManagement>[] = [
-        // Credit Settings (formerly unit prices)
+        // Credit Settings
         { category: 'credit_setting', name: '1 Credit = 1000 Tokens', unit_type: 'token_per_credit', value: 1000 },
-        { category: 'credit_setting', name: '1 Optimization = 5 Credits', unit_type: 'credit_per_optimization', value: 5 },
-        { category: 'credit_setting', name: '1 Translation = 2 Credits', unit_type: 'credit_per_translation', value: 2 },
-        // Unit Prices (formerly configs)
-        { category: 'unit_price', service_name: 'openai', action_type: 'optimization', credit_cost: 5, price_usd: 0.05, price_cny: 0.35 },
-        { category: 'unit_price', service_name: 'openai', action_type: 'translation', credit_cost: 2, price_usd: 0.02, price_cny: 0.14 },
-        { category: 'unit_price', service_name: 'gemini', action_type: 'optimization', credit_cost: 3, price_usd: 0.03, price_cny: 0.21 },
-        { category: 'unit_price', service_name: 'gemini', action_type: 'translation', credit_cost: 1, price_usd: 0.01, price_cny: 0.07 },
-        { category: 'unit_price', service_name: 'deepseek', action_type: 'optimization', credit_cost: 2, price_usd: 0.02, price_cny: 0.14 },
-        { category: 'unit_price', service_name: 'deepseek', action_type: 'translation', credit_cost: 1, price_usd: 0.01, price_cny: 0.07 },
+        // Unit Prices
+        { category: 'unit_price', service_name: 'openai', action_type: 'optimization', price_usd: 0.05, price_cny: 0.35 },
+        { category: 'unit_price', service_name: 'openai', action_type: 'translation', price_usd: 0.02, price_cny: 0.14 },
+        { category: 'unit_price', service_name: 'gemini', action_type: 'optimization', price_usd: 0.03, price_cny: 0.21 },
+        { category: 'unit_price', service_name: 'gemini', action_type: 'translation', price_usd: 0.01, price_cny: 0.07 },
+        { category: 'unit_price', service_name: 'deepseek', action_type: 'optimization', price_usd: 0.02, price_cny: 0.14 },
+        { category: 'unit_price', service_name: 'deepseek', action_type: 'translation', price_usd: 0.01, price_cny: 0.07 },
       ];
       const { data: inserted } = await supabase.from('billing_management').insert(
         defaults.map(d => ({ ...d, updated_at: new Date().toISOString() }))
@@ -447,7 +445,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
             <div className="space-y-8">
               <div className="flex justify-end">
                 <button 
-                  onClick={() => { setEditingConfig({ id: '', category: 'unit_price', service_name: 'openai', action_type: 'optimization', credit_cost: 0, updated_at: '' }); setShowConfigModal(true); }}
+                  onClick={() => { setEditingConfig({ id: '', category: 'unit_price', service_name: 'openai', action_type: 'optimization', updated_at: '' }); setShowConfigModal(true); }}
                   className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl"
                 >
                   <Plus size={14}/> {uiLang === 'zh' ? '新增单价配置' : 'Add Unit Price'}
@@ -478,17 +476,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                               <span className="text-[8px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded uppercase tracking-tighter">
                                 ${config.price_usd || 0} / ¥{config.price_cny || 0}
                               </span>
-                              <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">Per Action</span>
+                              <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">Per Credit</span>
                             </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <input 
-                              type="number" 
-                              value={config.credit_cost} 
-                              onChange={e => handleUpdateBillingConfig(config.id, parseInt(e.target.value) || 0)}
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-black text-base text-slate-900 outline-none focus:border-indigo-500 transition-all"
-                            />
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Credits</span>
                           </div>
                         </div>
                       ))}
@@ -522,15 +511,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                  </div>
                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{uiLang === 'zh' ? '设定类型' : 'Setting Type'}</label>
-                    <select 
-                      value={editingUnitPrice.unit_type || 'token_per_credit'} 
-                      onChange={e => setEditingUnitPrice({...editingUnitPrice, unit_type: e.target.value as any})}
-                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
-                    >
-                      <option value="token_per_credit">Token per Credit</option>
-                      <option value="credit_per_optimization">Credit per Optimization</option>
-                      <option value="credit_per_translation">Credit per Translation</option>
-                    </select>
+                      <select 
+                        value={editingUnitPrice.unit_type || 'token_per_credit'} 
+                        onChange={e => setEditingUnitPrice({...editingUnitPrice, unit_type: e.target.value as any})}
+                        className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
+                      >
+                        <option value="token_per_credit">Token per Credit</option>
+                      </select>
                  </div>
                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{uiLang === 'zh' ? '数值' : 'Value'}</label>

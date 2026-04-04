@@ -77,7 +77,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   return result as OptimizedData;
 };
 
-export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Promise<OptimizedData> => {
+export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Promise<{ data: OptimizedData; tokens: number }> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DeepSeek Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
@@ -103,10 +103,11 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData): Pro
   if (!response.ok) throw new Error(`DeepSeek Error: ${response.status}`);
   const data = await response.json();
   const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
-  return normalizeOptimizedData(raw);
+  const tokens = data.usage?.total_tokens || 0;
+  return { data: normalizeOptimizedData(raw), tokens };
 };
 
-export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<Partial<OptimizedData>> => {
+export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DeepSeek Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
@@ -125,5 +126,6 @@ export const translateListingWithDeepSeek = async (sourceData: OptimizedData, ta
   });
   const data = await response.json();
   const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
-  return normalizeOptimizedData(raw);
+  const tokens = data.usage?.total_tokens || 0;
+  return { data: normalizeOptimizedData(raw), tokens };
 };

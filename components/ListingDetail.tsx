@@ -9,7 +9,7 @@ import { ImageEditor } from './ImageEditor';
 import { SourcingModal } from './SourcingModal';
 import { SourcingFormModal } from './SourcingFormModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { checkAndDeductCredits } from '../lib/creditService';
+import { checkUserCredits, deductCreditsByTokens } from '../lib/creditService';
 import { optimizeListingWithAI } from '../services/geminiService';
 import { optimizeListingWithOpenAI } from '../services/openaiService';
 import { optimizeListingWithDeepSeek } from '../services/deepseekService';
@@ -77,15 +77,32 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         
         setIsOptimizing(true);
         try {
-          // Check and deduct credits
-          const creditRes = await checkAndDeductCredits(localListing.user_id, engine, 'optimization');
+          // 1. Pre-check credits
+          const creditRes = await checkUserCredits(localListing.user_id);
           if (!creditRes.success) {
             alert(uiLang === 'zh' ? `积分不足: ${creditRes.message}` : creditRes.message);
             return;
           }
 
-          const opt = engine === 'openai' ? await optimizeListingWithOpenAI(localListing.cleaned) : engine === 'deepseek' ? await optimizeListingWithDeepSeek(localListing.cleaned) : await optimizeListingWithAI(localListing.cleaned);
-          const next: Listing = { ...localListing, optimized: { ...opt, optimized_main_image: localListing.optimized?.optimized_main_image, optimized_other_images: localListing.optimized?.optimized_other_images }, status: 'optimized' as const };
+          // 2. Perform AI optimization
+          const { data: opt, tokens } = engine === 'openai' 
+            ? await optimizeListingWithOpenAI(localListing.cleaned) 
+            : engine === 'deepseek' 
+              ? await optimizeListingWithDeepSeek(localListing.cleaned) 
+              : await optimizeListingWithAI(localListing.cleaned);
+
+          // 3. Deduct credits based on tokens
+          await deductCreditsByTokens(localListing.user_id, tokens);
+
+          const next: Listing = { 
+            ...localListing, 
+            optimized: { 
+              ...opt, 
+              optimized_main_image: localListing.optimized?.optimized_main_image, 
+              optimized_other_images: localListing.optimized?.optimized_other_images 
+            }, 
+            status: 'optimized' as const 
+          };
           updateListingData(next);
         } catch (err: any) {
           alert("Optimization failed: " + err.message);
