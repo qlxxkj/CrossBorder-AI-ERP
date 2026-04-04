@@ -64,12 +64,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
         // Credit Settings
         { category: 'credit_setting', name: '1 Credit = 1000 Tokens', unit_type: 'token_per_credit', value: 1000 },
         // Unit Prices
-        { category: 'unit_price', service_name: 'openai', action_type: 'optimization', price_usd: 0.05, price_cny: 0.35 },
-        { category: 'unit_price', service_name: 'openai', action_type: 'translation', price_usd: 0.02, price_cny: 0.14 },
-        { category: 'unit_price', service_name: 'gemini', action_type: 'optimization', price_usd: 0.03, price_cny: 0.21 },
-        { category: 'unit_price', service_name: 'gemini', action_type: 'translation', price_usd: 0.01, price_cny: 0.07 },
-        { category: 'unit_price', service_name: 'deepseek', action_type: 'optimization', price_usd: 0.02, price_cny: 0.14 },
-        { category: 'unit_price', service_name: 'deepseek', action_type: 'translation', price_usd: 0.01, price_cny: 0.07 },
+        { category: 'unit_price', service_name: 'openai', price_usd: 0.05, price_cny: 0.35 },
+        { category: 'unit_price', service_name: 'gemini', price_usd: 0.03, price_cny: 0.21 },
+        { category: 'unit_price', service_name: 'deepseek', price_usd: 0.02, price_cny: 0.14 },
       ];
       const { data: inserted } = await supabase.from('billing_management').insert(
         defaults.map(d => ({ ...d, updated_at: new Date().toISOString() }))
@@ -445,7 +442,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
             <div className="space-y-8">
               <div className="flex justify-end">
                 <button 
-                  onClick={() => { setEditingConfig({ id: '', category: 'unit_price', service_name: 'openai', action_type: 'optimization', updated_at: '' }); setShowConfigModal(true); }}
+                  onClick={() => { setEditingConfig({ id: '', category: 'unit_price', service_name: 'openai', updated_at: '' }); setShowConfigModal(true); }}
                   className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl"
                 >
                   <Plus size={14}/> {uiLang === 'zh' ? '新增单价配置' : 'Add Unit Price'}
@@ -470,7 +467,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                              {config.action_type === 'optimization' ? (uiLang === 'zh' ? '优化' : 'Optimization') : (uiLang === 'zh' ? '翻译' : 'Translation')}
+                              {uiLang === 'zh' ? '计费单价' : 'Unit Price'}
                             </span>
                             <div className="flex gap-2">
                               <span className="text-[8px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded uppercase tracking-tighter">
@@ -669,17 +666,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                       <option value="openai">OpenAI</option>
                       <option value="gemini">Gemini</option>
                       <option value="deepseek">DeepSeek</option>
-                    </select>
-                 </div>
-                 <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Action Type</label>
-                    <select 
-                      value={editingConfig.action_type} 
-                      onChange={e => setEditingConfig({...editingConfig, action_type: e.target.value as any})}
-                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
-                    >
-                      <option value="optimization">Optimization</option>
-                      <option value="translation">Translation</option>
                     </select>
                  </div>
                  <div className="grid grid-cols-2 gap-4">

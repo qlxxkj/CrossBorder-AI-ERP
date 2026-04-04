@@ -151,10 +151,9 @@ export interface BillingManagement {
   id: string;
   category: 'credit_setting' | 'unit_price';
   name?: string; // for credit_setting
-  unit_type?: 'token_per_credit' | 'credit_per_optimization' | 'credit_per_translation'; // for credit_setting
+  unit_type?: 'token_per_credit'; // for credit_setting
   value?: number; // for credit_setting
-  service_name?: string; // for unit_price
-  action_type?: 'optimization' | 'translation'; // for unit_price
+  service_name?: string; // for unit_price (AI Engine name)
   price_usd?: number; // for unit_price
   price_cny?: number; // for unit_price
   updated_at: string;

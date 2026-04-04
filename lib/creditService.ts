@@ -81,8 +81,8 @@ export const deductCreditsByTokens = async (userId: string, tokens: number): Pro
 // or just mark it as deprecated. Actually, I'll update it to be a simple pre-check for now.
 export const checkAndDeductCredits = async (
   userId: string,
-  _serviceName: string,
-  _actionType: 'optimization' | 'translation'
+  _serviceName?: string,
+  _actionType?: string
 ): Promise<{ success: boolean; message?: string }> => {
   return checkUserCredits(userId);
 };
