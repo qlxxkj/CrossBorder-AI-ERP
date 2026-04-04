@@ -668,7 +668,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
            <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
               <div className="p-8 border-b border-slate-100 flex items-center justify-between">
-                 <h3 className="font-black text-slate-900 uppercase tracking-tight">{uiLang === 'zh' ? '消耗配置' : 'Consumption Config'}</h3>
+                 <h3 className="font-black text-slate-900 uppercase tracking-tight">{uiLang === 'zh' ? '新增计费单价' : 'Add Unit Price'}</h3>
                  <button onClick={() => setShowConfigModal(false)}><X size={24}/></button>
               </div>
               <form onSubmit={handleSaveBillingConfig} className="p-8 space-y-6">
@@ -695,17 +695,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                       <option value="translation">Translation</option>
                     </select>
                  </div>
-                 <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Credit Cost (Deduction)</label>
-                     <input 
-                       type="number"
-                       required 
-                       value={editingConfig.credit_cost}
-                       onChange={e => setEditingConfig({...editingConfig, credit_cost: parseInt(e.target.value) || 0})}
-                       className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
-                     />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
+                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Price per Credit (USD)</label>
                        <input 
