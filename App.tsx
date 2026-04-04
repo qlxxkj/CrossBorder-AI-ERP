@@ -29,7 +29,7 @@ const App: React.FC = () => {
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
-  const [adminSubTab, setAdminSubTab] = useState<'users' | 'plans' | 'billing_unit' | 'billing_consumption'>('users');
+  const [adminSubTab, setAdminSubTab] = useState<'users' | 'plans' | 'billing_mgmt'>('users');
   
   // 使用 Ref 记录是否已经处理过初始登录跳转，防止切换 Tab 回来重置视图
   const hasInitiallyRedirected = useRef(false);

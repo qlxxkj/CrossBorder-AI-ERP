@@ -1,6 +1,6 @@
 
 import { supabase } from './supabaseClient';
-import { UserProfile, BillingConfig } from '../types';
+import { UserProfile, BillingManagement } from '../types';
 
 /**
  * Checks if a user has enough credits for an AI action and deducts them if so.
@@ -48,22 +48,24 @@ export const checkAndDeductCredits = async (
       .eq('id', userId);
   }
 
-  // 3. Get cost from billing_configs (specific engine + action)
+  // 3. Get cost from billing_management (category: unit_price, specific engine + action)
   const { data: specificConfig } = await supabase
-    .from('billing_configs')
+    .from('billing_management')
     .select('credit_cost')
+    .eq('category', 'unit_price')
     .eq('service_name', serviceName)
     .eq('action_type', actionType)
     .maybeSingle();
 
   let cost = specificConfig?.credit_cost;
 
-  // 4. If no specific engine cost, check billing_unit_prices (general action cost)
+  // 4. If no specific engine cost, check billing_management (category: credit_setting, general action cost)
   if (cost === undefined || cost === null) {
     const unitType = actionType === 'optimization' ? 'credit_per_optimization' : 'credit_per_translation';
     const { data: generalConfig } = await supabase
-      .from('billing_unit_prices')
+      .from('billing_management')
       .select('value')
+      .eq('category', 'credit_setting')
       .eq('unit_type', unitType)
       .maybeSingle();
     

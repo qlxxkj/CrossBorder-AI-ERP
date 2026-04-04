@@ -5,7 +5,7 @@ import {
   Check, X, Save, ShieldCheck, MapPin, UserCheck, Phone, 
   Settings, Key, RefreshCw, Power, Coins, Sparkles, CreditCard
 } from 'lucide-react';
-import { UILanguage, Organization, UserProfile, Role, RolePermission, BillingConfig, BillingUnitPrice } from '../types';
+import { UILanguage, Organization, UserProfile, Role, RolePermission } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { useTranslation } from '../lib/i18n';
 

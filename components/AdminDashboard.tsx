@@ -6,32 +6,32 @@ import {
   Clock, CreditCard, Ban, CheckCircle, RefreshCcw, UserPlus, ShieldCheck, Check,
   Plus, Edit3, X, Coins, Sparkles
 } from 'lucide-react';
-import { UserProfile, SubscriptionPlan, UILanguage, BillingConfig, BillingUnitPrice } from '../types';
+import { UserProfile, SubscriptionPlan, UILanguage, BillingManagement } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface AdminDashboardProps {
   uiLang: UILanguage;
-  activeSubTab?: 'users' | 'plans' | 'billing_unit' | 'billing_consumption';
-  onSubTabChange?: (tab: 'users' | 'plans' | 'billing_unit' | 'billing_consumption') => void;
+  activeSubTab?: 'users' | 'plans' | 'billing_mgmt';
+  onSubTabChange?: (tab: 'users' | 'plans' | 'billing_mgmt') => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSubTab = 'users', onSubTabChange }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
-  const [billingConfigs, setBillingConfigs] = useState<BillingConfig[]>([]);
-  const [billingUnitPrices, setBillingUnitPrices] = useState<BillingUnitPrice[]>([]);
+  const [billingItems, setBillingItems] = useState<BillingManagement[]>([]);
+  const [activeBillingTab, setActiveBillingTab] = useState<'credit_setting' | 'unit_price'>('credit_setting');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   
   const [showUnitPriceModal, setShowUnitPriceModal] = useState(false);
-  const [editingUnitPrice, setEditingUnitPrice] = useState<BillingUnitPrice | null>(null);
+  const [editingUnitPrice, setEditingUnitPrice] = useState<BillingManagement | null>(null);
 
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState<SubscriptionPlan | null>(null);
 
   const [showConfigModal, setShowConfigModal] = useState(false);
-  const [editingConfig, setEditingConfig] = useState<BillingConfig | null>(null);
+  const [editingConfig, setEditingConfig] = useState<BillingManagement | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -47,9 +47,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
       } else if (activeSubTab === 'plans') {
         const { data } = await supabase.from('subscription_plans').select('*').order('price_usd', { ascending: true });
         if (data) setPlans(data);
-      } else if (activeSubTab === 'billing_unit' || activeSubTab === 'billing_consumption') {
-        await fetchBillingConfigs();
-        await fetchBillingUnitPrices();
+      } else if (activeSubTab === 'billing_mgmt') {
+        await fetchBillingManagement();
       }
     } catch (err) {
       console.error(err);
@@ -58,40 +57,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
     }
   };
 
-  const fetchBillingConfigs = async () => {
-    const { data } = await supabase.from('billing_configs').select('*').order('service_name', { ascending: true });
+  const fetchBillingManagement = async () => {
+    const { data } = await supabase.from('billing_management').select('*').order('updated_at', { ascending: false });
     if (!data || data.length === 0) {
-      const defaults = [
-        { service_name: 'openai', action_type: 'optimization', credit_cost: 5 },
-        { service_name: 'openai', action_type: 'translation', credit_cost: 2 },
-        { service_name: 'gemini', action_type: 'optimization', credit_cost: 3 },
-        { service_name: 'gemini', action_type: 'translation', credit_cost: 1 },
-        { service_name: 'deepseek', action_type: 'optimization', credit_cost: 2 },
-        { service_name: 'deepseek', action_type: 'translation', credit_cost: 1 },
+      const defaults: Partial<BillingManagement>[] = [
+        // Credit Settings (formerly unit prices)
+        { category: 'credit_setting', name: '1 Credit = 1000 Tokens', unit_type: 'token_per_credit', value: 1000 },
+        { category: 'credit_setting', name: '1 Optimization = 5 Credits', unit_type: 'credit_per_optimization', value: 5 },
+        { category: 'credit_setting', name: '1 Translation = 2 Credits', unit_type: 'credit_per_translation', value: 2 },
+        // Unit Prices (formerly configs)
+        { category: 'unit_price', service_name: 'openai', action_type: 'optimization', credit_cost: 5, price_usd: 0.05, price_cny: 0.35 },
+        { category: 'unit_price', service_name: 'openai', action_type: 'translation', credit_cost: 2, price_usd: 0.02, price_cny: 0.14 },
+        { category: 'unit_price', service_name: 'gemini', action_type: 'optimization', credit_cost: 3, price_usd: 0.03, price_cny: 0.21 },
+        { category: 'unit_price', service_name: 'gemini', action_type: 'translation', credit_cost: 1, price_usd: 0.01, price_cny: 0.07 },
+        { category: 'unit_price', service_name: 'deepseek', action_type: 'optimization', credit_cost: 2, price_usd: 0.02, price_cny: 0.14 },
+        { category: 'unit_price', service_name: 'deepseek', action_type: 'translation', credit_cost: 1, price_usd: 0.01, price_cny: 0.07 },
       ];
-      const { data: inserted } = await supabase.from('billing_configs').insert(
+      const { data: inserted } = await supabase.from('billing_management').insert(
         defaults.map(d => ({ ...d, updated_at: new Date().toISOString() }))
       ).select();
-      if (inserted) setBillingConfigs(inserted);
+      if (inserted) setBillingItems(inserted as BillingManagement[]);
     } else {
-      setBillingConfigs(data);
-    }
-  };
-
-  const fetchBillingUnitPrices = async () => {
-    const { data } = await supabase.from('billing_unit_prices').select('*').order('unit_type', { ascending: true });
-    if (!data || data.length === 0) {
-      const defaults = [
-        { name: '1 Credit = 1000 Tokens', unit_type: 'token_per_credit', value: 1000 },
-        { name: '1 Optimization = 5 Credits', unit_type: 'credit_per_optimization', value: 5 },
-        { name: '1 Translation = 2 Credits', unit_type: 'credit_per_translation', value: 2 },
-      ];
-      const { data: inserted } = await supabase.from('billing_unit_prices').insert(
-        defaults.map(d => ({ ...d, updated_at: new Date().toISOString() }))
-      ).select();
-      if (inserted) setBillingUnitPrices(inserted);
-    } else {
-      setBillingUnitPrices(data);
+      setBillingItems(data);
     }
   };
 
@@ -99,14 +86,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
     e.preventDefault();
     if (!editingUnitPrice) return;
     setLoading(true);
-    const data = { ...editingUnitPrice, updated_at: new Date().toISOString() };
+    const data = { ...editingUnitPrice, category: 'credit_setting', updated_at: new Date().toISOString() };
     if (editingUnitPrice.id) {
-      await supabase.from('billing_unit_prices').update(data).eq('id', editingUnitPrice.id);
+      await supabase.from('billing_management').update(data).eq('id', editingUnitPrice.id);
     } else {
       const { id, ...rest } = data;
-      await supabase.from('billing_unit_prices').insert([{ ...rest, id: crypto.randomUUID() }]);
+      await supabase.from('billing_management').insert([{ ...rest, id: crypto.randomUUID() }]);
     }
-    await fetchBillingUnitPrices();
+    await fetchBillingManagement();
     setShowUnitPriceModal(false);
     setLoading(false);
   };
@@ -114,8 +101,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
   const handleDeleteUnitPrice = async (id: string) => {
     if (!window.confirm(uiLang === 'zh' ? '确定删除吗？' : 'Are you sure?')) return;
     setLoading(true);
-    await supabase.from('billing_unit_prices').delete().eq('id', id);
-    await fetchBillingUnitPrices();
+    await supabase.from('billing_management').delete().eq('id', id);
+    await fetchBillingManagement();
     setLoading(false);
   };
 
@@ -157,14 +144,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
     e.preventDefault();
     if (!editingConfig) return;
     setLoading(true);
-    const data = { ...editingConfig, updated_at: new Date().toISOString() };
+    const data = { ...editingConfig, category: 'unit_price', updated_at: new Date().toISOString() };
     if (editingConfig.id) {
-      await supabase.from('billing_configs').update(data).eq('id', editingConfig.id);
+      await supabase.from('billing_management').update(data).eq('id', editingConfig.id);
     } else {
       const { id, ...rest } = data;
-      await supabase.from('billing_configs').insert([{ ...rest, id: crypto.randomUUID() }]);
+      await supabase.from('billing_management').insert([{ ...rest, id: crypto.randomUUID() }]);
     }
-    await fetchBillingConfigs();
+    await fetchBillingManagement();
     setShowConfigModal(false);
     setLoading(false);
   };
@@ -172,18 +159,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
   const handleDeleteBillingConfig = async (id: string) => {
     if (!window.confirm(uiLang === 'zh' ? '确定删除吗？' : 'Are you sure?')) return;
     setLoading(true);
-    await supabase.from('billing_configs').delete().eq('id', id);
-    await fetchBillingConfigs();
+    await supabase.from('billing_management').delete().eq('id', id);
+    await fetchBillingManagement();
     setLoading(false);
   };
 
   const handleUpdateBillingConfig = async (id: string, cost: number) => {
     const { error } = await supabase
-      .from('billing_configs')
+      .from('billing_management')
       .update({ credit_cost: cost, updated_at: new Date().toISOString() })
       .eq('id', id);
     if (!error) {
-      setBillingConfigs(prev => prev.map(c => c.id === id ? { ...c, credit_cost: cost } : c));
+      setBillingItems(prev => prev.map(c => c.id === id ? { ...c, credit_cost: cost } : c));
     }
   };
 
@@ -237,16 +224,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
             <Package size={16} /> Plans
           </button>
           <button 
-            onClick={() => onSubTabChange?.('billing_unit')}
-            className={`px-8 py-3 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${activeSubTab === 'billing_unit' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+            onClick={() => onSubTabChange?.('billing_mgmt')}
+            className={`px-8 py-3 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${activeSubTab === 'billing_mgmt' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
           >
-            <CreditCard size={16} /> {uiLang === 'zh' ? '计费单价' : 'Unit Price'}
-          </button>
-          <button 
-            onClick={() => onSubTabChange?.('billing_consumption')}
-            className={`px-8 py-3 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${activeSubTab === 'billing_consumption' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            <Coins size={16} /> {uiLang === 'zh' ? '计费消耗' : 'Consumption'}
+            <Coins size={16} /> {uiLang === 'zh' ? '计费管理' : 'Billing Mgmt'}
           </button>
         </div>
       </div>
@@ -389,7 +370,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
              ))}
           </div>
         </div>
-      ) : (
+      ) : activeSubTab === 'billing_mgmt' ? (
         <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm p-10 space-y-10 animate-in slide-in-from-bottom-4 duration-500 relative overflow-hidden min-h-[500px]">
           {loading && (
             <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-50 flex items-center justify-center">
@@ -398,10 +379,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
           )}
 
           <div className="flex items-center justify-between">
-            <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight text-sm">
-              <Coins className="text-amber-500" size={18} /> 
-              {activeSubTab === 'billing_unit' ? (uiLang === 'zh' ? '计费单价' : 'Unit Price') : (uiLang === 'zh' ? '计费消耗' : 'Consumption')}
-            </h3>
+            <div className="flex items-center gap-4">
+              <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight text-sm">
+                <Coins className="text-amber-500" size={18} /> 
+                {uiLang === 'zh' ? '计费管理' : 'Billing Management'}
+              </h3>
+              <div className="flex bg-slate-100 p-1 rounded-xl">
+                <button 
+                  onClick={() => setActiveBillingTab('credit_setting')}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeBillingTab === 'credit_setting' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  {uiLang === 'zh' ? '积分设定' : 'Credit Setting'}
+                </button>
+                <button 
+                  onClick={() => setActiveBillingTab('unit_price')}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeBillingTab === 'unit_price' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  {uiLang === 'zh' ? '计费单价' : 'Unit Price'}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="bg-amber-50 border border-amber-100 p-6 rounded-[2rem] space-y-3">
@@ -410,23 +407,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
             </h4>
             <p className="text-xs text-amber-700 font-bold leading-relaxed">
               {uiLang === 'zh' 
-                ? '计费逻辑说明：每个用户账户每月自动赠送 100 个免费积分，月底清零不累计。管理员在此配置的计费单价和消耗标准将立即生效。如果未配置特定引擎的消耗，将回退到通用单价配置。' 
-                : 'Billing Logic: Each user account receives 100 free credits monthly, which reset at the end of the month and do not accumulate. Changes made here take effect immediately. If no specific engine consumption is configured, the system will fall back to general unit price settings.'}
+                ? '计费逻辑说明：每个用户账户每月自动赠送 100 个免费积分，月底清零不累计。管理员在此配置的积分设定和计费单价将立即生效。' 
+                : 'Billing Logic: Each user account receives 100 free credits monthly, which reset at the end of the month and do not accumulate. Changes made here take effect immediately.'}
             </p>
           </div>
 
-          {activeSubTab === 'billing_unit' ? (
+          {activeBillingTab === 'credit_setting' ? (
             <div className="space-y-6">
               <div className="flex justify-end">
                 <button 
-                  onClick={() => { setEditingUnitPrice({ id: '', name: '', unit_type: 'token_per_credit', value: 0, updated_at: '' }); setShowUnitPriceModal(true); }}
+                  onClick={() => { setEditingUnitPrice({ id: '', category: 'credit_setting', name: '', unit_type: 'token_per_credit', value: 0, updated_at: '' }); setShowUnitPriceModal(true); }}
                   className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl"
                 >
-                  <Plus size={14}/> {uiLang === 'zh' ? '新增单价' : 'Add Unit Price'}
+                  <Plus size={14}/> {uiLang === 'zh' ? '新增设定' : 'Add Setting'}
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {billingUnitPrices.filter(p => p.unit_type === 'token_per_credit').map(price => (
+                {billingItems.filter(p => p.category === 'credit_setting').map(price => (
                   <div key={price.id} className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 group hover:border-indigo-500 transition-all">
                     <div className="flex justify-between items-start mb-4">
                       <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-600 shadow-sm"><CreditCard size={20}/></div>
@@ -439,7 +436,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                     <div className="mt-4 flex items-baseline gap-2">
                       <span className="text-2xl font-black text-slate-900">{price.value}</span>
                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        Tokens/Credit
+                        {price.unit_type === 'token_per_credit' ? 'Tokens/Credit' : 'Credits/Action'}
                       </span>
                     </div>
                   </div>
@@ -450,10 +447,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
             <div className="space-y-8">
               <div className="flex justify-end">
                 <button 
-                  onClick={() => { setEditingConfig({ id: '', service_name: 'openai', action_type: 'optimization', credit_cost: 0, updated_at: '' }); setShowConfigModal(true); }}
+                  onClick={() => { setEditingConfig({ id: '', category: 'unit_price', service_name: 'openai', action_type: 'optimization', credit_cost: 0, updated_at: '' }); setShowConfigModal(true); }}
                   className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl"
                 >
-                  <Plus size={14}/> {uiLang === 'zh' ? '新增消耗配置' : 'Add Consumption Config'}
+                  <Plus size={14}/> {uiLang === 'zh' ? '新增单价配置' : 'Add Unit Price'}
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -467,7 +464,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                     </div>
 
                     <div className="space-y-4">
-                      {billingConfigs.filter(c => c.service_name === service).map(config => (
+                      {billingItems.filter(c => c.category === 'unit_price' && c.service_name === service).map(config => (
                         <div key={config.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3 group relative">
                           <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
                             <button onClick={() => { setEditingConfig(config); setShowConfigModal(true); }} className="p-1.5 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-lg"><Edit3 size={14}/></button>
@@ -502,14 +499,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
       {/* 计费单价编辑弹窗 */}
       {showUnitPriceModal && editingUnitPrice && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
            <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
               <div className="p-8 border-b border-slate-100 flex items-center justify-between">
-                 <h3 className="font-black text-slate-900 uppercase tracking-tight">{uiLang === 'zh' ? '计费单价配置' : 'Unit Price Config'}</h3>
+                 <h3 className="font-black text-slate-900 uppercase tracking-tight">{uiLang === 'zh' ? '积分设定配置' : 'Credit Setting Config'}</h3>
                  <button onClick={() => setShowUnitPriceModal(false)}><X size={24}/></button>
               </div>
               <form onSubmit={handleSaveUnitPrice} className="p-8 space-y-6">
@@ -517,20 +514,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{uiLang === 'zh' ? '配置名称' : 'Config Name'}</label>
                     <input 
                       required 
-                      value={editingUnitPrice.name}
+                      value={editingUnitPrice.name || ''}
                       onChange={e => setEditingUnitPrice({...editingUnitPrice, name: e.target.value})}
                       className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
                       placeholder="e.g. 1 Credit = 1000 Tokens" 
                     />
                  </div>
                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{uiLang === 'zh' ? '计费类型' : 'Unit Type'}</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{uiLang === 'zh' ? '设定类型' : 'Setting Type'}</label>
                     <select 
-                      value={editingUnitPrice.unit_type} 
+                      value={editingUnitPrice.unit_type || 'token_per_credit'} 
                       onChange={e => setEditingUnitPrice({...editingUnitPrice, unit_type: e.target.value as any})}
                       className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
                     >
                       <option value="token_per_credit">Token per Credit</option>
+                      <option value="credit_per_optimization">Credit per Optimization</option>
+                      <option value="credit_per_translation">Credit per Translation</option>
                     </select>
                  </div>
                  <div className="space-y-2">
@@ -538,7 +537,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                     <input 
                       type="number"
                       required 
-                      value={editingUnitPrice.value}
+                      value={editingUnitPrice.value || 0}
                       onChange={e => setEditingUnitPrice({...editingUnitPrice, value: parseFloat(e.target.value) || 0})}
                       className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
                     />

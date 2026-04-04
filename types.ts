@@ -147,21 +147,17 @@ export interface ExchangeRate {
   created_at: string;
 }
 
-export interface BillingConfig {
+export interface BillingManagement {
   id: string;
-  service_name: string; // 'openai', 'gemini', 'deepseek'
-  action_type: 'optimization' | 'translation';
-  credit_cost: number;
-  price_usd?: number; // 每个积分的美金单价
-  price_cny?: number; // 每个积分的人民币单价
-  updated_at: string;
-}
-
-export interface BillingUnitPrice {
-  id: string;
-  name: string;
-  unit_type: 'token_per_credit' | 'credit_per_optimization' | 'credit_per_translation';
-  value: number;
+  category: 'credit_setting' | 'unit_price';
+  name?: string; // for credit_setting
+  unit_type?: 'token_per_credit' | 'credit_per_optimization' | 'credit_per_translation'; // for credit_setting
+  value?: number; // for credit_setting
+  service_name?: string; // for unit_price
+  action_type?: 'optimization' | 'translation'; // for unit_price
+  credit_cost?: number; // for unit_price
+  price_usd?: number; // for unit_price
+  price_cny?: number; // for unit_price
   updated_at: string;
 }
 
