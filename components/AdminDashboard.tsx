@@ -477,7 +477,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
                               {config.action_type === 'optimization' ? (uiLang === 'zh' ? '优化' : 'Optimization') : (uiLang === 'zh' ? '翻译' : 'Translation')}
                             </span>
-                            <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">Per Action</span>
+                            <div className="flex gap-2">
+                              <span className="text-[8px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded uppercase tracking-tighter">
+                                ${config.price_usd || 0} / ¥{config.price_cny || 0}
+                              </span>
+                              <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">Per Action</span>
+                            </div>
                           </div>
                           <div className="flex items-center gap-3">
                             <input 
@@ -571,7 +576,85 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                  <div className="space-y-2 col-span-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Credits</label>
                     <input type="number" required value={editingPlan.credits} onChange={e => setEditingPlan({...editingPlan, credits: parseInt(e.target.value) || 0})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                 </div>
+                  </div>
+
+                  <div className="col-span-2 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Plan Features (EN)</label>
+                      <button 
+                        type="button" 
+                        onClick={() => setEditingPlan({...editingPlan, features: [...(editingPlan.features || []), '']})}
+                        className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline"
+                      >
+                        + Add Feature
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {(editingPlan.features || ['']).map((feature, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <input 
+                            value={feature} 
+                            onChange={e => {
+                              const newFeatures = [...(editingPlan.features || [])];
+                              newFeatures[idx] = e.target.value;
+                              setEditingPlan({...editingPlan, features: newFeatures});
+                            }} 
+                            className="flex-1 px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm" 
+                            placeholder="Feature description"
+                          />
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const newFeatures = (editingPlan.features || []).filter((_, i) => i !== idx);
+                              setEditingPlan({...editingPlan, features: newFeatures});
+                            }}
+                            className="p-3 text-slate-400 hover:text-red-500"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="col-span-2 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Plan Features (ZH)</label>
+                      <button 
+                        type="button" 
+                        onClick={() => setEditingPlan({...editingPlan, features_zh: [...(editingPlan.features_zh || []), '']})}
+                        className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline"
+                      >
+                        + 添加特性
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {(editingPlan.features_zh || ['']).map((feature, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <input 
+                            value={feature} 
+                            onChange={e => {
+                              const newFeatures = [...(editingPlan.features_zh || [])];
+                              newFeatures[idx] = e.target.value;
+                              setEditingPlan({...editingPlan, features_zh: newFeatures});
+                            }} 
+                            className="flex-1 px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm" 
+                            placeholder="特性描述"
+                          />
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const newFeatures = (editingPlan.features_zh || []).filter((_, i) => i !== idx);
+                              setEditingPlan({...editingPlan, features_zh: newFeatures});
+                            }}
+                            className="p-3 text-slate-400 hover:text-red-500"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                  <div className="col-span-2 flex justify-end gap-4 mt-4">
                     <button type="button" onClick={() => setShowPlanModal(false)} className="px-8 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">Cancel</button>
                     <button type="submit" className="px-12 py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">{uiLang === 'zh' ? '保存' : 'Save'}</button>
@@ -614,15 +697,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                     </select>
                  </div>
                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Credit Cost</label>
-                    <input 
-                      type="number"
-                      required 
-                      value={editingConfig.credit_cost}
-                      onChange={e => setEditingConfig({...editingConfig, credit_cost: parseInt(e.target.value) || 0})}
-                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
-                    />
-                 </div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Credit Cost (Deduction)</label>
+                     <input 
+                       type="number"
+                       required 
+                       value={editingConfig.credit_cost}
+                       onChange={e => setEditingConfig({...editingConfig, credit_cost: parseInt(e.target.value) || 0})}
+                       className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
+                     />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Price per Credit (USD)</label>
+                       <input 
+                         type="number"
+                         step="0.0001"
+                         required 
+                         value={editingConfig.price_usd || 0}
+                         onChange={e => setEditingConfig({...editingConfig, price_usd: parseFloat(e.target.value) || 0})}
+                         className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
+                       />
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Price per Credit (CNY)</label>
+                       <input 
+                         type="number"
+                         step="0.0001"
+                         required 
+                         value={editingConfig.price_cny || 0}
+                         onChange={e => setEditingConfig({...editingConfig, price_cny: parseFloat(e.target.value) || 0})}
+                         className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
+                       />
+                    </div>
+                  </div>
                  <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">{uiLang === 'zh' ? '保存' : 'Save'}</button>
               </form>
            </div>

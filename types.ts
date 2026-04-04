@@ -152,6 +152,8 @@ export interface BillingConfig {
   service_name: string; // 'openai', 'gemini', 'deepseek'
   action_type: 'optimization' | 'translation';
   credit_cost: number;
+  price_usd?: number; // 每个积分的美金单价
+  price_cny?: number; // 每个积分的人民币单价
   updated_at: string;
 }
 

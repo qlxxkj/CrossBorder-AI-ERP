@@ -1,13 +1,15 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ArrowRight, Bot, Zap, Globe, Download, Sparkles, Check, 
   Database, LayoutDashboard, ShoppingCart, TrendingUp, Bell, User, Image as ImageIcon, Search,
-  Cpu, Languages, FileSpreadsheet, Box, Factory, MessageCircle, Github, Twitter, Linkedin
+  Cpu, Languages, FileSpreadsheet, Box, Factory, MessageCircle, Github, Twitter, Linkedin,
+  Loader2
 } from 'lucide-react';
-import { UILanguage } from '../types';
+import { UILanguage, SubscriptionPlan } from '../types';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useTranslation } from '../lib/i18n';
+import { supabase } from '../lib/supabaseClient';
 
 interface LandingPageProps {
   onLogin: () => void;
@@ -18,8 +20,29 @@ interface LandingPageProps {
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onLogoClick, uiLang, onLanguageChange }) => {
   const t = useTranslation(uiLang);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(true);
   
   const currentYear = new Date().getFullYear();
+
+  useEffect(() => {
+    const fetchPlans = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('subscription_plans')
+          .select('*')
+          .order('price_usd', { ascending: true });
+        
+        if (error) throw error;
+        setPlans(data || []);
+      } catch (err) {
+        console.error('Error fetching plans:', err);
+      } finally {
+        setLoadingPlans(false);
+      }
+    };
+    fetchPlans();
+  }, []);
 
   return (
     <div className="min-h-screen bg-white overflow-x-hidden selection:bg-blue-100 selection:text-blue-900 scroll-smooth">
@@ -246,44 +269,69 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onLogoClick, 
             </div>
 
             <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-               {/* Starter */}
-               <div className="p-12 bg-slate-50 rounded-[3rem] border border-slate-100 flex flex-col items-start text-left">
-                  <h4 className="font-black text-slate-400 mb-2 uppercase tracking-widest text-xs">{t('planStarter')}</h4>
-                  <div className="text-6xl font-black text-slate-900 mb-10 tracking-tighter">$0</div>
-                  <ul className="space-y-5 mb-12 flex-1">
-                     <li className="flex gap-4 text-sm text-slate-500 font-bold"><Check size={18} className="text-green-500" /> {t('feature10AI')}</li>
-                     <li className="flex gap-4 text-sm text-slate-500 font-bold"><Check size={18} className="text-green-500" /> {t('featureBasicCollect')}</li>
-                     <li className="flex gap-4 text-sm text-slate-500 font-bold"><Check size={18} className="text-green-500" /> {t('featureCommunity')}</li>
-                  </ul>
-                  <button onClick={onLogin} className="w-full py-5 bg-white text-slate-900 rounded-2xl font-black border border-slate-200 hover:bg-slate-100 transition-all shadow-sm">{t('freeForever')}</button>
-               </div>
-               
-               {/* Growth */}
-               <div className="p-12 bg-blue-600 rounded-[3rem] shadow-[0_40px_80px_-20px_rgba(37,99,235,0.4)] relative flex flex-col items-start text-left text-white scale-105 z-10">
-                  <div className="absolute top-6 right-10 px-4 py-1.5 bg-white text-blue-600 text-[10px] font-black rounded-full shadow-lg tracking-widest uppercase">Popular Choice</div>
-                  <h4 className="font-black text-blue-200 mb-2 uppercase tracking-widest text-xs">{t('planGrowth')}</h4>
-                  <div className="text-6xl font-black mb-10 tracking-tighter">$29<span className="text-lg font-normal opacity-60">/mo</span></div>
-                  <ul className="space-y-5 mb-12 flex-1">
-                     <li className="flex gap-4 text-sm font-bold"><Check size={18} className="text-white" /> {t('featureUnlimited')}</li>
-                     <li className="flex gap-4 text-sm font-bold"><Check size={18} className="text-white" /> {t('feature2000Credits')}</li>
-                     <li className="flex gap-4 text-sm font-bold"><Check size={18} className="text-white" /> {t('featureFull1688')}</li>
-                     <li className="flex gap-4 text-sm font-bold"><Check size={18} className="text-white" /> {t('featureMediaStudio')}</li>
-                  </ul>
-                  <button onClick={onLogin} className="w-full py-5 bg-white text-blue-600 rounded-2xl font-black hover:bg-blue-50 transition-all shadow-xl hover:scale-105 active:scale-95">{t('getStarted')}</button>
-               </div>
-
-               {/* Elite */}
-               <div className="p-12 bg-slate-900 rounded-[3rem] border border-slate-800 flex flex-col items-start text-left text-white">
-                  <h4 className="font-black text-slate-500 mb-2 uppercase tracking-widest text-xs">{t('planElite')}</h4>
-                  <div className="text-6xl font-black mb-10 tracking-tighter">$79<span className="text-lg font-normal opacity-40">/mo</span></div>
-                  <ul className="space-y-5 mb-12 flex-1">
-                     <li className="flex gap-4 text-sm text-slate-400 font-bold"><Check size={18} className="text-blue-500" /> {t('featureCollab')}</li>
-                     <li className="flex gap-4 text-sm text-slate-400 font-bold"><Check size={18} className="text-blue-500" /> {t('featurePriority')}</li>
-                     <li className="flex gap-4 text-sm text-slate-400 font-bold"><Check size={18} className="text-blue-500" /> {t('featureFullAPI')}</li>
-                     <li className="flex gap-4 text-sm text-slate-400 font-bold"><Check size={18} className="text-blue-500" /> {t('featureCustomExport')}</li>
-                  </ul>
-                  <button onClick={onLogin} className="w-full py-5 bg-slate-800 text-white rounded-2xl font-black border border-slate-700 hover:bg-slate-700 transition-all">{t('contactSales')}</button>
-               </div>
+               {loadingPlans ? (
+                 <div className="col-span-3 flex flex-col items-center justify-center py-20 gap-4">
+                   <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+                   <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Loading Plans...</p>
+                 </div>
+               ) : plans.length > 0 ? (
+                 plans.map((plan, idx) => {
+                   const isPopular = idx === 1; // Assume second plan is popular if we have 3
+                   return (
+                     <div 
+                       key={plan.id}
+                       className={`p-12 rounded-[3rem] border flex flex-col items-start text-left transition-all ${
+                         isPopular 
+                           ? 'bg-blue-600 text-white shadow-[0_40px_80px_-20px_rgba(37,99,235,0.4)] relative scale-105 z-10 border-blue-500' 
+                           : plan.price_usd > 50 
+                             ? 'bg-slate-900 text-white border-slate-800' 
+                             : 'bg-slate-50 text-slate-900 border-slate-100'
+                       }`}
+                     >
+                        {isPopular && (
+                          <div className="absolute top-6 right-10 px-4 py-1.5 bg-white text-blue-600 text-[10px] font-black rounded-full shadow-lg tracking-widest uppercase">Popular Choice</div>
+                        )}
+                        <h4 className={`font-black mb-2 uppercase tracking-widest text-xs ${
+                          isPopular ? 'text-blue-200' : plan.price_usd > 50 ? 'text-slate-500' : 'text-slate-400'
+                        }`}>
+                          {uiLang === 'zh' ? plan.name_zh : plan.name}
+                        </h4>
+                        <div className="text-6xl font-black mb-10 tracking-tighter">
+                          {uiLang === 'zh' ? `¥${plan.price_cny}` : `$${plan.price_usd}`}
+                          {plan.price_usd > 0 && <span className={`text-lg font-normal ${isPopular ? 'opacity-60' : 'opacity-40'}`}>/mo</span>}
+                        </div>
+                        <ul className="space-y-5 mb-12 flex-1">
+                           <li className={`flex gap-4 text-sm font-bold ${isPopular ? 'text-white' : plan.price_usd > 50 ? 'text-slate-400' : 'text-slate-500'}`}>
+                             <Check size={18} className={isPopular ? 'text-white' : 'text-blue-500'} /> 
+                             {plan.credits} {uiLang === 'zh' ? '积分' : 'Credits'}
+                           </li>
+                           {(uiLang === 'zh' ? plan.features_zh : plan.features).map((feature, fIdx) => (
+                             <li key={fIdx} className={`flex gap-4 text-sm font-bold ${isPopular ? 'text-white' : plan.price_usd > 50 ? 'text-slate-400' : 'text-slate-500'}`}>
+                               <Check size={18} className={isPopular ? 'text-white' : 'text-blue-500'} /> 
+                               {feature}
+                             </li>
+                           ))}
+                        </ul>
+                        <button 
+                          onClick={onLogin} 
+                          className={`w-full py-5 rounded-2xl font-black transition-all shadow-sm ${
+                            isPopular 
+                              ? 'bg-white text-blue-600 hover:bg-blue-50 hover:scale-105 active:scale-95 shadow-xl' 
+                              : plan.price_usd > 50 
+                                ? 'bg-slate-800 text-white border border-slate-700 hover:bg-slate-700' 
+                                : 'bg-white text-slate-900 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {plan.price_usd === 0 ? t('freeForever') : t('getStarted')}
+                        </button>
+                     </div>
+                   );
+                 })
+               ) : (
+                 <div className="col-span-3 text-center py-20">
+                   <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No plans available.</p>
+                 </div>
+               )}
             </div>
          </div>
       </section>
