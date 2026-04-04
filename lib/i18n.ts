@@ -127,7 +127,9 @@ const translations: any = {
     titleLabel: 'Title',
     weightLabel: 'Weight',
     dimensionsLabel: 'Dimensions',
-    email: 'Email'
+    email: 'Email',
+    billingUnit: 'Unit Price',
+    billingConsumption: 'Consumption'
   },
   zh: {
     back: '返回',
@@ -245,7 +247,9 @@ const translations: any = {
     titleLabel: '标题',
     weightLabel: '重量',
     dimensionsLabel: '尺寸',
-    email: '电子邮箱'
+    email: '电子邮箱',
+    billingUnit: '计费单价',
+    billingConsumption: '计费消耗'
   },
   ja: {
     back: '戻る',

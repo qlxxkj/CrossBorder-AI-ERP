@@ -59,6 +59,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
     { id: 'system:org', icon: <Building size={16} />, label: t('orgMgmt') },
     { id: 'system:roles', icon: <Shield size={16} />, label: t('roleMgmt') },
     { id: 'system:users', icon: <Users size={16} />, label: t('userMgmt') },
+    { id: 'system:billing_unit', icon: <CreditCard size={16} />, label: lang === 'zh' ? '计费单价' : 'Unit Price' },
+    { id: 'system:billing_consumption', icon: <Coins size={16} />, label: lang === 'zh' ? '计费消耗' : 'Consumption' },
   ];
 
   return (

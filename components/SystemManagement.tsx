@@ -5,7 +5,7 @@ import {
   Check, X, Save, ShieldCheck, MapPin, UserCheck, Phone, 
   Settings, Key, RefreshCw, Power, Coins, Sparkles, CreditCard
 } from 'lucide-react';
-import { UILanguage, Organization, UserProfile, Role, RolePermission, BillingConfig } from '../types';
+import { UILanguage, Organization, UserProfile, Role, RolePermission, BillingConfig, BillingUnitPrice } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { useTranslation } from '../lib/i18n';
 
@@ -16,8 +16,8 @@ export interface SystemManagementProps {
   currentUserProfile: UserProfile | null;
   permissions: any[];
   onOrgUpdate: (org: Organization) => void;
-  activeSubTab?: 'users' | 'roles' | 'org' | 'billing';
-  onSubTabChange?: (tab: 'users' | 'roles' | 'org' | 'billing') => void;
+  activeSubTab?: 'users' | 'roles' | 'org' | 'billing_unit' | 'billing_consumption';
+  onSubTabChange?: (tab: 'users' | 'roles' | 'org' | 'billing_unit' | 'billing_consumption') => void;
 }
 
 const MENU_OPTIONS = [
@@ -29,6 +29,8 @@ const MENU_OPTIONS = [
   { id: 'system:org', label: 'orgMgmt', desc: 'Organization details' },
   { id: 'system:roles', label: 'roleMgmt', desc: 'RBAC permissions' },
   { id: 'system:users', label: 'userMgmt', desc: 'Member management' },
+  { id: 'system:billing_unit', label: 'billingUnit', desc: 'Unit price configuration' },
+  { id: 'system:billing_consumption', label: 'billingConsumption', desc: 'Service consumption rates' },
 ];
 
 export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, permissions, onOrgUpdate, activeSubTab = 'users', onSubTabChange }: SystemManagementProps) => {
@@ -37,11 +39,14 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [billingConfigs, setBillingConfigs] = useState<BillingConfig[]>([]);
+  const [billingUnitPrices, setBillingUnitPrices] = useState<BillingUnitPrice[]>([]);
   
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [showRoleModal, setShowRoleModal] = useState(false);
+  const [showUnitPriceModal, setShowUnitPriceModal] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [editingMember, setEditingMember] = useState<UserProfile | null>(null);
+  const [editingUnitPrice, setEditingUnitPrice] = useState<BillingUnitPrice | null>(null);
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState('user');
 
@@ -64,7 +69,10 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
   useEffect(() => {
     if (activeSubTab === 'users' && canSeeUsers) fetchMembers();
     if (activeSubTab === 'roles' && canSeeRoles) fetchRoles();
-    if (activeSubTab === 'billing' && canSeeBilling) fetchBillingConfigs();
+    if ((activeSubTab === 'billing_unit' || activeSubTab === 'billing_consumption') && canSeeBilling) {
+      fetchBillingConfigs();
+      fetchBillingUnitPrices();
+    }
   }, [activeSubTab, orgId, canSeeUsers, canSeeRoles, canSeeBilling]);
 
   useEffect(() => {
@@ -115,6 +123,57 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
     } else {
       setBillingConfigs(data);
     }
+    setLoading(false);
+  };
+
+  const fetchBillingUnitPrices = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('billing_unit_prices').select('*').order('unit_type', { ascending: true });
+    
+    if (!data || data.length === 0) {
+      const defaults = [
+        { name: '1 Credit = 1000 Tokens', unit_type: 'token_per_credit', value: 1000 },
+        { name: '1 Optimization = 5 Credits', unit_type: 'credit_per_optimization', value: 5 },
+        { name: '1 Translation = 2 Credits', unit_type: 'credit_per_translation', value: 2 },
+      ];
+      
+      const { data: inserted } = await supabase.from('billing_unit_prices').insert(
+        defaults.map(d => ({ ...d, updated_at: new Date().toISOString() }))
+      ).select();
+      
+      if (inserted) setBillingUnitPrices(inserted);
+    } else {
+      setBillingUnitPrices(data);
+    }
+    setLoading(false);
+  };
+
+  const handleSaveUnitPrice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUnitPrice) return;
+    setLoading(true);
+    
+    const data = {
+      ...editingUnitPrice,
+      updated_at: new Date().toISOString()
+    };
+
+    if (editingUnitPrice.id) {
+      await supabase.from('billing_unit_prices').update(data).eq('id', editingUnitPrice.id);
+    } else {
+      await supabase.from('billing_unit_prices').insert([{ ...data, id: crypto.randomUUID() }]);
+    }
+    
+    fetchBillingUnitPrices();
+    setShowUnitPriceModal(false);
+    setLoading(false);
+  };
+
+  const handleDeleteUnitPrice = async (id: string) => {
+    if (!window.confirm(uiLang === 'zh' ? '确定删除吗？' : 'Are you sure?')) return;
+    setLoading(true);
+    await supabase.from('billing_unit_prices').delete().eq('id', id);
+    fetchBillingUnitPrices();
     setLoading(false);
   };
 
@@ -231,7 +290,12 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
           {canSeeUsers && <TabButton active={activeSubTab === 'users'} onClick={() => onSubTabChange?.('users')} icon={<Users size={16}/>} label={t('userMgmt')} />}
           {canSeeRoles && <TabButton active={activeSubTab === 'roles'} onClick={() => onSubTabChange?.('roles')} icon={<Shield size={16}/>} label={t('roleMgmt')} />}
           {canSeeOrg && <TabButton active={activeSubTab === 'org'} onClick={() => onSubTabChange?.('org')} icon={<Building size={16}/>} label={t('orgMgmt')} />}
-          {canSeeBilling && <TabButton active={activeSubTab === 'billing'} onClick={() => onSubTabChange?.('billing')} icon={<Coins size={16}/>} label={uiLang === 'zh' ? '计费配置' : 'Billing Config'} />}
+          {canSeeBilling && (
+            <>
+              <TabButton active={activeSubTab === 'billing_unit'} onClick={() => onSubTabChange?.('billing_unit')} icon={<CreditCard size={16}/>} label={uiLang === 'zh' ? '计费单价' : 'Unit Price'} />
+              <TabButton active={activeSubTab === 'billing_consumption'} onClick={() => onSubTabChange?.('billing_consumption')} icon={<Coins size={16}/>} label={uiLang === 'zh' ? '计费消耗' : 'Consumption'} />
+            </>
+          )}
         </div>
       </div>
 
@@ -388,48 +452,93 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
           </div>
         )}
 
-        {activeSubTab === 'billing' && canSeeBilling && (
+        {(activeSubTab === 'billing_unit' || activeSubTab === 'billing_consumption') && canSeeBilling && (
           <div className="p-10 space-y-10 animate-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center justify-between">
               <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight text-sm">
-                <Coins className="text-amber-500" size={18} /> {uiLang === 'zh' ? '计费配置' : 'Billing Configuration'}
+                <Coins className="text-amber-500" size={18} /> 
+                {activeSubTab === 'billing_unit' ? (uiLang === 'zh' ? '计费单价' : 'Unit Price') : (uiLang === 'zh' ? '计费消耗' : 'Consumption')}
               </h3>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {['openai', 'gemini', 'deepseek'].map(service => (
-                <div key={service} className="bg-slate-50 rounded-[2rem] p-8 border border-slate-100 space-y-6">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">
-                      <Sparkles size={20} className={service === 'openai' ? 'text-green-500' : service === 'gemini' ? 'text-blue-500' : 'text-indigo-500'} />
-                    </div>
-                    <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">{service}</h4>
-                  </div>
+            <div className="bg-amber-50 border border-amber-100 p-6 rounded-[2rem] space-y-3">
+              <h4 className="text-[10px] font-black text-amber-800 uppercase tracking-widest flex items-center gap-2">
+                <Sparkles size={14} /> Billing Logic Note
+              </h4>
+              <p className="text-xs text-amber-700 font-bold leading-relaxed">
+                {uiLang === 'zh' 
+                  ? '计费逻辑说明：每个用户账户每月自动赠送 100 个免费积分，月底清零不累计。管理员在此配置的计费单价和消耗标准将立即生效。如果未配置特定引擎的消耗，将回退到通用单价配置。' 
+                  : 'Billing Logic: Each user account receives 100 free credits monthly, which reset at the end of the month and do not accumulate. Changes made here take effect immediately. If no specific engine consumption is configured, the system will fall back to general unit price settings.'}
+              </p>
+            </div>
 
-                  <div className="space-y-4">
-                    {billingConfigs.filter(c => c.service_name === service).map(config => (
-                      <div key={config.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                            {config.action_type === 'optimization' ? (uiLang === 'zh' ? '优化' : 'Optimization') : (uiLang === 'zh' ? '翻译' : 'Translation')}
-                          </span>
-                          <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">Per Action</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <input 
-                            type="number" 
-                            value={config.credit_cost} 
-                            onChange={e => handleUpdateBillingConfig(config.id, parseInt(e.target.value) || 0)}
-                            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-black text-base text-slate-900 outline-none focus:border-indigo-500 transition-all"
-                          />
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Credits</span>
+            {activeSubTab === 'billing_unit' ? (
+              <div className="space-y-6">
+                <div className="flex justify-end">
+                  <button 
+                    onClick={() => { setEditingUnitPrice({ id: '', name: '', unit_type: 'token_per_credit', value: 0, updated_at: '' }); setShowUnitPriceModal(true); }}
+                    className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl"
+                  >
+                    <Plus size={14}/> {uiLang === 'zh' ? '新增单价' : 'Add Unit Price'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {billingUnitPrices.map(price => (
+                    <div key={price.id} className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 group hover:border-indigo-500 transition-all">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-600 shadow-sm"><CreditCard size={20}/></div>
+                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                          <button onClick={() => { setEditingUnitPrice(price); setShowUnitPriceModal(true); }} className="p-2 text-slate-400 hover:text-indigo-600"><Edit3 size={16}/></button>
+                          <button onClick={() => handleDeleteUnitPrice(price.id)} className="p-2 text-slate-400 hover:text-red-500"><Trash2 size={16}/></button>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                      <h4 className="font-black text-slate-800 text-sm">{price.name}</h4>
+                      <div className="mt-4 flex items-baseline gap-2">
+                        <span className="text-2xl font-black text-slate-900">{price.value}</span>
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          {price.unit_type === 'token_per_credit' ? 'Tokens/Credit' : 'Credits/Action'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {['openai', 'gemini', 'deepseek'].map(service => (
+                  <div key={service} className="bg-slate-50 rounded-[2rem] p-8 border border-slate-100 space-y-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">
+                        <Sparkles size={20} className={service === 'openai' ? 'text-green-500' : service === 'gemini' ? 'text-blue-500' : 'text-indigo-500'} />
+                      </div>
+                      <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">{service}</h4>
+                    </div>
+
+                    <div className="space-y-4">
+                      {billingConfigs.filter(c => c.service_name === service).map(config => (
+                        <div key={config.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                              {config.action_type === 'optimization' ? (uiLang === 'zh' ? '优化' : 'Optimization') : (uiLang === 'zh' ? '翻译' : 'Translation')}
+                            </span>
+                            <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">Per Action</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <input 
+                              type="number" 
+                              value={config.credit_cost} 
+                              onChange={e => handleUpdateBillingConfig(config.id, parseInt(e.target.value) || 0)}
+                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-black text-base text-slate-900 outline-none focus:border-indigo-500 transition-all"
+                            />
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Credits</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             
             <div className="p-6 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-4">
               <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-amber-600 shrink-0"><Settings size={20}/></div>
@@ -481,6 +590,53 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
                         <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
                    </select>
+                 </div>
+                 <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">{t('save')}</button>
+              </form>
+           </div>
+        </div>
+      )}
+
+      {/* 计费单价编辑弹窗 */}
+      {showUnitPriceModal && editingUnitPrice && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+           <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+                 <h3 className="font-black text-slate-900 uppercase tracking-tight">{uiLang === 'zh' ? '计费单价配置' : 'Unit Price Config'}</h3>
+                 <button onClick={() => setShowUnitPriceModal(false)}><X size={24}/></button>
+              </div>
+              <form onSubmit={handleSaveUnitPrice} className="p-8 space-y-6">
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{uiLang === 'zh' ? '配置名称' : 'Config Name'}</label>
+                    <input 
+                      required 
+                      value={editingUnitPrice.name}
+                      onChange={e => setEditingUnitPrice({...editingUnitPrice, name: e.target.value})}
+                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
+                      placeholder="e.g. 1 Credit = 1000 Tokens" 
+                    />
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{uiLang === 'zh' ? '计费类型' : 'Unit Type'}</label>
+                    <select 
+                      value={editingUnitPrice.unit_type} 
+                      onChange={e => setEditingUnitPrice({...editingUnitPrice, unit_type: e.target.value as any})}
+                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
+                    >
+                      <option value="token_per_credit">Token per Credit</option>
+                      <option value="credit_per_optimization">Credit per Optimization</option>
+                      <option value="credit_per_translation">Credit per Translation</option>
+                    </select>
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{uiLang === 'zh' ? '数值' : 'Value'}</label>
+                    <input 
+                      type="number"
+                      required 
+                      value={editingUnitPrice.value}
+                      onChange={e => setEditingUnitPrice({...editingUnitPrice, value: parseFloat(e.target.value) || 0})}
+                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" 
+                    />
                  </div>
                  <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">{t('save')}</button>
               </form>

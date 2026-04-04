@@ -155,6 +155,14 @@ export interface BillingConfig {
   updated_at: string;
 }
 
+export interface BillingUnitPrice {
+  id: string;
+  name: string;
+  unit_type: 'token_per_credit' | 'credit_per_optimization' | 'credit_per_translation';
+  value: number;
+  updated_at: string;
+}
+
 export interface FieldMapping {
   header: string;
   source: 'custom' | 'listing' | 'random' | 'template_default';

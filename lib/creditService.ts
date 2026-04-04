@@ -48,18 +48,34 @@ export const checkAndDeductCredits = async (
       .eq('id', userId);
   }
 
-  // 3. Get cost from billing_configs
-  const { data: config } = await supabase
+  // 3. Get cost from billing_configs (specific engine + action)
+  const { data: specificConfig } = await supabase
     .from('billing_configs')
     .select('credit_cost')
     .eq('service_name', serviceName)
     .eq('action_type', actionType)
-    .single();
+    .maybeSingle();
 
-  // Default costs if not configured
-  const cost = config?.credit_cost ?? (actionType === 'optimization' ? 5 : 2);
+  let cost = specificConfig?.credit_cost;
 
-  // 4. Check balance
+  // 4. If no specific engine cost, check billing_unit_prices (general action cost)
+  if (cost === undefined || cost === null) {
+    const unitType = actionType === 'optimization' ? 'credit_per_optimization' : 'credit_per_translation';
+    const { data: generalConfig } = await supabase
+      .from('billing_unit_prices')
+      .select('value')
+      .eq('unit_type', unitType)
+      .maybeSingle();
+    
+    cost = generalConfig?.value;
+  }
+
+  // 5. Default costs if still not configured
+  if (cost === undefined || cost === null) {
+    cost = actionType === 'optimization' ? 5 : 2;
+  }
+
+  // 6. Check balance
   const remaining = currentCreditsTotal - currentCreditsUsed;
   if (remaining < cost) {
     return { 
@@ -68,7 +84,7 @@ export const checkAndDeductCredits = async (
     };
   }
 
-  // 5. Deduct credits
+  // 7. Deduct credits
   const { error: updateError } = await supabase
     .from('user_profiles')
     .update({ credits_used: currentCreditsUsed + cost })
