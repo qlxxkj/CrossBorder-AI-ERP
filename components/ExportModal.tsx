@@ -152,7 +152,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
   const calculateFinalPrice = (listing: Listing, targetMkt: string) => {
     let basePrice = 0; let baseShipping = 0; let needsRateConversion = true;
-    const translation = listing.translations?.[targetMkt];
+    // For ZY_ERP, we always fallback to Master (US) data to ensure consistency with the US station
+    const translation = (targetMkt === 'ZY_ERP') ? null : listing.translations?.[targetMkt];
     if (translation && translation.optimized_price !== undefined && translation.optimized_price !== null) {
       basePrice = translation.optimized_price;
       baseShipping = translation.optimized_shipping || 0;
@@ -240,7 +241,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
 
         const cleaned = listing.cleaned;
         const masterOpt = listing.optimized || {} as OptimizedData;
-        const localizedOpt = (targetMarket !== 'US' && listing.translations?.[targetMarket]) ? listing.translations[targetMarket] : {} as OptimizedData;
+        // For ZY_ERP, we always ignore any existing translations and use Master station's data (English)
+        const localizedOpt = (targetMarket !== 'US' && targetMarket !== 'ZY_ERP' && listing.translations?.[targetMarket]) ? listing.translations[targetMarket] : {} as OptimizedData;
 
         // 核心修正：严格的真值回溯取值函数
         // 逻辑：如果 localizedOpt 里的值是空字符串或 undefined，则穿透寻找 masterOpt，再寻找 cleaned

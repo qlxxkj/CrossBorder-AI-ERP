@@ -31,5 +31,5 @@ export const MARKETPLACES: MarketplaceConfig[] = [
 ];
 
 export const SPECIAL_MARKETPLACES = [
-  { code: 'ZY_ERP', name: '智赢ERP', flag: '📦', currency: 'CNY', lang: 'zh', langName: 'Chinese', domain: 'zyerp.com' },
+  { code: 'ZY_ERP', name: '智赢ERP', flag: '📦', currency: 'CNY', lang: 'en', langName: 'English', domain: 'zyerp.com' },
 ];
