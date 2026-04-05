@@ -212,33 +212,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
             <p className="text-sm text-slate-400 font-bold uppercase tracking-widest italic">Operations & Control Hub</p>
           </div>
         </div>
-
-        <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
-          <button 
-            onClick={() => onSubTabChange?.('users')}
-            className={`px-8 py-3 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${activeSubTab === 'users' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            <Users size={16} /> Users
-          </button>
-          <button 
-            onClick={() => onSubTabChange?.('organizations')}
-            className={`px-8 py-3 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${activeSubTab === 'organizations' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            <Building size={16} /> {uiLang === 'zh' ? '租户管理' : 'Organizations'}
-          </button>
-          <button 
-            onClick={() => onSubTabChange?.('plans')}
-            className={`px-8 py-3 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${activeSubTab === 'plans' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            <Package size={16} /> Plans
-          </button>
-          <button 
-            onClick={() => onSubTabChange?.('billing_mgmt')}
-            className={`px-8 py-3 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${activeSubTab === 'billing_mgmt' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            <Coins size={16} /> {uiLang === 'zh' ? '计费管理' : 'Billing Mgmt'}
-          </button>
-        </div>
       </div>
 
       {activeSubTab === 'users' ? (
@@ -313,12 +286,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                     <tr key={user.id} className={`group hover:bg-slate-50/50 transition-all ${user.is_suspended ? 'opacity-50 grayscale' : ''}`}>
                       <td className="p-8">
                         <div className="flex items-center gap-4">
-                           <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black ${user.role === 'admin' || user.role === 'super_admin' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
+                           <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black shrink-0 ${user.role === 'admin' || user.role === 'super_admin' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
                              {user.id.slice(0, 2).toUpperCase()}
                            </div>
-                           <div>
-                              <p className="font-black text-slate-900 text-sm">{user.email || user.id.slice(0, 8)}</p>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{user.role}</p>
+                           <div className="min-w-0">
+                              <p className="font-black text-slate-900 text-sm truncate">{user.email || 'No Email'}</p>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight truncate">ID: {user.id}</p>
+                              <p className="text-[10px] font-black text-indigo-500 uppercase mt-0.5">{user.role}</p>
                            </div>
                         </div>
                       </td>

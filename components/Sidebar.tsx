@@ -63,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
 
   const adminSubItems = [
     { id: 'admin:users', label: 'Users', icon: <Users size={16} /> },
+    { id: 'admin:organizations', label: lang === 'zh' ? '租户管理' : 'Organizations', icon: <Building size={16} /> },
     { id: 'admin:plans', label: 'Plans', icon: <Package size={16} /> },
     { id: 'admin:billing_mgmt', label: lang === 'zh' ? '计费管理' : 'Billing Mgmt', icon: <Coins size={16} /> },
   ];
