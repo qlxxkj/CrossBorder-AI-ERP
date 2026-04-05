@@ -52,16 +52,21 @@ export const deductCreditsByTokens = async (
   serviceName: string, 
   actionType: 'optimization' | 'translation'
 ): Promise<{ success: boolean; message?: string }> => {
-  // 1. Get tokens per credit setting
-  const { data: config } = await supabase
+  // 1. Get unit prices for coefficient calculation
+  const { data: prices } = await supabase
     .from('billing_management')
-    .select('value')
-    .eq('category', 'credit_setting')
-    .eq('unit_type', 'token_per_credit')
-    .maybeSingle();
+    .select('service_name, price_usd')
+    .eq('category', 'unit_price');
   
-  const tokensPerCredit = config?.value || 1000;
-  const cost = Number((tokens / tokensPerCredit).toFixed(4));
+  // Base: DeepSeek (1000 tokens = 1 credit if price is same)
+  const deepseekPrice = prices?.find(p => p.service_name?.toLowerCase() === 'deepseek')?.price_usd || 0.001; // Fallback if not set
+  const currentServicePrice = prices?.find(p => p.service_name?.toLowerCase() === serviceName.toLowerCase())?.price_usd || deepseekPrice;
+
+  // Coefficient = Other AI Engine Price / DeepSeek Price
+  const coefficient = currentServicePrice / deepseekPrice;
+  
+  // Credits = (Tokens / 1000) * Coefficient
+  const cost = Number(((tokens / 1000) * coefficient).toFixed(4));
 
   // 2. Get current profile
   const { data: profile } = await supabase
@@ -98,7 +103,7 @@ export const deductCreditsByTokens = async (
     console.error("CRITICAL: Failed to write usage log to Supabase:", logError);
     console.error("Log data attempted:", logData);
   } else {
-    console.log(`Successfully logged credit usage: ${cost} credits for ${serviceName} ${actionType}`);
+    console.log(`Successfully logged credit usage: ${cost} credits for ${serviceName} ${actionType} (Tokens: ${tokens}, Coeff: ${coefficient.toFixed(4)})`);
   }
 
   return { success: true };
