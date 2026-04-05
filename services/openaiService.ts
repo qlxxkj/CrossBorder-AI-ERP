@@ -8,7 +8,7 @@ Act as a Senior Amazon Listing Expert. Optimize this listing.
 
 [STRICT BRAND PURGE]
 1. REMOVE BRAND: "${brand}" (including variants like "${brand.toUpperCase()}") MUST be deleted.
-2. REMOVE AUTOMOTIVE: All car/motorcycle brands (Toyota, Tesla, etc.).
+2. REMOVE AUTOMOTIVE: All car/motorcycle brands (Toyota, Tesla, Mazda, etc.).
 3. Retain: Model names, model number, model codes,years,OEM/part numbers.
 
 [CONTENT SPECIFICATIONS]

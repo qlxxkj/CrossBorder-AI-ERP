@@ -9,7 +9,7 @@ Senior Amazon Listing Expert. Optimize this listing.
 [REMOVE BRAND: "${brand}"]
 
 [RULES]
-1. DELETE: "${brand}",all variants,car/motorcycle brands (Toyota,Honda,etc.)
+1. DELETE: "${brand}",all variants,car/motorcycle brands (Toyota,Honda,Mazda,etc.)
 2. KEEP: Vehicle model names,model numbers/ codes (XV50,E90),years,OEM/part numbers
 
 [TITLE]
