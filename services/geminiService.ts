@@ -8,7 +8,7 @@ Act as a Senior Amazon Listing Expert. REWRITE the product data for maximum conv
 
 [CRITICAL REMOVAL]
 1. DELETE BRAND: Completely remove "${Brand}" and variants like "${Brand.toUpperCase()}".
-2. REMOVE AUTOMOTIVE: All car/motorcycle brands (Toyota, Tesla, Mazda, etc.).
+2. REMOVE AUTOMOTIVE BRAND: All car/motorcycle brands (Toyota, Tesla, Mazda, etc.).
 3. Retain: Model names,model number, model codes,years,OEM/part numbers.
 
 [CONTENT REQUIREMENTS]
