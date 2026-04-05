@@ -278,7 +278,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                       <td className="p-8">
                         <div className="flex items-center gap-3">
                            <div>
-                             <p className="text-xs font-black text-slate-900">{user.credits_total - user.credits_used} / {user.credits_total}</p>
+                             <p className="text-xs font-black text-slate-900">
+                               {(user.credits_total - user.credits_used).toFixed(2)} / {user.credits_total}
+                             </p>
                              <div className="w-24 h-1 bg-slate-100 rounded-full mt-1">
                                <div 
                                 className="h-full bg-indigo-500 rounded-full" 

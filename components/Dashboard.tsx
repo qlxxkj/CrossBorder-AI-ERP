@@ -102,7 +102,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ listings, lang, isSyncing,
             <div className="p-2 rounded-xl bg-amber-50 group-hover:scale-110 transition-transform"><Zap className="text-amber-500" size={18} /></div>
           </div>
           <p className="text-4xl font-black text-slate-900 mt-4 tracking-tighter">
-            {(userProfile?.credits_total || 0) - (userProfile?.credits_used || 0)}
+            {Number(((userProfile?.credits_total || 0) - (userProfile?.credits_used || 0)).toFixed(2))}
           </p>
         </div>
 

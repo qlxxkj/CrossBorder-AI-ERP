@@ -81,19 +81,24 @@ export const deductCreditsByTokens = async (
   if (updateError) return { success: false, message: updateError.message };
 
   // 4. Log usage
+  const logData = {
+    user_id: userId,
+    service_name: serviceName,
+    action_type: actionType,
+    tokens_used: tokens,
+    credits_deducted: cost,
+    created_at: new Date().toISOString()
+  };
+
   const { error: logError } = await supabase
     .from('usage_logs')
-    .insert([{
-      user_id: userId,
-      service_name: serviceName,
-      action_type: actionType,
-      tokens_used: tokens,
-      credits_deducted: cost
-    }]);
+    .insert([logData]);
 
   if (logError) {
-    console.warn("Failed to write usage log:", logError);
-    // We don't return false here because credits were already deducted
+    console.error("CRITICAL: Failed to write usage log to Supabase:", logError);
+    console.error("Log data attempted:", logData);
+  } else {
+    console.log(`Successfully logged credit usage: ${cost} credits for ${serviceName} ${actionType}`);
   }
 
   return { success: true };

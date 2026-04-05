@@ -35,7 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
 
   const userEmail = session?.user?.email || 'User';
   const emailPrefix = userEmail.split('@')[0];
-  const creditsLeft = (userProfile.credits_total || 0) - (userProfile.credits_used || 0);
+  const creditsLeft = Number(((userProfile.credits_total || 0) - (userProfile.credits_used || 0)).toFixed(2));
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

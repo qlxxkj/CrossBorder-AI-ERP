@@ -83,7 +83,7 @@ export const BillingCenter: React.FC<BillingCenterProps> = ({ uiLang, userProfil
     </div>
   );
 
-  const creditsLeft = (userProfile?.credits_total || 0) - (userProfile?.credits_used || 0);
+  const creditsLeft = Number(((userProfile?.credits_total || 0) - (userProfile?.credits_used || 0)).toFixed(2));
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-12 animate-in fade-in duration-500 pb-24">

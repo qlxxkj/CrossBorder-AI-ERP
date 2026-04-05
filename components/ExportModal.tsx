@@ -4,7 +4,7 @@ import { X, Download, FileSpreadsheet, Loader2, CheckCircle2, Globe, AlertCircle
 import { Listing, ExportTemplate, UILanguage, FieldMapping, OptimizedData, Category, PriceAdjustment, ExchangeRate } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { MARKETPLACES } from '../lib/marketplaces';
+import { MARKETPLACES, SPECIAL_MARKETPLACES } from '../lib/marketplaces';
 import * as XLSX from 'xlsx';
 
 interface ExportModalProps {
@@ -117,7 +117,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ uiLang, selectedListin
   };
 
   const filteredMarketplaces = useMemo(() => {
-    return MARKETPLACES;
+    return [...MARKETPLACES, ...SPECIAL_MARKETPLACES];
   }, []);
 
   const filteredTemplates = useMemo(() => {

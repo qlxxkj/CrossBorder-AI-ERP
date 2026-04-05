@@ -28,8 +28,8 @@ export const MARKETPLACES: MarketplaceConfig[] = [
   { code: 'AU', name: 'Australia', flag: '🇦🇺', currency: '$', lang: 'en', langName: 'English', domain: 'amazon.com.au' },
   { code: 'SG', name: 'Singapore', flag: '🇸🇬', currency: '$', lang: 'en', langName: 'English', domain: 'amazon.sg' },
   { code: 'EG', name: 'Egypt', flag: '🇪🇬', currency: 'E£', lang: 'ar', langName: 'Arabic', domain: 'amazon.eg' },
+];
+
+export const SPECIAL_MARKETPLACES = [
   { code: 'ZY_ERP', name: '智赢ERP', flag: '📦', currency: 'CNY', lang: 'zh', langName: 'Chinese', domain: 'zyerp.com' },
-  { code: 'MELI', name: 'Mercado Libre', flag: '📦', currency: 'USD', lang: 'es', langName: 'Spanish', domain: 'mercadolibre.com' },
-  { code: 'OZON', name: 'OZON', flag: '📦', currency: 'RUB', lang: 'ru', langName: 'Russian', domain: 'ozon.ru' },
-  { code: 'TIKTOK', name: 'TikTok Shop', flag: '📱', currency: 'USD', lang: 'en', langName: 'English', domain: 'tiktok.com' },
 ];
