@@ -4,24 +4,27 @@ import {
   Users, Package, Settings, Search, Filter, ShieldAlert, 
   MoreHorizontal, ChevronRight, Loader2, Save, Trash2, 
   Clock, CreditCard, Ban, CheckCircle, RefreshCcw, UserPlus, ShieldCheck, Check,
-  Plus, Edit3, X, Coins, Sparkles
+  Plus, Edit3, X, Coins, Sparkles, Building
 } from 'lucide-react';
-import { UserProfile, SubscriptionPlan, UILanguage, BillingManagement } from '../types';
+import { UserProfile, SubscriptionPlan, UILanguage, BillingManagement, Organization } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface AdminDashboardProps {
   uiLang: UILanguage;
-  activeSubTab?: 'users' | 'plans' | 'billing_mgmt';
-  onSubTabChange?: (tab: 'users' | 'plans' | 'billing_mgmt') => void;
+  activeSubTab?: 'users' | 'plans' | 'billing_mgmt' | 'organizations';
+  onSubTabChange?: (tab: 'users' | 'plans' | 'billing_mgmt' | 'organizations') => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSubTab = 'users', onSubTabChange }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [billingItems, setBillingItems] = useState<BillingManagement[]>([]);
   const [activeBillingTab, setActiveBillingTab] = useState<'credit_setting' | 'unit_price'>('credit_setting');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterOrg, setFilterOrg] = useState<string>('all');
+  const [filterRole, setFilterRole] = useState<string>('all');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   
   const [showUnitPriceModal, setShowUnitPriceModal] = useState(false);
@@ -42,8 +45,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
     setLoading(true);
     try {
       if (activeSubTab === 'users') {
-        const { data } = await supabase.from('user_profiles').select('*').order('created_at', { ascending: false });
-        if (data) setUsers(data);
+        const { data: userData } = await supabase.from('user_profiles').select('*').order('created_at', { ascending: false });
+        const { data: orgData } = await supabase.from('organizations').select('*');
+        if (userData) setUsers(userData);
+        if (orgData) setOrganizations(orgData);
+      } else if (activeSubTab === 'organizations') {
+        const { data } = await supabase.from('organizations').select('*').order('created_at', { ascending: false });
+        if (data) setOrganizations(data);
       } else if (activeSubTab === 'plans') {
         const { data } = await supabase.from('subscription_plans').select('*').order('price_usd', { ascending: true });
         if (data) setPlans(data);
@@ -213,6 +221,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
             <Users size={16} /> Users
           </button>
           <button 
+            onClick={() => onSubTabChange?.('organizations')}
+            className={`px-8 py-3 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${activeSubTab === 'organizations' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <Building size={16} /> {uiLang === 'zh' ? '租户管理' : 'Organizations'}
+          </button>
+          <button 
             onClick={() => onSubTabChange?.('plans')}
             className={`px-8 py-3 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${activeSubTab === 'plans' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
           >
@@ -240,6 +254,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                 className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-3xl focus:ring-4 focus:ring-indigo-500/5 outline-none font-bold"
                />
              </div>
+             
+             <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-3xl px-4 py-2">
+                <Building size={18} className="text-slate-400" />
+                <select 
+                  value={filterOrg} 
+                  onChange={(e) => setFilterOrg(e.target.value)}
+                  className="bg-transparent outline-none text-xs font-black uppercase text-slate-600"
+                >
+                  <option value="all">{uiLang === 'zh' ? '所有组织' : 'All Orgs'}</option>
+                  {organizations.map(org => (
+                    <option key={org.id} value={org.id}>{org.name || org.id.slice(0, 8)}</option>
+                  ))}
+                </select>
+             </div>
+
+             <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-3xl px-4 py-2">
+                <ShieldAlert size={18} className="text-slate-400" />
+                <select 
+                  value={filterRole} 
+                  onChange={(e) => setFilterRole(e.target.value)}
+                  className="bg-transparent outline-none text-xs font-black uppercase text-slate-600"
+                >
+                  <option value="all">{uiLang === 'zh' ? '所有角色' : 'All Roles'}</option>
+                  <option value="super_admin">Super Admin</option>
+                  <option value="admin">Admin</option>
+                  <option value="tenant_admin">Tenant Admin</option>
+                  <option value="user">User</option>
+                </select>
+             </div>
+
              <button onClick={fetchData} className="p-4 bg-white border border-slate-200 rounded-3xl text-slate-400 hover:text-indigo-600 transition-all">
                <RefreshCcw size={20} className={loading ? 'animate-spin' : ''} />
              </button>
@@ -250,6 +294,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-widest">
                     <th className="p-8">User Info</th>
+                    <th className="p-8">Organization</th>
                     <th className="p-8">Subscription</th>
                     <th className="p-8">Credits Status</th>
                     <th className="p-8">Last Login</th>
@@ -257,7 +302,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {users.filter(u => u.id.includes(searchTerm)).map(user => (
+                  {users
+                    .filter(u => {
+                      const matchesSearch = u.id.includes(searchTerm) || (u.email && u.email.includes(searchTerm));
+                      const matchesOrg = filterOrg === 'all' || u.org_id === filterOrg;
+                      const matchesRole = filterRole === 'all' || u.role === filterRole;
+                      return matchesSearch && matchesOrg && matchesRole;
+                    })
+                    .map(user => (
                     <tr key={user.id} className={`group hover:bg-slate-50/50 transition-all ${user.is_suspended ? 'opacity-50 grayscale' : ''}`}>
                       <td className="p-8">
                         <div className="flex items-center gap-4">
@@ -265,9 +317,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                              {user.id.slice(0, 2).toUpperCase()}
                            </div>
                            <div>
-                              <p className="font-black text-slate-900 text-sm">{user.id.slice(0, 8)}...</p>
+                              <p className="font-black text-slate-900 text-sm">{user.email || user.id.slice(0, 8)}</p>
                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{user.role}</p>
                            </div>
+                        </div>
+                      </td>
+                      <td className="p-8">
+                        <div className="flex items-center gap-2">
+                          <Building size={14} className="text-slate-300" />
+                          <span className="text-xs font-bold text-slate-600">
+                            {organizations.find(o => o.id === user.org_id)?.name || 'No Org'}
+                          </span>
                         </div>
                       </td>
                       <td className="p-8">
@@ -312,6 +372,109 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                             className={`p-3 rounded-xl transition-all ${user.is_suspended ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'}`}
                            >
                              {isUpdating === user.id ? <Loader2 className="animate-spin" size={18} /> : (user.is_suspended ? <CheckCircle size={18} /> : <Ban size={18} />)}
+                           </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+             </table>
+          </div>
+        </div>
+      ) : activeSubTab === 'organizations' ? (
+        <div className="space-y-6">
+          <div className="flex items-center gap-4">
+             <div className="relative flex-1">
+               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+               <input 
+                type="text" 
+                placeholder="Search organization name or ID..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-3xl focus:ring-4 focus:ring-indigo-500/5 outline-none font-bold"
+               />
+             </div>
+             <button onClick={fetchData} className="p-4 bg-white border border-slate-200 rounded-3xl text-slate-400 hover:text-indigo-600 transition-all">
+               <RefreshCcw size={20} className={loading ? 'animate-spin' : ''} />
+             </button>
+          </div>
+
+          <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
+             <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                    <th className="p-8">Org Info</th>
+                    <th className="p-8">Plan</th>
+                    <th className="p-8">Credits (Used/Total)</th>
+                    <th className="p-8">Created At</th>
+                    <th className="p-8 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {organizations.filter(o => o.name.toLowerCase().includes(searchTerm.toLowerCase()) || o.id.includes(searchTerm)).map(org => (
+                    <tr key={org.id} className="group hover:bg-slate-50/50 transition-all">
+                      <td className="p-8">
+                        <div className="flex items-center gap-4">
+                           <div className="w-12 h-12 rounded-xl bg-slate-900 flex items-center justify-center text-white font-black">
+                             <Building size={20} />
+                           </div>
+                           <div>
+                              <p className="font-black text-slate-900 text-sm">{org.name}</p>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight italic">ID: {org.id.slice(0, 8)}...</p>
+                           </div>
+                        </div>
+                      </td>
+                      <td className="p-8">
+                        <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase border border-indigo-100">
+                          {org.plan_type}
+                        </span>
+                      </td>
+                      <td className="p-8">
+                        <div className="flex items-center gap-3">
+                           <div>
+                             <p className="text-xs font-black text-slate-900">
+                               {org.credits_used.toFixed(2)} / {org.credits_total}
+                             </p>
+                             <div className="w-24 h-1 bg-slate-100 rounded-full mt-1">
+                               <div 
+                                className="h-full bg-indigo-500 rounded-full" 
+                                style={{ width: `${Math.min(100, (org.credits_used / org.credits_total) * 100)}%` }}
+                               ></div>
+                             </div>
+                           </div>
+                        </div>
+                      </td>
+                      <td className="p-8">
+                        <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase">
+                          <Clock size={14} className="text-slate-200" />
+                          {new Date(org.created_at).toLocaleDateString()}
+                        </div>
+                      </td>
+                      <td className="p-8 text-right">
+                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                           <button 
+                            onClick={() => {
+                              const extra = prompt("Add how many credits to organization?", "5000");
+                              if (extra) {
+                                supabase.from('organizations').update({ credits_total: org.credits_total + parseInt(extra) }).eq('id', org.id)
+                                  .then(() => fetchData());
+                              }
+                            }}
+                            className="p-3 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl"
+                           >
+                             <CreditCard size={18} />
+                           </button>
+                           <button 
+                            onClick={() => {
+                              const newName = prompt("Enter new organization name:", org.name);
+                              if (newName && newName !== org.name) {
+                                supabase.from('organizations').update({ name: newName }).eq('id', org.id)
+                                  .then(() => fetchData());
+                              }
+                            }}
+                            className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl"
+                           >
+                             <Edit3 size={18} />
                            </button>
                         </div>
                       </td>
