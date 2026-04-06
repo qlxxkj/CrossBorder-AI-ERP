@@ -28,6 +28,16 @@ interface ListingsManagerProps {
   refreshListings: () => void;
   isInitialLoading?: boolean;
   userProfile?: UserProfile | null;
+  searchTerm: string;
+  setSearchTerm: (val: string) => void;
+  filterMarketplace: string;
+  setFilterMarketplace: (val: string) => void;
+  filterCategory: string;
+  setFilterCategory: (val: string) => void;
+  currentPage: number;
+  setCurrentPage: (val: number | ((prev: number) => number)) => void;
+  itemsPerPage: number;
+  setItemsPerPage: (val: number) => void;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200];
@@ -39,12 +49,19 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   lang, 
   refreshListings,
   isInitialLoading,
-  userProfile
+  userProfile,
+  searchTerm,
+  setSearchTerm,
+  filterMarketplace,
+  setFilterMarketplace,
+  filterCategory,
+  setFilterCategory,
+  currentPage,
+  setCurrentPage,
+  itemsPerPage,
+  setItemsPerPage
 }) => {
   const t = useTranslation(lang);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterMarketplace, setFilterMarketplace] = useState('ALL');
-  const [filterCategory, setFilterCategory] = useState('ALL');
   const [categories, setCategories] = useState<Category[]>([]);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -56,10 +73,6 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   const [batchCategoryId, setBatchCategoryId] = useState('');
   const [rates, setRates] = useState<any[]>([]);
   const [adjustments, setAdjustments] = useState<any[]>([]);
-
-  // Pagination State
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(20);
 
   useEffect(() => {
     fetchCategories();
@@ -86,7 +99,12 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     }
   };
 
+  const isFirstRender = React.useRef(true);
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     setCurrentPage(1);
   }, [searchTerm, filterMarketplace, filterCategory, itemsPerPage]);
 

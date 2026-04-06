@@ -31,6 +31,13 @@ const App: React.FC = () => {
   const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
   const [adminSubTab, setAdminSubTab] = useState<'users' | 'plans' | 'billing_mgmt' | 'organizations'>('users');
   
+  // ListingsManager Persisted State
+  const [listingsSearchTerm, setListingsSearchTerm] = useState('');
+  const [listingsFilterMarketplace, setListingsFilterMarketplace] = useState('ALL');
+  const [listingsFilterCategory, setListingsFilterCategory] = useState('ALL');
+  const [listingsCurrentPage, setListingsCurrentPage] = useState(1);
+  const [listingsItemsPerPage, setListingsItemsPerPage] = useState(20);
+
   // 使用 Ref 记录是否已经处理过初始登录跳转，防止切换 Tab 回来重置视图
   const hasInitiallyRedirected = useRef(false);
   const [initError, setInitError] = useState<string | null>(null);
@@ -384,7 +391,27 @@ const App: React.FC = () => {
     try {
       switch(view) {
         case AppView.LISTINGS:
-          return <ListingsManager onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} listings={listings} setListings={setListings} lang={lang} refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id, userProfile.id)} isInitialLoading={isSyncing} userProfile={userProfile} />;
+          return (
+            <ListingsManager 
+              onSelectListing={(l) => { setSelectedListing(l); setView(AppView.LISTING_DETAIL); }} 
+              listings={listings} 
+              setListings={setListings} 
+              lang={lang} 
+              refreshListings={() => userProfile?.org_id && fetchListings(userProfile.org_id, userProfile.id)} 
+              isInitialLoading={isSyncing} 
+              userProfile={userProfile}
+              searchTerm={listingsSearchTerm}
+              setSearchTerm={setListingsSearchTerm}
+              filterMarketplace={listingsFilterMarketplace}
+              setFilterMarketplace={setListingsFilterMarketplace}
+              filterCategory={listingsFilterCategory}
+              setFilterCategory={setListingsFilterCategory}
+              currentPage={listingsCurrentPage}
+              setCurrentPage={setListingsCurrentPage}
+              itemsPerPage={listingsItemsPerPage}
+              setItemsPerPage={setListingsItemsPerPage}
+            />
+          );
         case AppView.LISTING_DETAIL:
           return selectedListing ? (
             <ListingDetail 
