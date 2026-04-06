@@ -3,14 +3,22 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Search, CheckCircle, Trash2, Download, Package, 
   Loader2, Globe, ChevronLeft, ChevronRight, 
-  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink, Edit3, DollarSign, Copy
+  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink, Edit3, DollarSign, Copy, Sparkles
 } from 'lucide-react';
-import { Listing, UILanguage, Category, UserProfile } from '../types';
+import { Listing, UILanguage, Category, UserProfile, OptimizedData } from '../types';
 import { useTranslation } from '../lib/i18n';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { ManualListingModal } from './ManualListingModal';
 import { ExportModal } from './ExportModal';
 import { MARKETPLACES } from '../lib/marketplaces';
+import { checkUserCredits, deductCreditsByTokens } from '../lib/creditService';
+import { optimizeListingWithAI } from '../services/geminiService';
+import { optimizeListingWithOpenAI } from '../services/openaiService';
+import { optimizeListingWithDeepSeek } from '../services/deepseekService';
+import { translateListingWithAI } from '../services/geminiService';
+import { translateListingWithOpenAI } from '../services/openaiService';
+import { translateListingWithDeepSeek } from '../services/deepseekService';
+import { calculateMarketLogistics, calculateMarketPrice } from './LogisticsEditor';
 
 interface ListingsManagerProps {
   onSelectListing: (listing: Listing) => void;
@@ -43,7 +51,11 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBatchUpdating, setIsBatchUpdating] = useState(false);
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+  const [isBatchAIProcessing, setIsBatchAIProcessing] = useState(false);
+  const [batchAIProgress, setBatchAIProgress] = useState({ current: 0, total: 0 });
   const [batchCategoryId, setBatchCategoryId] = useState('');
+  const [rates, setRates] = useState<any[]>([]);
+  const [adjustments, setAdjustments] = useState<any[]>([]);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -51,7 +63,18 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
 
   useEffect(() => {
     fetchCategories();
+    fetchPricingConfig();
   }, []);
+
+  const fetchPricingConfig = async () => {
+    if (!isSupabaseConfigured()) return;
+    const [rRes, aRes] = await Promise.all([
+      supabase.from('exchange_rates').select('*'),
+      supabase.from('price_adjustments').select('*')
+    ]);
+    if (rRes.data) setRates(rRes.data);
+    if (aRes.data) setAdjustments(aRes.data);
+  };
 
   const fetchCategories = async () => {
     if (!isSupabaseConfigured()) return;
@@ -105,6 +128,138 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
       }
     } finally {
       setIsBatchDeleting(false);
+    }
+  };
+
+  const handleBulkOptimize = async () => {
+    if (selectedIds.size === 0 || !userProfile) return;
+    if (!window.confirm(lang === 'zh' ? `确定对选中的 ${selectedIds.size} 个产品进行 AI 优化？` : `Optimize ${selectedIds.size} listings with AI?`)) return;
+    
+    setIsBatchAIProcessing(true);
+    const selectedListings = listings.filter(l => selectedIds.has(l.id));
+    setBatchAIProgress({ current: 0, total: selectedListings.length });
+    
+    const engine = (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini';
+
+    try {
+      for (let i = 0; i < selectedListings.length; i++) {
+        const listing = selectedListings[i];
+        setBatchAIProgress({ current: i + 1, total: selectedListings.length });
+
+        try {
+          // 1. Pre-check credits
+          const creditRes = await checkUserCredits(userProfile.id);
+          if (!creditRes.success) {
+            alert(lang === 'zh' ? `积分不足: ${creditRes.message}` : creditRes.message);
+            break;
+          }
+
+          // 2. Perform AI optimization
+          const { data: opt, tokens } = engine === 'openai' 
+            ? await optimizeListingWithOpenAI(listing.cleaned) 
+            : engine === 'deepseek' 
+              ? await optimizeListingWithDeepSeek(listing.cleaned) 
+              : await optimizeListingWithAI(listing.cleaned);
+
+          // 3. Deduct credits based on tokens
+          await deductCreditsByTokens(userProfile.id, tokens, engine, 'optimization');
+
+          // 4. Update DB
+          await supabase.from('listings').update({
+            optimized: { 
+              ...opt, 
+              optimized_main_image: listing.optimized?.optimized_main_image, 
+              optimized_other_images: listing.optimized?.optimized_other_images 
+            }, 
+            status: 'optimized',
+            updated_at: new Date().toISOString()
+          }).eq('id', listing.id);
+
+        } catch (err) {
+          console.error(`Failed to optimize listing ${listing.id}:`, err);
+        }
+      }
+      refreshListings();
+      setSelectedIds(new Set());
+    } finally {
+      setIsBatchAIProcessing(false);
+    }
+  };
+
+  const handleBulkTranslate = async () => {
+    if (selectedIds.size === 0 || !userProfile) return;
+    if (!window.confirm(lang === 'zh' ? `确定对选中的 ${selectedIds.size} 个产品进行全站点 AI 翻译？` : `Translate ${selectedIds.size} listings for all markets?`)) return;
+    
+    setIsBatchAIProcessing(true);
+    const selectedListings = listings.filter(l => selectedIds.has(l.id));
+    setBatchAIProgress({ current: 0, total: selectedListings.length });
+    
+    const engine = (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini';
+    const excludedCodes = ['US', 'ZY_ERP', 'MKD', 'OZON', 'TIKTOK'];
+    const marketsToTranslate = MARKETPLACES.filter(m => !excludedCodes.includes(m.code));
+
+    try {
+      for (let i = 0; i < selectedListings.length; i++) {
+        const listing = selectedListings[i];
+        if (!listing.optimized) continue; // Skip if not optimized
+
+        setBatchAIProgress({ current: i + 1, total: selectedListings.length });
+
+        try {
+          let currentTrans = { ...(listing.translations || {}) };
+
+          for (const m of marketsToTranslate) {
+            // Check if we already have a translation for this language
+            const existingTrans = Object.entries(currentTrans).find(([mCode]) => {
+              const mkt = MARKETPLACES.find(mkt => mkt.code === mCode);
+              return mkt && mkt.langName === m.langName;
+            });
+
+            let translation;
+            if (existingTrans) {
+              translation = existingTrans[1];
+            } else {
+              // 1. Pre-check credits
+              const creditRes = await checkUserCredits(userProfile.id);
+              if (!creditRes.success) break;
+
+              let tokens = 0;
+              if (engine === 'openai') {
+                const res = await translateListingWithOpenAI(listing.optimized, m.langName);
+                translation = res.data;
+                tokens = res.tokens;
+              } else if (engine === 'deepseek') {
+                const res = await translateListingWithDeepSeek(listing.optimized, m.langName);
+                translation = res.data;
+                tokens = res.tokens;
+              } else {
+                const res = await translateListingWithAI(listing.optimized, m.langName);
+                translation = res.data;
+                tokens = res.tokens;
+              }
+
+              await deductCreditsByTokens(userProfile.id, tokens, engine, 'translation');
+            }
+
+            const logistics = calculateMarketLogistics(listing, m.code);
+            const priceData = calculateMarketPrice(listing, m.code, rates, adjustments);
+            currentTrans[m.code] = { ...listing.optimized, ...translation, ...logistics, ...priceData } as OptimizedData;
+          }
+
+          // Update DB
+          await supabase.from('listings').update({
+            translations: currentTrans,
+            updated_at: new Date().toISOString()
+          }).eq('id', listing.id);
+
+        } catch (err) {
+          console.error(`Failed to translate listing ${listing.id}:`, err);
+        }
+      }
+      refreshListings();
+      setSelectedIds(new Set());
+    } finally {
+      setIsBatchAIProcessing(false);
     }
   };
 
@@ -249,10 +404,42 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <div className="w-px h-4 bg-indigo-200 mx-2"></div>
+              
+              <button 
+                onClick={handleBulkOptimize} 
+                disabled={isBatchAIProcessing} 
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-[10px] font-black text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-sm disabled:opacity-50"
+                title="AI Optimize Selected"
+              >
+                {isBatchAIProcessing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                {lang === 'zh' ? 'AI 优化' : 'AI Optimize'}
+              </button>
+
+              <button 
+                onClick={handleBulkTranslate} 
+                disabled={isBatchAIProcessing} 
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-[10px] font-black text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-sm disabled:opacity-50"
+                title="AI Translate Selected"
+              >
+                {isBatchAIProcessing ? <Loader2 size={12} className="animate-spin" /> : <Languages size={12} />}
+                {lang === 'zh' ? 'AI 翻译' : 'AI Translate'}
+              </button>
+
+              <div className="w-px h-4 bg-indigo-200 mx-2"></div>
+
               <button onClick={handleBulkDelete} disabled={isBatchDeleting} className="text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all" title="Delete Selected">
                 {isBatchDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
               </button>
            </div>
+           
+           {isBatchAIProcessing && (
+             <div className="flex items-center gap-3 px-6 py-3 bg-indigo-600 text-white rounded-3xl shadow-xl animate-in slide-in-from-right-4">
+               <Loader2 size={16} className="animate-spin" />
+               <span className="text-[10px] font-black uppercase tracking-widest">
+                 Processing {batchAIProgress.current} / {batchAIProgress.total}
+               </span>
+             </div>
+           )}
            
            <button onClick={() => setIsExportModalOpen(true)} disabled={selectedIds.size === 0} className={`px-8 py-4 bg-indigo-600 text-white rounded-3xl hover:bg-indigo-700 font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-indigo-100 ${selectedIds.size === 0 ? 'opacity-40' : ''}`}>
              <Download size={16} /> {t('export')}

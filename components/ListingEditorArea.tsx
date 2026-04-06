@@ -63,23 +63,35 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
       
       let translation;
       let tokens = 0;
-      if (engine === 'openai') {
-        const res = await translateListingWithOpenAI(listing.optimized, targetLang);
-        translation = res.data;
-        tokens = res.tokens;
-      } else if (engine === 'deepseek') {
-        const res = await translateListingWithDeepSeek(listing.optimized, targetLang);
-        translation = res.data;
-        tokens = res.tokens;
-      } else {
-        const res = await translateListingWithAI(listing.optimized, targetLang);
-        translation = res.data;
-        tokens = res.tokens;
-      }
 
-      // 3. Deduct credits based on tokens
-      await deductCreditsByTokens(listing.user_id, tokens, engine, 'translation');
-      if (onRefreshProfile) onRefreshProfile();
+      // Check if we already have a translation for this language to save tokens
+      const existingTrans = Object.entries(listing.translations || {}).find(([mCode]) => {
+        const m = MARKETPLACES.find(mkt => mkt.code === mCode);
+        return m && m.langName === targetLang;
+      });
+
+      if (existingTrans) {
+        console.log(`Reusing existing translation for ${targetLang} from ${existingTrans[0]}`);
+        translation = existingTrans[1];
+      } else {
+        if (engine === 'openai') {
+          const res = await translateListingWithOpenAI(listing.optimized, targetLang);
+          translation = res.data;
+          tokens = res.tokens;
+        } else if (engine === 'deepseek') {
+          const res = await translateListingWithDeepSeek(listing.optimized, targetLang);
+          translation = res.data;
+          tokens = res.tokens;
+        } else {
+          const res = await translateListingWithAI(listing.optimized, targetLang);
+          translation = res.data;
+          tokens = res.tokens;
+        }
+
+        // 3. Deduct credits based on tokens
+        await deductCreditsByTokens(listing.user_id, tokens, engine, 'translation');
+        if (onRefreshProfile) onRefreshProfile();
+      }
 
       const logistics = calculateMarketLogistics(listing, marketCode);
       const priceData = calculateMarketPrice(listing, marketCode, rates, adjustments);
@@ -116,31 +128,42 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         const m = marketsToTranslate[i];
         setTranslateStatus({ current: i + 1, total: marketsToTranslate.length });
         
-        // 1. Pre-check credits for each site
-        const creditRes = await checkUserCredits(listing.user_id);
-        if (!creditRes.success) {
-          alert(uiLang === 'zh' ? `积分不足(已翻译${i}个): ${creditRes.message}` : `Insufficient credits (translated ${i}): ${creditRes.message}`);
-          break;
-        }
-
         let translation;
         let tokens = 0;
-        if (engine === 'openai') {
-          const res = await translateListingWithOpenAI(listing.optimized, m.langName);
-          translation = res.data;
-          tokens = res.tokens;
-        } else if (engine === 'deepseek') {
-          const res = await translateListingWithDeepSeek(listing.optimized, m.langName);
-          translation = res.data;
-          tokens = res.tokens;
-        } else {
-          const res = await translateListingWithAI(listing.optimized, m.langName);
-          translation = res.data;
-          tokens = res.tokens;
-        }
 
-        // 3. Deduct credits based on tokens
-        await deductCreditsByTokens(listing.user_id, tokens, engine, 'translation');
+        // Check if we already have a translation for this language in currentTrans or listing.translations
+        const existingTrans = Object.entries(currentTrans).find(([mCode]) => {
+          const mkt = MARKETPLACES.find(mkt => mkt.code === mCode);
+          return mkt && mkt.langName === m.langName;
+        });
+
+        if (existingTrans) {
+          translation = existingTrans[1];
+        } else {
+          // 1. Pre-check credits for each site
+          const creditRes = await checkUserCredits(listing.user_id);
+          if (!creditRes.success) {
+            alert(uiLang === 'zh' ? `积分不足(已翻译${i}个): ${creditRes.message}` : `Insufficient credits (translated ${i}): ${creditRes.message}`);
+            break;
+          }
+
+          if (engine === 'openai') {
+            const res = await translateListingWithOpenAI(listing.optimized, m.langName);
+            translation = res.data;
+            tokens = res.tokens;
+          } else if (engine === 'deepseek') {
+            const res = await translateListingWithDeepSeek(listing.optimized, m.langName);
+            translation = res.data;
+            tokens = res.tokens;
+          } else {
+            const res = await translateListingWithAI(listing.optimized, m.langName);
+            translation = res.data;
+            tokens = res.tokens;
+          }
+
+          // 3. Deduct credits based on tokens
+          await deductCreditsByTokens(listing.user_id, tokens, engine, 'translation');
+        }
         if (onRefreshProfile) onRefreshProfile();
 
         const logistics = calculateMarketLogistics(listing, m.code);
