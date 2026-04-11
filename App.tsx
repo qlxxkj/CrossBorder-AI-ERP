@@ -268,12 +268,20 @@ const App: React.FC = () => {
     console.log("🚀 [App] Initializing health check...");
     // Backend Health Check
     fetch('/api/health')
-      .then(res => {
+      .then(async res => {
         console.log("📡 [App] Health check response status:", res.status);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`HTTP ${res.status}: ${text.slice(0, 100)}`);
+        }
         return res.json();
       })
       .then(data => console.log("✅ [App] Backend Health Check Success:", data))
-      .catch(err => console.error("❌ [App] Backend Health Check Failed:", err));
+      .catch(err => {
+        console.error("❌ [App] Backend Health Check Failed:", err);
+        // If we are on a custom domain, maybe the API is on a different path?
+        console.warn("💡 Tip: If you are seeing 404, ensure the server is running and routes are correctly defined.");
+      });
 
     // 1. 获取初始会话
     supabase.auth.getSession().then(({ data: { session: cur } }) => {

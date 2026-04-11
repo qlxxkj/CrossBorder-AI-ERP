@@ -28,14 +28,20 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
   // 1. API ROUTES (Directly on app for maximum compatibility)
-  app.get("/api/health", (req, res) => {
-    console.log("[API] Health check requested");
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  app.get(["/api/health", "/health"], (req, res) => {
+    console.log(`[API] Health check requested from ${req.ip} at ${req.url}`);
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      node_env: process.env.NODE_ENV,
+      url: req.url,
+      headers: req.headers
+    });
   });
 
-  app.post("/api/ai/optimize", async (req, res, next) => {
+  app.post(["/api/ai/optimize", "/ai/optimize"], async (req, res, next) => {
     const { engine, cleanedData, infringementWords } = req.body;
-    console.log(`[API] AI Optimize - Engine: ${engine}`);
+    console.log(`[API] AI Optimize - Engine: ${engine}, Path: ${req.url}`);
     try {
       let result;
       if (engine === 'qwen') {
@@ -47,15 +53,17 @@ async function startServer() {
       } else {
         result = await optimizeListingWithAI(cleanedData, infringementWords);
       }
+      console.log(`[API] AI Optimize Success for ${engine}`);
       res.json(result);
-    } catch (error) {
+    } catch (error: any) {
+      console.error(`[API] AI Optimize Error: ${error.message}`);
       next(error);
     }
   });
 
-  app.post("/api/ai/translate", async (req, res, next) => {
+  app.post(["/api/ai/translate", "/ai/translate"], async (req, res, next) => {
     const { engine, sourceData, targetLangName } = req.body;
-    console.log(`[API] AI Translate - Target: ${targetLangName}`);
+    console.log(`[API] AI Translate - Target: ${targetLangName}, Path: ${req.url}`);
     try {
       let result;
       if (engine === 'qwen') {
@@ -67,10 +75,23 @@ async function startServer() {
       } else {
         result = await translateListingWithAI(sourceData, targetLangName);
       }
+      console.log(`[API] AI Translate Success for ${targetLangName}`);
       res.json(result);
-    } catch (error) {
+    } catch (error: any) {
+      console.error(`[API] AI Translate Error: ${error.message}`);
       next(error);
     }
+  });
+
+  // Catch-all for /api to diagnose 404s
+  app.all("/api/*", (req, res) => {
+    console.warn(`[API 404] No match for ${req.method} ${req.url}`);
+    res.status(404).json({ 
+      error: "API Route Not Found", 
+      method: req.method, 
+      path: req.url,
+      suggestion: "Check if the route is defined in server.ts"
+    });
   });
 
   // 2. VITE / STATIC MIDDLEWARE
@@ -86,7 +107,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
