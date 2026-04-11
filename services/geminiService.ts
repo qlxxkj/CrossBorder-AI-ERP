@@ -6,11 +6,12 @@ const UNIFIED_OPTIMIZE_PROMPT = (Brand: string, infringementWords: string[], tim
 Act as a Senior Amazon Listing Expert. REWRITE the product data for maximum conversion.
 [UNIQUE_SESSION_ID: ${timestamp}] 
 
-[CRITICAL REMOVAL]
-1. DELETE BRAND: Completely remove "${Brand}" and variants like "${Brand.toUpperCase()}".
-2. DELETE INFRINGEMENT WORDS: ${infringementWords.length > 0 ? infringementWords.join(', ') : 'None provided.'}
-3. REMOVE AUTOMOTIVE BRAND: All car/motorcycle brands (Toyota, Tesla, Mazda, etc.).
-4. Retain: Model names,model number, model codes,years,OEM/part numbers.
+[CRITICAL: ZERO TOLERANCE FOR BRANDS]
+1. ABSOLUTELY REMOVE THE BRAND: "${Brand}" and all its variations (e.g., "${Brand.toUpperCase()}", "${Brand.toLowerCase()}").
+2. ABSOLUTELY REMOVE ALL AUTOMOTIVE BRANDS: Do NOT mention "Mazda", "Toyota", "Honda", "Tesla", "Ford", "BMW", "Mercedes", etc. even if they are in the source data.
+3. ABSOLUTELY REMOVE THESE INFRINGEMENT WORDS: ${infringementWords.length > 0 ? infringementWords.join(', ') : 'None provided.'}
+4. DO NOT use these words in the Title, Bullets, or Description.
+5. YOU MAY retain: Specific model names (e.g., "CX-5", "Corolla"), model years, and OEM/Part numbers.
 
 [CONTENT REQUIREMENTS]
 1. RADICAL REWRITE: Generate a COMPLETELY NEW title structure. Do NOT use the same word order as the source. Use high-converting synonyms. MAX 150 characters.
@@ -18,7 +19,7 @@ Act as a Senior Amazon Listing Expert. REWRITE the product data for maximum conv
    - Points must cover: [Material], [Design], [Usage], [Compatibility], [Guarantee].
    - MAX 300 characters each.
 3. DESCRIPTION: Pro HTML. 1200-1700 characters.
-4. SEARCH KEYWORDS: Highly relevant. STRICTLY MAX 200 characters total.
+4. SEARCH KEYWORDS: Highly relevant. STRICTLY MAX 200 characters total. NO BRANDS.
 
 Return ONLY a flat JSON object with these EXACT keys: 
 "optimized_title", "optimized_features", "optimized_description", "search_keywords".

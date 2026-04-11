@@ -1,43 +1,31 @@
 
 import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
+const FALLBACK_PROXY = 'https://api.allorigins.win/raw?url=';
 
 const UNIFIED_OPTIMIZE_PROMPT = (brand: string, infringementWords: string[], seed: number) => `
-Senior Amazon Listing Expert. Optimize this listing.
-
+Act as a Senior Amazon Listing Expert. Optimize this listing.
 [SEED: ${seed}]
-[REMOVE BRAND: "${brand}"]
-${infringementWords.length > 0 ? `[REMOVE INFRINGEMENT WORDS: ${infringementWords.join(', ')}]` : ''}
 
-[RULES]
-1. DELETE: "${brand}",all variants,car/motorcycle brands (Toyota,Honda,Mazda,etc.)
-${infringementWords.length > 0 ? `2. DELETE INFRINGEMENT WORDS: ${infringementWords.join(', ')}` : ''}
-3. KEEP: Vehicle model names,model numbers/ codes (XV50,E90),years,OEM/part numbers.
+[CRITICAL: ZERO TOLERANCE FOR BRANDS]
+1. ABSOLUTELY REMOVE THE BRAND: "${brand}" and all its variations (e.g., "${brand.toUpperCase()}", "${brand.toLowerCase()}").
+2. ABSOLUTELY REMOVE ALL AUTOMOTIVE BRANDS: Do NOT mention "Mazda", "Toyota", "Honda", "Tesla", "Ford", "BMW", "Mercedes", etc. even if they are in the source data.
+3. ABSOLUTELY REMOVE THESE INFRINGEMENT WORDS: ${infringementWords.length > 0 ? infringementWords.join(', ') : 'None provided.'}
+4. DO NOT use these words in the Title, Bullets, or Description.
+5. YOU MAY retain: Specific model names (e.g., "CX-5", "Corolla"), model years, and OEM/Part numbers.
 
-[TITLE]
-- Rephrase completely.Use synonyms.
-- Include: function,key features,vehicle models/model numbers,specs
-- MAX 150 chars
+[CONTENT SPECIFICATIONS]
+1. UNIQUE TITLE: Completely rephrase. Use high-converting synonyms. MAX 150 characters.
+2. 5 DISTINCT BULLETS: 
+- 5 unique points as a plain string array. 
+- Format: "KEYWORD: Description".
+- Points must cover: [Material], [Design], [Usage], [Compatibility], [Guarantee].
+- MAX 300 characters each.
+3. SEARCH KEYWORDS: Mandatory field. Highly relevant. STRICTLY MAX 200 characters. NO BRANDS.
+4. DESCRIPTION: 1200-1700 chars HTML.
 
-[BULLETS - 5 points]
-Format: "KEYWORD: Description"
-Cover: Material,Design,Usage,Compatibility,Guarantee
-Compatibility: list model names,model numbers,years,OEM numbers
-MAX 300 chars each
-
-[SEARCH KEYWORDS]
-- Include: part names,models,model numbers,years,OEM numbers
-- NO brands
-- MAX 200 chars
-
-[DESCRIPTION]
-- 1200-1700 chars,HTML
-- Structure: Overview→Features→Specs→Compatibility→Guarantee
-- Include models,model numbers,OEM numbers
-
-[OUTPUT]
-ONLY JSON: {"optimized_title","optimized_features","optimized_description","search_keywords"}
-"optimized_features": array of 5 strings
+[OUTPUT FORMAT]
+Output ONLY a flat JSON object with keys: "optimized_title", "optimized_features", "optimized_description", "search_keywords".
 `;
 
 const normalizeOptimizedData = (raw: any): OptimizedData => {
@@ -84,29 +72,59 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, infr
   if (!apiKey) throw new Error("DeepSeek Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
-  const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
   
   const brandToKill = cleanedData.brand || "ORIGINAL_BRAND";
   const sourceCopy = { ...cleanedData };
 
-  const response = await fetch(finalUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
-      messages: [
-        { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
-        { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
-      ],
-      temperature: 1.0,
-      response_format: { type: "json_object" }
-    })
-  });
-  if (!response.ok) throw new Error(`DeepSeek Error: ${response.status}`);
-  const data = await response.json();
-  const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
-  const tokens = data.usage?.total_tokens || 0;
-  return { data: normalizeOptimizedData(raw), tokens };
+  const fetchWithProxy = async (url: string, useFallback = false) => {
+    const proxy = useFallback ? FALLBACK_PROXY : CORS_PROXY;
+    const finalUrl = baseUrl.includes("deepseek.com") ? `${proxy}${encodeURIComponent(url)}` : url;
+    
+    return await fetch(finalUrl, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json", 
+        "Authorization": `Bearer ${apiKey}` 
+      },
+      body: JSON.stringify({
+        model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+        messages: [
+          { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
+          { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
+        ],
+        temperature: 1.0,
+        response_format: { type: "json_object" }
+      })
+    });
+  };
+
+  try {
+    let response = await fetchWithProxy(endpoint);
+    
+    if (!response.ok && response.status === 0) {
+      console.warn("DeepSeek primary proxy failed, trying fallback...");
+      response = await fetchWithProxy(endpoint, true);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`DeepSeek API Error (${response.status}): ${errorText || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error("DeepSeek returned an empty response.");
+    
+    const raw = JSON.parse(content);
+    const tokens = data.usage?.total_tokens || 0;
+    return { data: normalizeOptimizedData(raw), tokens };
+  } catch (err: any) {
+    console.error("DeepSeek Fetch Error:", err);
+    if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
+      throw new Error("Network error or CORS block. Please check your DEEPSEEK_BASE_URL or try a different network.");
+    }
+    throw err;
+  }
 };
 
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
