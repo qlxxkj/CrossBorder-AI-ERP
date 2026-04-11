@@ -265,6 +265,12 @@ const App: React.FC = () => {
   }, [fetchListings]);
 
   useEffect(() => {
+    // Backend Health Check
+    fetch('/api/health')
+      .then(res => res.json())
+      .then(data => console.log("Backend Health Check:", data))
+      .catch(err => console.error("Backend Health Check Failed:", err));
+
     // 1. 获取初始会话
     supabase.auth.getSession().then(({ data: { session: cur } }) => {
       setSession(cur);

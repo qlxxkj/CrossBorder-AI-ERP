@@ -85,15 +85,11 @@ async function startServer() {
     res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
   });
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-  });
-
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     console.log("Starting Vite in middleware mode...");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -112,6 +108,11 @@ async function startServer() {
       error: err.message || "Internal Server Error",
       stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
+  });
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 }
 
