@@ -1,15 +1,13 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 
-console.log(">>> SERVER.TS IS STARTING UP <<<");
+console.log(">>> [BOOT] SERVER.TS IS STARTING UP <<<");
+console.log(">>> [BOOT] NODE_ENV:", process.env.NODE_ENV);
+console.log(">>> [BOOT] CWD:", process.cwd());
 
-// Static imports for AI services
-import { optimizeListingWithQwen, translateListingWithQwen } from "./services/qwenService";
-import { optimizeListingWithOpenAI, translateListingWithOpenAI } from "./services/openaiService";
-import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from "./services/deepseekService";
-import { optimizeListingWithAI, translateListingWithAI } from "./services/geminiService";
+// Static imports removed to prevent startup crashes
+import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,32 +26,43 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
   // 1. API ROUTES (Directly on app for maximum compatibility)
-  app.get(["/api/health", "/health"], (req, res) => {
-    console.log(`[API] Health check requested from ${req.ip} at ${req.url}`);
-    res.json({ 
-      status: "ok", 
-      timestamp: new Date().toISOString(),
+  app.get("/api/health", (req, res) => {
+    console.log(`[API] Health check: ${req.method} ${req.url}`);
+    res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  app.get("/api/ping", (req, res) => {
+    res.send("pong");
+  });
+
+  app.get("/api/debug", (req, res) => {
+    res.json({
       node_env: process.env.NODE_ENV,
-      url: req.url,
-      headers: req.headers
+      has_qwen_key: !!process.env.QWEN_API_KEY,
+      has_openai_key: !!process.env.OPENAI_API_KEY,
+      has_deepseek_key: !!process.env.DEEPSEEK_API_KEY,
+      has_gemini_key: !!process.env.GEMINI_API_KEY,
     });
   });
 
-  app.post(["/api/ai/optimize", "/ai/optimize"], async (req, res, next) => {
+  app.post("/api/ai/optimize", async (req, res, next) => {
     const { engine, cleanedData, infringementWords } = req.body;
-    console.log(`[API] AI Optimize - Engine: ${engine}, Path: ${req.url}`);
+    console.log(`[API] AI Optimize: ${engine}`);
     try {
       let result;
       if (engine === 'qwen') {
+        const { optimizeListingWithQwen } = await import("./services/qwenService");
         result = await optimizeListingWithQwen(cleanedData, infringementWords);
       } else if (engine === 'openai') {
+        const { optimizeListingWithOpenAI } = await import("./services/openaiService");
         result = await optimizeListingWithOpenAI(cleanedData, infringementWords);
       } else if (engine === 'deepseek') {
+        const { optimizeListingWithDeepSeek } = await import("./services/deepseekService");
         result = await optimizeListingWithDeepSeek(cleanedData, infringementWords);
       } else {
+        const { optimizeListingWithAI } = await import("./services/geminiService");
         result = await optimizeListingWithAI(cleanedData, infringementWords);
       }
-      console.log(`[API] AI Optimize Success for ${engine}`);
       res.json(result);
     } catch (error: any) {
       console.error(`[API] AI Optimize Error: ${error.message}`);
@@ -61,21 +70,24 @@ async function startServer() {
     }
   });
 
-  app.post(["/api/ai/translate", "/ai/translate"], async (req, res, next) => {
+  app.post("/api/ai/translate", async (req, res, next) => {
     const { engine, sourceData, targetLangName } = req.body;
-    console.log(`[API] AI Translate - Target: ${targetLangName}, Path: ${req.url}`);
+    console.log(`[API] AI Translate: ${targetLangName}`);
     try {
       let result;
       if (engine === 'qwen') {
+        const { translateListingWithQwen } = await import("./services/qwenService");
         result = await translateListingWithQwen(sourceData, targetLangName);
       } else if (engine === 'openai') {
+        const { translateListingWithOpenAI } = await import("./services/openaiService");
         result = await translateListingWithOpenAI(sourceData, targetLangName);
       } else if (engine === 'deepseek') {
+        const { translateListingWithDeepSeek } = await import("./services/deepseekService");
         result = await translateListingWithDeepSeek(sourceData, targetLangName);
       } else {
+        const { translateListingWithAI } = await import("./services/geminiService");
         result = await translateListingWithAI(sourceData, targetLangName);
       }
-      console.log(`[API] AI Translate Success for ${targetLangName}`);
       res.json(result);
     } catch (error: any) {
       console.error(`[API] AI Translate Error: ${error.message}`);
@@ -83,27 +95,21 @@ async function startServer() {
     }
   });
 
-  // Catch-all for /api to diagnose 404s
-  app.all("/api/*", (req, res) => {
-    console.warn(`[API 404] No match for ${req.method} ${req.url}`);
-    res.status(404).json({ 
-      error: "API Route Not Found", 
-      method: req.method, 
-      path: req.url,
-      suggestion: "Check if the route is defined in server.ts"
-    });
-  });
-
   // 2. VITE / STATIC MIDDLEWARE
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     console.log("Starting Vite in middleware mode...");
-    const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    try {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true, hmr: false },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (e) {
+      console.error("Failed to load Vite middleware:", e);
+    }
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
