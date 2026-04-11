@@ -129,7 +129,8 @@ const translations: any = {
     dimensionsLabel: 'Dimensions',
     email: 'Email',
     billingUnit: 'Unit Price',
-    billingConsumption: 'Consumption'
+    billingConsumption: 'Consumption',
+    brandWords: 'Brand Words'
   },
   zh: {
     back: '返回',
@@ -249,7 +250,8 @@ const translations: any = {
     dimensionsLabel: '尺寸',
     email: '电子邮箱',
     billingUnit: '计费单价',
-    billingConsumption: '计费消耗'
+    billingConsumption: '计费消耗',
+    brandWords: '品牌词管理'
   },
   ja: {
     back: '戻る',

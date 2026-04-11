@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   LayoutDashboard, List, Tags, Coins, Layout, ShieldCheck, 
   Settings, LogOut, ChevronRight, Crown, Zap, Package,
-  CreditCard, ArrowUpRight, Mail, ChevronDown, Building, Users, Shield
+  CreditCard, ArrowUpRight, Mail, ChevronDown, Building, Users, Shield, FileText
 } from 'lucide-react';
 import { UILanguage, UserProfile } from '../types';
 import { useTranslation } from '../lib/i18n';
@@ -59,6 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
     { id: 'system:org', icon: <Building size={16} />, label: t('orgMgmt') },
     { id: 'system:roles', icon: <Shield size={16} />, label: t('roleMgmt') },
     { id: 'system:users', icon: <Users size={16} />, label: t('userMgmt') },
+    { id: 'system:brand_words', icon: <FileText size={16} />, label: t('brandWords') },
   ];
 
   const adminSubItems = [

@@ -30,6 +30,7 @@ const MENU_OPTIONS = [
   { id: 'system:org', label: 'orgMgmt', desc: 'Organization details' },
   { id: 'system:roles', label: 'roleMgmt', desc: 'RBAC permissions' },
   { id: 'system:users', label: 'userMgmt', desc: 'Member management' },
+  { id: 'system:brand_words', label: 'brandWords', desc: 'AI optimization filtering' },
 ];
 
 export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, permissions, onOrgUpdate, activeSubTab = 'users', onSubTabChange }: SystemManagementProps) => {
@@ -59,7 +60,7 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
   const canSeeUsers = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:users');
   const canSeeRoles = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:roles');
   const canSeeOrg = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:org');
-  const canSeeBrandWords = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'listings'); // Reuse listings permission for brand words for now
+  const canSeeBrandWords = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:brand_words');
 
   useEffect(() => {
     if (activeSubTab === 'users' && canSeeUsers) fetchMembers();
@@ -193,7 +194,7 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
           {canSeeUsers && <TabButton active={activeSubTab === 'users'} onClick={() => onSubTabChange?.('users')} icon={<Users size={16}/>} label={t('userMgmt')} />}
           {canSeeRoles && <TabButton active={activeSubTab === 'roles'} onClick={() => onSubTabChange?.('roles')} icon={<Shield size={16}/>} label={t('roleMgmt')} />}
           {canSeeOrg && <TabButton active={activeSubTab === 'org'} onClick={() => onSubTabChange?.('org')} icon={<Building size={16}/>} label={t('orgMgmt')} />}
-          {canSeeBrandWords && <TabButton active={activeSubTab === 'brand_words'} onClick={() => onSubTabChange?.('brand_words')} icon={<FileText size={16}/>} label={uiLang === 'zh' ? '品牌词' : 'Brand Words'} />}
+          {canSeeBrandWords && <TabButton active={activeSubTab === 'brand_words'} onClick={() => onSubTabChange?.('brand_words')} icon={<FileText size={16}/>} label={t('brandWords')} />}
         </div>
       </div>
 
