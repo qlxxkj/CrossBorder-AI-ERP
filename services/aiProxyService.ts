@@ -12,7 +12,9 @@ export const optimizeListingProxy = async (
 
   // Call backend for other engines to avoid CORS and hide keys
   const apiUrl = "/api/ai/optimize";
-  console.log(`Fetching AI Optimization from: ${apiUrl} (Engine: ${engine})`);
+  const fullUrl = new URL(apiUrl, window.location.origin).href;
+  console.log(`[AI Proxy] Optimizing with ${engine}. Fetching from: ${fullUrl}`);
+  
   const response = await fetch(apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -45,7 +47,9 @@ export const translateListingProxy = async (
 
   // Call backend for other engines
   const apiUrl = "/api/ai/translate";
-  console.log(`Fetching AI Translation from: ${apiUrl} (Engine: ${engine})`);
+  const fullUrl = new URL(apiUrl, window.location.origin).href;
+  console.log(`[AI Proxy] Translating with ${engine}. Fetching from: ${fullUrl}`);
+  
   const response = await fetch(apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

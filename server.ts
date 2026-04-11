@@ -36,9 +36,13 @@ async function startServer() {
   });
 
   // API Route for AI Optimization
+  app.get("/api/ai/optimize", (req, res) => {
+    res.json({ message: "AI Optimize endpoint is alive. Use POST to optimize." });
+  });
+
   app.post("/api/ai/optimize", async (req, res, next) => {
     const { engine, cleanedData, infringementWords } = req.body;
-    console.log(`Optimizing with ${engine}...`);
+    console.log(`[${new Date().toISOString()}] POST /api/ai/optimize - Engine: ${engine}`);
     
     try {
       let result;
@@ -58,9 +62,13 @@ async function startServer() {
   });
 
   // API Route for AI Translation
+  app.get("/api/ai/translate", (req, res) => {
+    res.json({ message: "AI Translate endpoint is alive. Use POST to translate." });
+  });
+
   app.post("/api/ai/translate", async (req, res, next) => {
     const { engine, sourceData, targetLangName } = req.body;
-    console.log(`Translating to ${targetLangName} with ${engine}...`);
+    console.log(`[${new Date().toISOString()}] POST /api/ai/translate - Target: ${targetLangName}`);
     
     try {
       let result;
