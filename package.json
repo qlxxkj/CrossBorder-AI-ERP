@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx api/index.ts",
-    "start": "tsx api/index.ts",
+    "dev": "tsx api/server.ts",
+    "start": "tsx api/server.ts",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit"
