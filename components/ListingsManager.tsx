@@ -12,13 +12,7 @@ import { ManualListingModal } from './ManualListingModal';
 import { ExportModal } from './ExportModal';
 import { MARKETPLACES } from '../lib/marketplaces';
 import { checkUserCredits, deductCreditsByTokens } from '../lib/creditService';
-import { optimizeListingWithAI } from '../services/geminiService';
-import { optimizeListingWithOpenAI } from '../services/openaiService';
-import { optimizeListingWithDeepSeek } from '../services/deepseekService';
-import { optimizeListingWithQwen } from '../services/qwenService';
-import { translateListingWithAI } from '../services/geminiService';
-import { translateListingWithOpenAI } from '../services/openaiService';
-import { translateListingWithDeepSeek } from '../services/deepseekService';
+import { optimizeListingProxy, translateListingProxy } from '../services/aiProxyService';
 import { calculateMarketLogistics, calculateMarketPrice } from './LogisticsEditor';
 
 interface ListingsManagerProps {
@@ -162,7 +156,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
         .from('infringement_words')
         .select('word')
         .eq('org_id', userProfile.org_id);
-      const infringementWords = (infringementWordsData || []).map(bw => bw.word.toLowerCase());
+      const infringementWords = (infringementWordsData || []).map(bw => bw.word.trim()).filter(Boolean);
 
       if (infringementWords.length === 0) {
         alert(lang === 'zh' ? '未配置侵权词库' : 'No infringement words configured');
@@ -171,6 +165,10 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
 
       const selectedListings = listings.filter(l => selectedIds.has(l.id));
       let updatedCount = 0;
+
+      const escapeRegExp = (string: string) => {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      };
 
       for (const listing of selectedListings) {
         let hasChanges = false;
@@ -181,7 +179,8 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
           if (!text) return text;
           let newText = text;
           infringementWords.forEach(word => {
-            const regex = new RegExp(`\\b${word}\\b`, 'gi');
+            const escapedWord = escapeRegExp(word);
+            const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
             if (regex.test(newText)) {
               newText = newText.replace(regex, '').replace(/\s\s+/g, ' ').trim();
               hasChanges = true;
@@ -229,11 +228,14 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
         .from('infringement_words')
         .select('word')
         .eq('org_id', userProfile.org_id);
-      const infringementWords = (infringementWordsData || []).map(bw => bw.word);
+      const infringementWords = (infringementWordsData || []).map(bw => bw.word.trim()).filter(Boolean);
 
       // 0. Perform Infringement Check first (Pre-optimization)
       const selectedListings = listings.filter(l => selectedIds.has(l.id));
-      const infringementWordsLower = infringementWords.map(w => w.toLowerCase());
+      
+      const escapeRegExp = (string: string) => {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      };
       
       const preCheckListings = selectedListings.map(listing => {
         let hasChanges = false;
@@ -241,8 +243,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
         const removeWords = (text: string) => {
           if (!text) return text;
           let newText = text;
-          infringementWordsLower.forEach(word => {
-            const regex = new RegExp(`\\b${word}\\b`, 'gi');
+          infringementWords.forEach(word => {
+            const escapedWord = escapeRegExp(word);
+            const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
             if (regex.test(newText)) {
               newText = newText.replace(regex, '').replace(/\s\s+/g, ' ').trim();
               hasChanges = true;
@@ -278,21 +281,10 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
             break;
           }
 
-          // 2. Perform AI optimization
-          let opt, tokens;
-          if (engine === 'openai') {
-            const res = await optimizeListingWithOpenAI(listing.cleaned, infringementWords);
-            opt = res.data; tokens = res.tokens;
-          } else if (engine === 'deepseek') {
-            const res = await optimizeListingWithDeepSeek(listing.cleaned, infringementWords);
-            opt = res.data; tokens = res.tokens;
-          } else if (engine === 'qwen') {
-            const res = await optimizeListingWithQwen(listing.cleaned, infringementWords);
-            opt = res.data; tokens = res.tokens;
-          } else {
-            const res = await optimizeListingWithAI(listing.cleaned, infringementWords);
-            opt = res.data; tokens = res.tokens;
-          }
+          // 2. Perform AI optimization via Proxy (which uses Edge functions)
+          const res = await optimizeListingProxy(engine, listing.cleaned, infringementWords);
+          const opt = res.data; 
+          const tokens = res.tokens;
 
           // 3. Deduct credits based on tokens
           await deductCreditsByTokens(userProfile.id, tokens, engine, 'optimization');
@@ -349,6 +341,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
             });
 
             let translation;
+            let tokens = 0;
             if (existingTrans) {
               translation = existingTrans[1];
             } else {
@@ -356,20 +349,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               const creditRes = await checkUserCredits(userProfile.id);
               if (!creditRes.success) break;
 
-              let tokens = 0;
-              if (engine === 'openai') {
-                const res = await translateListingWithOpenAI(listing.optimized, m.langName);
-                translation = res.data;
-                tokens = res.tokens;
-              } else if (engine === 'deepseek') {
-                const res = await translateListingWithDeepSeek(listing.optimized, m.langName);
-                translation = res.data;
-                tokens = res.tokens;
-              } else {
-                const res = await translateListingWithAI(listing.optimized, m.langName);
-                translation = res.data;
-                tokens = res.tokens;
-              }
+              const res = await translateListingProxy(engine, listing.optimized, m.langName);
+              translation = res.data;
+              tokens = res.tokens;
 
               await deductCreditsByTokens(userProfile.id, tokens, engine, 'translation');
             }

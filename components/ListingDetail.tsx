@@ -88,18 +88,22 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             .from('infringement_words')
             .select('word')
             .eq('org_id', localListing.org_id);
-          const infringementWords = (infringementWordsData || []).map(bw => bw.word);
+          const infringementWords = (infringementWordsData || []).map(bw => bw.word.trim()).filter(Boolean);
 
           // 2.5 Pre-optimization infringement check
           let cleaned = { ...localListing.cleaned };
           let hasInfringement = false;
-          const infringementWordsLower = infringementWords.map(w => w.toLowerCase());
+
+          const escapeRegExp = (string: string) => {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          };
           
           const removeWords = (text: string) => {
             if (!text) return text;
             let newText = text;
-            infringementWordsLower.forEach(word => {
-              const regex = new RegExp(`\\b${word}\\b`, 'gi');
+            infringementWords.forEach(word => {
+              const escapedWord = escapeRegExp(word);
+              const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
               if (regex.test(newText)) {
                 newText = newText.replace(regex, '').replace(/\s\s+/g, ' ').trim();
                 hasInfringement = true;
