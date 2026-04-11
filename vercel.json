@@ -5,6 +5,8 @@
     }
   },
   "rewrites": [
+    { "source": "/api/ai/optimize", "destination": "/api/ai/optimize" },
+    { "source": "/api/ai/translate", "destination": "/api/ai/translate" },
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]

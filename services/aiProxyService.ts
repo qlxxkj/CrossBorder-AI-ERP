@@ -1,25 +1,27 @@
 import { CleanedData, OptimizedData } from "../types";
-import { optimizeListingWithAI, translateListingWithAI } from "./geminiService";
-import { optimizeListingWithOpenAI, translateListingWithOpenAI } from "./openaiService";
-import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from "./deepseekService";
-import { optimizeListingWithQwen, translateListingWithQwen } from "./qwenService";
 
 export const optimizeListingProxy = async (
   engine: 'gemini' | 'openai' | 'deepseek' | 'qwen',
   cleanedData: CleanedData,
   infringementWords: string[] = []
 ): Promise<{ data: OptimizedData; tokens: number }> => {
-  console.log(`🔥 [AI Proxy] Optimizing with ${engine} (Client-Side)`);
+  console.log(`🚀 [AI Proxy] Optimizing with ${engine} via Edge Function`);
   
-  if (engine === 'openai') {
-    return await optimizeListingWithOpenAI(cleanedData, infringementWords);
-  } else if (engine === 'deepseek') {
-    return await optimizeListingWithDeepSeek(cleanedData, infringementWords);
-  } else if (engine === 'qwen') {
-    return await optimizeListingWithQwen(cleanedData, infringementWords);
-  } else {
-    return await optimizeListingWithAI(cleanedData, infringementWords);
+  const response = await fetch("/api/ai/optimize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ engine, cleanedData, infringementWords })
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || `Edge Error: ${response.status}`);
   }
+
+  const rawData = await response.json();
+  // We still use the normalization logic from the original services if needed, 
+  // but for now we'll assume the Edge function returns a clean object.
+  return { data: rawData as OptimizedData, tokens: 0 };
 };
 
 export const translateListingProxy = async (
@@ -27,15 +29,19 @@ export const translateListingProxy = async (
   sourceData: OptimizedData,
   targetLangName: string
 ): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
-  console.log(`🔥 [AI Proxy] Translating with ${engine} (Client-Side)`);
+  console.log(`🚀 [AI Proxy] Translating with ${engine} via Edge Function`);
   
-  if (engine === 'openai') {
-    return await translateListingWithOpenAI(sourceData, targetLangName);
-  } else if (engine === 'deepseek') {
-    return await translateListingWithDeepSeek(sourceData, targetLangName);
-  } else if (engine === 'qwen') {
-    return await translateListingWithQwen(sourceData, targetLangName);
-  } else {
-    return await translateListingWithAI(sourceData, targetLangName);
+  const response = await fetch("/api/ai/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ engine, sourceData, targetLangName })
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || `Edge Error: ${response.status}`);
   }
+
+  const rawData = await response.json();
+  return { data: rawData as Partial<OptimizedData>, tokens: 0 };
 };
