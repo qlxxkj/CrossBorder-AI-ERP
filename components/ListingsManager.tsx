@@ -33,6 +33,7 @@ interface ListingsManagerProps {
   setCurrentPage: (val: number | ((prev: number) => number)) => void;
   itemsPerPage: number;
   setItemsPerPage: (val: number) => void;
+  onRefreshProfile?: () => void;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200];
@@ -54,7 +55,8 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   currentPage,
   setCurrentPage,
   itemsPerPage,
-  setItemsPerPage
+  setItemsPerPage,
+  onRefreshProfile
 }) => {
   const t = useTranslation(lang);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -288,6 +290,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
 
           // 3. Deduct credits based on tokens
           await deductCreditsByTokens(userProfile.id, tokens, engine, 'optimization');
+          if (onRefreshProfile) onRefreshProfile();
 
           // 4. Update DB
           await supabase.from('listings').update({
@@ -354,6 +357,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               tokens = res.tokens;
 
               await deductCreditsByTokens(userProfile.id, tokens, engine, 'translation');
+              if (onRefreshProfile) onRefreshProfile();
             }
 
             const logistics = calculateMarketLogistics(listing, m.code);

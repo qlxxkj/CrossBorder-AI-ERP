@@ -428,6 +428,7 @@ const App: React.FC = () => {
               setCurrentPage={setListingsCurrentPage}
               itemsPerPage={listingsItemsPerPage}
               setItemsPerPage={setListingsItemsPerPage}
+              onRefreshProfile={() => session?.user?.id && fetchIdentity(session.user.id, session)}
             />
           );
         case AppView.LISTING_DETAIL:

@@ -40,7 +40,7 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
     const initialImg = listing.optimized?.optimized_main_image || listing.cleaned?.main_image || '';
     setPreviewImage(initialImg); 
     localStorage.setItem('amzbot_preferred_engine', engine);
-  }, [listing.id, engine]);
+  }, [listing, engine]);
 
   const syncToSupabase = async (targetListing: Listing) => {
     if (!isSupabaseConfigured()) return;
