@@ -90,9 +90,9 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData, infrin
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-4o",
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
         messages: [
-          { role: "system", content: "You are an Amazon SEO expert. You MUST return valid JSON with keys: optimized_title, optimized_features (array of 5), optimized_description, search_keywords." },
+          { role: "system", content: "Amazon SEO expert. JSON only." },
           { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(cleanedData.brand || "BRAND", infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
         ],
         temperature: 0.8,
@@ -134,9 +134,9 @@ ${JSON.stringify(sourceData)}`;
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-4o",
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
         messages: [
-          { role: "system", content: "You are a professional Amazon marketplace translator. Your output is used by an automated ERP. Any missing JSON keys will break the system. You must ALWAYS return all requested keys." },
+          { role: "system", content: "Professional Amazon translator. JSON only." },
           { role: "user", content: prompt }
         ],
         temperature: 0.3,

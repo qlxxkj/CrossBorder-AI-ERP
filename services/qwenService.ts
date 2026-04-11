@@ -88,9 +88,9 @@ export const optimizeListingWithQwen = async (cleanedData: CleanedData, infringe
         "Authorization": `Bearer ${apiKey}` 
       },
       body: JSON.stringify({
-        model: process.env.QWEN_MODEL || "qwen-max",
+        model: process.env.QWEN_MODEL || "qwen-plus",
         messages: [
-          { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
+          { role: "system", content: "Amazon SEO Master. JSON only." },
           { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
         ],
         temperature: 0.7,
@@ -127,7 +127,7 @@ export const translateListingWithQwen = async (sourceData: OptimizedData, target
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: process.env.QWEN_MODEL || "qwen-max",
+        model: process.env.QWEN_MODEL || "qwen-plus",
         messages: [
           { role: "system", content: "Professional Amazon translator. JSON only." },
           { role: "user", content: `Translate to "${targetLangName}". JSON keys: optimized_title, optimized_features, optimized_description, search_keywords. NO brands. Data: ${JSON.stringify(sourceData)}` }

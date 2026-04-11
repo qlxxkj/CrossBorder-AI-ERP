@@ -2,6 +2,12 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// Static imports for AI services
+import { optimizeListingWithQwen, translateListingWithQwen } from "./services/qwenService";
+import { optimizeListingWithOpenAI, translateListingWithOpenAI } from "./services/openaiService";
+import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from "./services/deepseekService";
+import { optimizeListingWithAI, translateListingWithAI } from "./services/geminiService";
+
 console.log(">>> [BOOT] SERVER.TS IS STARTING UP <<<");
 console.log(">>> [BOOT] NODE_ENV:", process.env.NODE_ENV);
 console.log(">>> [BOOT] CWD:", process.cwd());
@@ -40,47 +46,48 @@ app.get("/api/debug", (req, res) => {
 
 app.post("/api/ai/optimize", async (req, res, next) => {
   const { engine, cleanedData, infringementWords } = req.body;
+  console.log(`[API] AI Optimize Start - Engine: ${engine}`);
   try {
     let result;
     if (engine === 'qwen') {
-      const { optimizeListingWithQwen } = await import("./services/qwenService");
       result = await optimizeListingWithQwen(cleanedData, infringementWords);
     } else if (engine === 'openai') {
-      const { optimizeListingWithOpenAI } = await import("./services/openaiService");
       result = await optimizeListingWithOpenAI(cleanedData, infringementWords);
     } else if (engine === 'deepseek') {
-      const { optimizeListingWithDeepSeek } = await import("./services/deepseekService");
       result = await optimizeListingWithDeepSeek(cleanedData, infringementWords);
     } else {
-      const { optimizeListingWithAI } = await import("./services/geminiService");
       result = await optimizeListingWithAI(cleanedData, infringementWords);
     }
+    console.log("[API] AI Optimize Success");
     res.json(result);
   } catch (error: any) {
-    next(error);
+    console.error(`[API] AI Optimize CRITICAL ERROR: ${error.message}`);
+    res.status(500).json({ 
+      error: error.message, 
+      engine: engine,
+      tip: "If this is a timeout, try a faster model or check Vercel logs."
+    });
   }
 });
 
 app.post("/api/ai/translate", async (req, res, next) => {
   const { engine, sourceData, targetLangName } = req.body;
+  console.log(`[API] AI Translate Start - Target: ${targetLangName}`);
   try {
     let result;
     if (engine === 'qwen') {
-      const { translateListingWithQwen } = await import("./services/qwenService");
       result = await translateListingWithQwen(sourceData, targetLangName);
     } else if (engine === 'openai') {
-      const { translateListingWithOpenAI } = await import("./services/openaiService");
       result = await translateListingWithOpenAI(sourceData, targetLangName);
     } else if (engine === 'deepseek') {
-      const { translateListingWithDeepSeek } = await import("./services/deepseekService");
       result = await translateListingWithDeepSeek(sourceData, targetLangName);
     } else {
-      const { translateListingWithAI } = await import("./services/geminiService");
       result = await translateListingWithAI(sourceData, targetLangName);
     }
     res.json(result);
   } catch (error: any) {
-    next(error);
+    console.error(`[API] AI Translate ERROR: ${error.message}`);
+    res.status(500).json({ error: error.message });
   }
 });
 
