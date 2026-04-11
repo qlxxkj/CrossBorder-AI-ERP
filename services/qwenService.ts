@@ -1,7 +1,11 @@
 
 import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
-const FALLBACK_PROXY = 'https://api.allorigins.win/raw?url=';
+const FALLBACK_PROXIES = [
+  'https://api.allorigins.win/raw?url=',
+  'https://thingproxy.freeboard.io/fetch/',
+  'https://api.codetabs.com/v1/proxy?quest='
+];
 
 const UNIFIED_OPTIMIZE_PROMPT = (brand: string, infringementWords: string[], seed: number) => `
 Act as a Senior Amazon Listing Expert. Optimize this listing.
@@ -76,56 +80,54 @@ export const optimizeListingWithQwen = async (cleanedData: CleanedData, infringe
   const brandToKill = cleanedData.brand || "ORIGINAL_BRAND";
   const sourceCopy = { ...cleanedData };
 
-  const fetchWithProxy = async (url: string, useFallback = false) => {
-    const proxy = useFallback ? FALLBACK_PROXY : CORS_PROXY;
-    const finalUrl = baseUrl.includes("dashscope.aliyuncs.com") ? `${proxy}${encodeURIComponent(url)}` : url;
-    
-    return await fetch(finalUrl, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json", 
-        "Authorization": `Bearer ${apiKey}` 
-      },
-      body: JSON.stringify({
-        model: process.env.QWEN_MODEL || "qwen-max",
-        messages: [
-          { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
-          { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
-        ],
-        temperature: 0.7,
-        response_format: { type: "json_object" }
-      })
-    });
-  };
+  const allProxies = [null, CORS_PROXY, ...FALLBACK_PROXIES];
+  let lastError = null;
 
-  try {
-    let response = await fetchWithProxy(endpoint);
-    
-    if (!response.ok && response.status === 0) {
-      // Potential CORS/Network error with first proxy, try fallback
-      console.warn("Qwen primary proxy failed, trying fallback...");
-      response = await fetchWithProxy(endpoint, true);
-    }
+  for (const proxy of allProxies) {
+    try {
+      const finalUrl = (proxy && baseUrl.includes("dashscope.aliyuncs.com")) 
+        ? `${proxy}${encodeURIComponent(endpoint)}` 
+        : endpoint;
+      
+      const response = await fetch(finalUrl, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bearer ${apiKey}` 
+        },
+        body: JSON.stringify({
+          model: process.env.QWEN_MODEL || "qwen-max",
+          messages: [
+            { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
+            { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
+          ],
+          temperature: 0.7,
+          response_format: { type: "json_object" }
+        })
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Qwen API Error (${response.status}): ${errorText || response.statusText}`);
-    }
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Qwen API Error (${response.status}): ${errorText || response.statusText}`);
+      }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("Qwen returned an empty response.");
-    
-    const raw = JSON.parse(content);
-    const tokens = data.usage?.total_tokens || 0;
-    return { data: normalizeOptimizedData(raw), tokens };
-  } catch (err: any) {
-    console.error("Qwen Fetch Error:", err);
-    if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
-      throw new Error("Network error or CORS block. This often happens with Aliyun DashScope in a browser. Please check your QWEN_BASE_URL or try a different network.");
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) throw new Error("Qwen returned an empty response.");
+      
+      const raw = JSON.parse(content);
+      const tokens = data.usage?.total_tokens || 0;
+      return { data: normalizeOptimizedData(raw), tokens };
+    } catch (err: any) {
+      console.warn(`Attempt with proxy [${proxy || 'Direct'}] failed:`, err.message);
+      lastError = err;
+      // If it's a definite API error (like 401 or 400), don't retry other proxies
+      if (err.message && err.message.includes("API Error")) throw err;
+      continue;
     }
-    throw err;
   }
+
+  throw lastError || new Error("All connection attempts failed.");
 };
 
 export const translateListingWithQwen = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {

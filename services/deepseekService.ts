@@ -1,7 +1,11 @@
 
 import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
-const FALLBACK_PROXY = 'https://api.allorigins.win/raw?url=';
+const FALLBACK_PROXIES = [
+  'https://api.allorigins.win/raw?url=',
+  'https://thingproxy.freeboard.io/fetch/',
+  'https://api.codetabs.com/v1/proxy?quest='
+];
 
 const UNIFIED_OPTIMIZE_PROMPT = (brand: string, infringementWords: string[], seed: number) => `
 Act as a Senior Amazon Listing Expert. Optimize this listing.
@@ -76,55 +80,53 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, infr
   const brandToKill = cleanedData.brand || "ORIGINAL_BRAND";
   const sourceCopy = { ...cleanedData };
 
-  const fetchWithProxy = async (url: string, useFallback = false) => {
-    const proxy = useFallback ? FALLBACK_PROXY : CORS_PROXY;
-    const finalUrl = baseUrl.includes("deepseek.com") ? `${proxy}${encodeURIComponent(url)}` : url;
-    
-    return await fetch(finalUrl, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json", 
-        "Authorization": `Bearer ${apiKey}` 
-      },
-      body: JSON.stringify({
-        model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
-        messages: [
-          { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
-          { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
-        ],
-        temperature: 1.0,
-        response_format: { type: "json_object" }
-      })
-    });
-  };
+  const allProxies = [null, CORS_PROXY, ...FALLBACK_PROXIES];
+  let lastError = null;
 
-  try {
-    let response = await fetchWithProxy(endpoint);
-    
-    if (!response.ok && response.status === 0) {
-      console.warn("DeepSeek primary proxy failed, trying fallback...");
-      response = await fetchWithProxy(endpoint, true);
-    }
+  for (const proxy of allProxies) {
+    try {
+      const finalUrl = (proxy && baseUrl.includes("deepseek.com")) 
+        ? `${proxy}${encodeURIComponent(endpoint)}` 
+        : endpoint;
+      
+      const response = await fetch(finalUrl, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bearer ${apiKey}` 
+        },
+        body: JSON.stringify({
+          model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+          messages: [
+            { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
+            { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
+          ],
+          temperature: 1.0,
+          response_format: { type: "json_object" }
+        })
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`DeepSeek API Error (${response.status}): ${errorText || response.statusText}`);
-    }
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`DeepSeek API Error (${response.status}): ${errorText || response.statusText}`);
+      }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("DeepSeek returned an empty response.");
-    
-    const raw = JSON.parse(content);
-    const tokens = data.usage?.total_tokens || 0;
-    return { data: normalizeOptimizedData(raw), tokens };
-  } catch (err: any) {
-    console.error("DeepSeek Fetch Error:", err);
-    if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
-      throw new Error("Network error or CORS block. Please check your DEEPSEEK_BASE_URL or try a different network.");
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) throw new Error("DeepSeek returned an empty response.");
+      
+      const raw = JSON.parse(content);
+      const tokens = data.usage?.total_tokens || 0;
+      return { data: normalizeOptimizedData(raw), tokens };
+    } catch (err: any) {
+      console.warn(`Attempt with proxy [${proxy || 'Direct'}] failed:`, err.message);
+      lastError = err;
+      if (err.message && err.message.includes("API Error")) throw err;
+      continue;
     }
-    throw err;
   }
+
+  throw lastError || new Error("All connection attempts failed.");
 };
 
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
