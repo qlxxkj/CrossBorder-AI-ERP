@@ -27,34 +27,15 @@ async function startServer() {
   app.use(express.json({ limit: '20mb' }));
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-  // Debug middleware for ALL requests
-  app.use((req, res, next) => {
-    if (req.url.startsWith('/api')) {
-      console.log(`[API DEBUG] ${req.method} ${req.url}`);
-    }
-    next();
+  // 1. API ROUTES (Directly on app for maximum compatibility)
+  app.get("/api/health", (req, res) => {
+    console.log("[API] Health check requested");
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  // 1. API ROUTES (Must be before Vite/Static)
-  const apiRouter = express.Router();
-
-  apiRouter.get("/health", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString(), env: process.env.NODE_ENV });
-  });
-
-  apiRouter.get("/test", (req, res) => {
-    res.json({ message: "API Router is working" });
-  });
-
-  // AI Optimization
-  apiRouter.all("/ai/optimize", async (req, res, next) => {
-    if (req.method === 'GET') {
-      return res.json({ message: "AI Optimize endpoint is alive. Use POST to optimize." });
-    }
-    
+  app.post("/api/ai/optimize", async (req, res, next) => {
     const { engine, cleanedData, infringementWords } = req.body;
     console.log(`[API] AI Optimize - Engine: ${engine}`);
-    
     try {
       let result;
       if (engine === 'qwen') {
@@ -72,15 +53,9 @@ async function startServer() {
     }
   });
 
-  // AI Translation
-  apiRouter.all("/ai/translate", async (req, res, next) => {
-    if (req.method === 'GET') {
-      return res.json({ message: "AI Translate endpoint is alive. Use POST to translate." });
-    }
-
+  app.post("/api/ai/translate", async (req, res, next) => {
     const { engine, sourceData, targetLangName } = req.body;
     console.log(`[API] AI Translate - Target: ${targetLangName}`);
-    
     try {
       let result;
       if (engine === 'qwen') {
@@ -97,14 +72,6 @@ async function startServer() {
       next(error);
     }
   });
-
-  // API 404 handler
-  apiRouter.all("*", (req, res) => {
-    console.warn(`[API 404] ${req.method} ${req.url}`);
-    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
-  });
-
-  app.use("/api", apiRouter);
 
   // 2. VITE / STATIC MIDDLEWARE
 
