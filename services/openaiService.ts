@@ -1,6 +1,6 @@
 
 import { CleanedData, OptimizedData } from "../types";
-const CORS_PROXY = 'https://corsproxy.io/?';
+const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 
 const UNIFIED_OPTIMIZE_PROMPT = (brand: string, infringementWords: string[], seed: number) => `
 Act as a Senior Amazon Listing Expert. Optimize this listing. 
@@ -87,11 +87,15 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData, infrin
   
   // Use CORS proxy if on client
   const finalUrl = typeof window !== 'undefined' ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
+  console.log(`🚀 [OpenAI] Fetching via proxy: ${finalUrl}`);
   
   try {
     const response = await fetch(finalUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      headers: { 
+        "Content-Type": "application/json", 
+        "Authorization": `Bearer ${apiKey}` 
+      },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || "gpt-4o-mini",
         messages: [
@@ -102,7 +106,13 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData, infrin
         response_format: { type: "json_object" }
       })
     });
-    if (!response.ok) throw new Error(`OpenAI Status: ${response.status}`);
+    
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`❌ [OpenAI] Error ${response.status}:`, errText);
+      throw new Error(`OpenAI API Error (${response.status}): ${errText.slice(0, 100)}`);
+    }
+    
     const data = await response.json();
     const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
     const tokens = data.usage?.total_tokens || 0;

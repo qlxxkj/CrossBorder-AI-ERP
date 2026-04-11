@@ -1,6 +1,6 @@
 
 import { CleanedData, OptimizedData } from "../types";
-const CORS_PROXY = 'https://corsproxy.io/?';
+const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 const FALLBACK_PROXIES = [
   'https://api.allorigins.win/raw?url=',
   'https://thingproxy.freeboard.io/fetch/',
@@ -79,6 +79,7 @@ export const optimizeListingWithQwen = async (cleanedData: CleanedData, infringe
   
   // Use CORS proxy if on client
   const finalUrl = typeof window !== 'undefined' ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
+  console.log(`🚀 [Qwen] Fetching via proxy: ${finalUrl}`);
   
   const brandToKill = cleanedData.brand || "ORIGINAL_BRAND";
   const sourceCopy = { ...cleanedData };
@@ -103,6 +104,7 @@ export const optimizeListingWithQwen = async (cleanedData: CleanedData, infringe
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error(`❌ [Qwen] Error ${response.status}:`, errorText);
       throw new Error(`Qwen API Error (${response.status}): ${errorText || response.statusText}`);
     }
 
