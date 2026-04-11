@@ -147,6 +147,13 @@ export interface ExchangeRate {
   created_at: string;
 }
 
+export interface BrandWord {
+  id: string;
+  org_id: string;
+  word: string;
+  created_at: string;
+}
+
 export interface BillingManagement {
   id: string;
   category: 'credit_setting' | 'unit_price';

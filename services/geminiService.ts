@@ -2,14 +2,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { CleanedData, OptimizedData } from "../types";
 
-const UNIFIED_OPTIMIZE_PROMPT = (Brand: string, timestamp: number) => `
+const UNIFIED_OPTIMIZE_PROMPT = (Brand: string, brandWords: string[], timestamp: number) => `
 Act as a Senior Amazon Listing Expert. REWRITE the product data for maximum conversion.
 [UNIQUE_SESSION_ID: ${timestamp}] 
 
 [CRITICAL REMOVAL]
 1. DELETE BRAND: Completely remove "${Brand}" and variants like "${Brand.toUpperCase()}".
-2. REMOVE AUTOMOTIVE BRAND: All car/motorcycle brands (Toyota, Tesla, Mazda, etc.).
-3. Retain: Model names,model number, model codes,years,OEM/part numbers.
+${brandWords.length > 0 ? `2. DELETE CUSTOM BRAND WORDS: ${brandWords.join(', ')}` : ''}
+3. REMOVE AUTOMOTIVE BRAND: All car/motorcycle brands (Toyota, Tesla, Mazda, etc.).
+4. Retain: Model names,model number, model codes,years,OEM/part numbers.
 
 [CONTENT REQUIREMENTS]
 1. RADICAL REWRITE: Generate a COMPLETELY NEW title structure. Do NOT use the same word order as the source. Use high-converting synonyms. MAX 150 characters.
@@ -79,7 +80,7 @@ const extractJSONObject = (text: string) => {
   } catch (e) { return null; }
 };
 
-export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<{ data: OptimizedData; tokens: number }> => {
+export const optimizeListingWithAI = async (cleanedData: CleanedData, brandWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const brandToKill = cleanedData.brand || "UNKNOWN_BRAND";
@@ -87,7 +88,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData): Promise<{
     
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: UNIFIED_OPTIMIZE_PROMPT(brandToKill, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}\n\n[TASK] Completely rewrite the title. Avoid old structure.`,
+      contents: UNIFIED_OPTIMIZE_PROMPT(brandToKill, brandWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}\n\n[TASK] Completely rewrite the title. Avoid old structure.`,
       config: { 
         responseMimeType: "application/json",
         temperature: 1.0 

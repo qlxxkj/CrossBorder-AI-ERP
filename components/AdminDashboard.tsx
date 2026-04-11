@@ -75,6 +75,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
         { category: 'unit_price', service_name: 'openai', price_usd: 0.05, price_cny: 0.35 },
         { category: 'unit_price', service_name: 'gemini', price_usd: 0.03, price_cny: 0.21 },
         { category: 'unit_price', service_name: 'deepseek', price_usd: 0.02, price_cny: 0.14 },
+        { category: 'unit_price', service_name: 'qwen', price_usd: 0.02, price_cny: 0.14 },
       ];
       const { data: inserted } = await supabase.from('billing_management').insert(
         defaults.map(d => ({ ...d, updated_at: new Date().toISOString() }))
@@ -587,12 +588,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                   <Plus size={14}/> {uiLang === 'zh' ? '新增单价配置' : 'Add Unit Price'}
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {['openai', 'gemini', 'deepseek'].map(service => (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                {['openai', 'gemini', 'deepseek', 'qwen'].map(service => (
                   <div key={service} className="bg-slate-50 rounded-[2rem] p-8 border border-slate-100 space-y-6">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">
-                        <Sparkles size={20} className={service === 'openai' ? 'text-green-500' : service === 'gemini' ? 'text-blue-500' : 'text-indigo-500'} />
+                     <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">
+                        <Sparkles size={20} className={service === 'openai' ? 'text-green-500' : service === 'gemini' ? 'text-blue-500' : service === 'deepseek' ? 'text-indigo-500' : 'text-amber-500'} />
                       </div>
                       <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">{service}</h4>
                     </div>
@@ -805,6 +806,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                       <option value="openai">OpenAI</option>
                       <option value="gemini">Gemini</option>
                       <option value="deepseek">DeepSeek</option>
+                      <option value="qwen">Qwen</option>
                     </select>
                  </div>
                  <div className="grid grid-cols-2 gap-4">

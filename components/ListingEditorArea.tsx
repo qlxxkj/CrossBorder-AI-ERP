@@ -8,6 +8,7 @@ import { checkUserCredits, deductCreditsByTokens } from '../lib/creditService';
 import { translateListingWithAI } from '../services/geminiService';
 import { translateListingWithOpenAI } from '../services/openaiService';
 import { translateListingWithDeepSeek } from '../services/deepseekService';
+import { translateListingWithQwen } from '../services/qwenService';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface ListingEditorAreaProps {
@@ -16,7 +17,7 @@ interface ListingEditorAreaProps {
   setActiveMarket: (m: string) => void;
   updateListing: (updates: Partial<Listing>) => void;
   onSync: () => void;
-  engine: 'gemini' | 'openai' | 'deepseek';
+  engine: 'gemini' | 'openai' | 'deepseek' | 'qwen';
   uiLang: UILanguage;
   onRefreshProfile?: () => void;
 }
@@ -80,6 +81,10 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
           tokens = res.tokens;
         } else if (engine === 'deepseek') {
           const res = await translateListingWithDeepSeek(listing.optimized, targetLang);
+          translation = res.data;
+          tokens = res.tokens;
+        } else if (engine === 'qwen') {
+          const res = await translateListingWithQwen(listing.optimized, targetLang);
           translation = res.data;
           tokens = res.tokens;
         } else {
@@ -153,6 +158,10 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
             tokens = res.tokens;
           } else if (engine === 'deepseek') {
             const res = await translateListingWithDeepSeek(listing.optimized, m.langName);
+            translation = res.data;
+            tokens = res.tokens;
+          } else if (engine === 'qwen') {
+            const res = await translateListingWithQwen(listing.optimized, m.langName);
             translation = res.data;
             tokens = res.tokens;
           } else {

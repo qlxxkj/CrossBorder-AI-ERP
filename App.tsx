@@ -28,7 +28,7 @@ const App: React.FC = () => {
   const [lang, setLang] = useState<UILanguage>('zh');
   const [listings, setListings] = useState<Listing[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org'>('users');
+  const [systemSubTab, setSystemSubTab] = useState<'users' | 'roles' | 'org' | 'brand_words'>('users');
   const [adminSubTab, setAdminSubTab] = useState<'users' | 'plans' | 'billing_mgmt' | 'organizations'>('users');
   
   // ListingsManager Persisted State

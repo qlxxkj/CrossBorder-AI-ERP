@@ -6,7 +6,7 @@ import { useTranslation } from '../lib/i18n';
 
 interface ListingTopBarProps {
   onBack: () => void;
-  engine: 'gemini' | 'openai' | 'deepseek';
+  engine: 'gemini' | 'openai' | 'deepseek' | 'qwen';
   setEngine: (e: any) => void;
   onOptimize: () => void;
   isOptimizing: boolean;
@@ -30,9 +30,9 @@ export const ListingTopBar: React.FC<ListingTopBarProps> = ({
         </button> 
         <div className="h-6 w-px bg-slate-200"></div>
         <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
-           {(['gemini', 'openai', 'deepseek'] as const).map(e => (
+           {(['gemini', 'openai', 'deepseek', 'qwen'] as const).map(e => (
              <button key={e} onClick={() => setEngine(e)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all ${engine === e ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
-               {e === 'gemini' ? <Zap size={12}/> : e === 'openai' ? <Brain size={12}/> : <Cpu size={12}/>} {e}
+               {e === 'gemini' ? <Zap size={12}/> : e === 'openai' ? <Brain size={12}/> : e === 'deepseek' ? <Cpu size={12}/> : <Sparkles size={12}/>} {e}
              </button>
            ))}
         </div>

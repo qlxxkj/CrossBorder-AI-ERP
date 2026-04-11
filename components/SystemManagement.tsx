@@ -3,11 +3,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Shield, Building, Plus, Trash2, Mail, Edit3, Loader2, 
   Check, X, Save, ShieldCheck, MapPin, UserCheck, Phone, 
-  Settings, Key, RefreshCw, Power, Coins, Sparkles, CreditCard
+  Settings, Key, RefreshCw, Power, Coins, Sparkles, CreditCard, FileText
 } from 'lucide-react';
 import { UILanguage, Organization, UserProfile, Role, RolePermission } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { useTranslation } from '../lib/i18n';
+import { BrandWordManager } from './BrandWordManager';
 
 export interface SystemManagementProps {
   uiLang: UILanguage;
@@ -16,8 +17,8 @@ export interface SystemManagementProps {
   currentUserProfile: UserProfile | null;
   permissions: any[];
   onOrgUpdate: (org: Organization) => void;
-  activeSubTab?: 'users' | 'roles' | 'org';
-  onSubTabChange?: (tab: 'users' | 'roles' | 'org') => void;
+  activeSubTab?: 'users' | 'roles' | 'org' | 'brand_words';
+  onSubTabChange?: (tab: 'users' | 'roles' | 'org' | 'brand_words') => void;
 }
 
 const MENU_OPTIONS = [
@@ -58,6 +59,7 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
   const canSeeUsers = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:users');
   const canSeeRoles = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:roles');
   const canSeeOrg = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:org');
+  const canSeeBrandWords = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'listings'); // Reuse listings permission for brand words for now
 
   useEffect(() => {
     if (activeSubTab === 'users' && canSeeUsers) fetchMembers();
@@ -191,6 +193,7 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
           {canSeeUsers && <TabButton active={activeSubTab === 'users'} onClick={() => onSubTabChange?.('users')} icon={<Users size={16}/>} label={t('userMgmt')} />}
           {canSeeRoles && <TabButton active={activeSubTab === 'roles'} onClick={() => onSubTabChange?.('roles')} icon={<Shield size={16}/>} label={t('roleMgmt')} />}
           {canSeeOrg && <TabButton active={activeSubTab === 'org'} onClick={() => onSubTabChange?.('org')} icon={<Building size={16}/>} label={t('orgMgmt')} />}
+          {canSeeBrandWords && <TabButton active={activeSubTab === 'brand_words'} onClick={() => onSubTabChange?.('brand_words')} icon={<FileText size={16}/>} label={uiLang === 'zh' ? '品牌词' : 'Brand Words'} />}
         </div>
       </div>
 
@@ -345,6 +348,10 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
                </div>
             </div>
           </div>
+        )}
+
+        {activeSubTab === 'brand_words' && (
+          <BrandWordManager orgId={orgId} uiLang={uiLang} />
         )}
       </div>
 

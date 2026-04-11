@@ -13,6 +13,7 @@ import { checkUserCredits, deductCreditsByTokens } from '../lib/creditService';
 import { optimizeListingWithAI } from '../services/geminiService';
 import { optimizeListingWithOpenAI } from '../services/openaiService';
 import { optimizeListingWithDeepSeek } from '../services/deepseekService';
+import { optimizeListingWithQwen } from '../services/qwenService';
 
 interface ListingDetailProps {
   listing: Listing;
@@ -26,7 +27,7 @@ interface ListingDetailProps {
 
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onDelete, onNext, uiLang, onRefreshProfile }) => {
   const [activeMarket, setActiveMarket] = useState('US');
-  const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
+  const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek' | 'qwen'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showImageEditor, setShowImageEditor] = useState(false);
@@ -85,14 +86,30 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             return;
           }
 
-          // 2. Perform AI optimization
-          const { data: opt, tokens } = engine === 'openai' 
-            ? await optimizeListingWithOpenAI(localListing.cleaned) 
-            : engine === 'deepseek' 
-              ? await optimizeListingWithDeepSeek(localListing.cleaned) 
-              : await optimizeListingWithAI(localListing.cleaned);
+          // 2. Fetch brand words
+          const { data: brandWordsData } = await supabase
+            .from('brand_words')
+            .select('word')
+            .eq('org_id', localListing.org_id);
+          const brandWords = (brandWordsData || []).map(bw => bw.word);
 
-          // 3. Deduct credits based on tokens
+          // 3. Perform AI optimization
+          let opt, tokens;
+          if (engine === 'openai') {
+            const res = await optimizeListingWithOpenAI(localListing.cleaned, brandWords);
+            opt = res.data; tokens = res.tokens;
+          } else if (engine === 'deepseek') {
+            const res = await optimizeListingWithDeepSeek(localListing.cleaned, brandWords);
+            opt = res.data; tokens = res.tokens;
+          } else if (engine === 'qwen') {
+            const res = await optimizeListingWithQwen(localListing.cleaned, brandWords);
+            opt = res.data; tokens = res.tokens;
+          } else {
+            const res = await optimizeListingWithAI(localListing.cleaned, brandWords);
+            opt = res.data; tokens = res.tokens;
+          }
+
+          // 4. Deduct credits based on tokens
           await deductCreditsByTokens(localListing.user_id, tokens, engine, 'optimization');
           if (onRefreshProfile) onRefreshProfile();
 

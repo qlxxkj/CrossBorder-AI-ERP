@@ -10,33 +10,33 @@ Senior Amazon Listing Expert. Optimize this listing.
 ${brandWords.length > 0 ? `[REMOVE CUSTOM BRAND WORDS: ${brandWords.join(', ')}]` : ''}
 
 [RULES]
-1. DELETE: "${brand}",all variants,car/motorcycle brands (Toyota,Honda,Mazda,etc.)
+1. DELETE: "${brand}", all variants, car/motorcycle brands (Toyota, Honda, Mazda, etc.)
 ${brandWords.length > 0 ? `2. DELETE CUSTOM WORDS: ${brandWords.join(', ')}` : ''}
-3. KEEP: Vehicle model names,model numbers/ codes (XV50,E90),years,OEM/part numbers
+3. KEEP: Vehicle model names, model numbers/codes (XV50, E90), years, OEM/part numbers
 
 [TITLE]
-- Rephrase completely.Use synonyms.
-- Include: function,key features,vehicle models/model numbers,specs
+- Rephrase completely. Use synonyms.
+- Include: function, key features, vehicle models/model numbers, specs
 - MAX 150 chars
 
 [BULLETS - 5 points]
 Format: "KEYWORD: Description"
-Cover: Material,Design,Usage,Compatibility,Guarantee
-Compatibility: list model names,model numbers,years,OEM numbers
+Cover: Material, Design, Usage, Compatibility, Guarantee
+Compatibility: list model names, model numbers, years, OEM numbers
 MAX 300 chars each
 
 [SEARCH KEYWORDS]
-- Include: part names,models,model numbers,years,OEM numbers
+- Include: part names, models, model numbers, years, OEM numbers
 - NO brands
 - MAX 200 chars
 
 [DESCRIPTION]
-- 1200-1700 chars,HTML
+- 1200-1700 chars, HTML
 - Structure: Overview→Features→Specs→Compatibility→Guarantee
-- Include models,model numbers,OEM numbers
+- Include models, model numbers, OEM numbers
 
 [OUTPUT]
-ONLY JSON: {"optimized_title","optimized_features","optimized_description","search_keywords"}
+ONLY JSON: {"optimized_title", "optimized_features", "optimized_description", "search_keywords"}
 "optimized_features": array of 5 strings
 `;
 
@@ -79,12 +79,12 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   return result as OptimizedData;
 };
 
-export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, brandWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) throw new Error("DeepSeek Key missing.");
-  const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
+export const optimizeListingWithQwen = async (cleanedData: CleanedData, brandWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
+  const apiKey = process.env.QWEN_API_KEY;
+  if (!apiKey) throw new Error("Qwen Key missing.");
+  const baseUrl = (process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1").replace(/\/$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
-  const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
+  const finalUrl = baseUrl.includes("dashscope.aliyuncs.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
   
   const brandToKill = cleanedData.brand || "ORIGINAL_BRAND";
   const sourceCopy = { ...cleanedData };
@@ -93,7 +93,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, bran
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+      model: process.env.QWEN_MODEL || "qwen-max",
       messages: [
         { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
         { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, brandWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
@@ -102,26 +102,26 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, bran
       response_format: { type: "json_object" }
     })
   });
-  if (!response.ok) throw new Error(`DeepSeek Error: ${response.status}`);
+  if (!response.ok) throw new Error(`Qwen Error: ${response.status}`);
   const data = await response.json();
   const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
   const tokens = data.usage?.total_tokens || 0;
   return { data: normalizeOptimizedData(raw), tokens };
 };
 
-export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) throw new Error("DeepSeek Key missing.");
-  const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
+export const translateListingWithQwen = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
+  const apiKey = process.env.QWEN_API_KEY;
+  if (!apiKey) throw new Error("Qwen Key missing.");
+  const baseUrl = (process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1").replace(/\/$/, "");
   const prompt = `Translate to "${targetLangName}". UNIQUE Title<150, 5 UNIQUE Bullets<300, Keywords<200. FLAT JSON. Data: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
-  const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
+  const finalUrl = baseUrl.includes("dashscope.aliyuncs.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
   const response = await fetch(finalUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+      model: process.env.QWEN_MODEL || "qwen-max",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" }
     })
