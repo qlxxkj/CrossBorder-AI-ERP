@@ -5,10 +5,7 @@ import { Listing, OptimizedData, UILanguage, ExchangeRate, PriceAdjustment } fro
 import { LogisticsEditor, calculateMarketLogistics, calculateMarketPrice } from './LogisticsEditor';
 import { MARKETPLACES } from '../lib/marketplaces';
 import { checkUserCredits, deductCreditsByTokens } from '../lib/creditService';
-import { translateListingWithAI } from '../services/geminiService';
-import { translateListingWithOpenAI } from '../services/openaiService';
-import { translateListingWithDeepSeek } from '../services/deepseekService';
-import { translateListingWithQwen } from '../services/qwenService';
+import { translateListingProxy } from '../services/aiProxyService';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface ListingEditorAreaProps {
@@ -75,23 +72,9 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
         console.log(`Reusing existing translation for ${targetLang} from ${existingTrans[0]}`);
         translation = existingTrans[1];
       } else {
-        if (engine === 'openai') {
-          const res = await translateListingWithOpenAI(listing.optimized, targetLang);
-          translation = res.data;
-          tokens = res.tokens;
-        } else if (engine === 'deepseek') {
-          const res = await translateListingWithDeepSeek(listing.optimized, targetLang);
-          translation = res.data;
-          tokens = res.tokens;
-        } else if (engine === 'qwen') {
-          const res = await translateListingWithQwen(listing.optimized, targetLang);
-          translation = res.data;
-          tokens = res.tokens;
-        } else {
-          const res = await translateListingWithAI(listing.optimized, targetLang);
-          translation = res.data;
-          tokens = res.tokens;
-        }
+        const res = await translateListingProxy(engine, listing.optimized, targetLang);
+        translation = res.data;
+        tokens = res.tokens;
 
         // 3. Deduct credits based on tokens
         await deductCreditsByTokens(listing.user_id, tokens, engine, 'translation');
@@ -152,23 +135,9 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
             break;
           }
 
-          if (engine === 'openai') {
-            const res = await translateListingWithOpenAI(listing.optimized, m.langName);
-            translation = res.data;
-            tokens = res.tokens;
-          } else if (engine === 'deepseek') {
-            const res = await translateListingWithDeepSeek(listing.optimized, m.langName);
-            translation = res.data;
-            tokens = res.tokens;
-          } else if (engine === 'qwen') {
-            const res = await translateListingWithQwen(listing.optimized, m.langName);
-            translation = res.data;
-            tokens = res.tokens;
-          } else {
-            const res = await translateListingWithAI(listing.optimized, m.langName);
-            translation = res.data;
-            tokens = res.tokens;
-          }
+          const res = await translateListingProxy(engine, listing.optimized, m.langName);
+          translation = res.data;
+          tokens = res.tokens;
 
           // 3. Deduct credits based on tokens
           await deductCreditsByTokens(listing.user_id, tokens, engine, 'translation');

@@ -10,10 +10,7 @@ import { SourcingModal } from './SourcingModal';
 import { SourcingFormModal } from './SourcingFormModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { checkUserCredits, deductCreditsByTokens } from '../lib/creditService';
-import { optimizeListingWithAI } from '../services/geminiService';
-import { optimizeListingWithOpenAI } from '../services/openaiService';
-import { optimizeListingWithDeepSeek } from '../services/deepseekService';
-import { optimizeListingWithQwen } from '../services/qwenService';
+import { optimizeListingProxy } from '../services/aiProxyService';
 
 interface ListingDetailProps {
   listing: Listing;
@@ -94,20 +91,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           const infringementWords = (infringementWordsData || []).map(bw => bw.word);
 
           // 3. Perform AI optimization
-          let opt, tokens;
-          if (engine === 'openai') {
-            const res = await optimizeListingWithOpenAI(localListing.cleaned, infringementWords);
-            opt = res.data; tokens = res.tokens;
-          } else if (engine === 'deepseek') {
-            const res = await optimizeListingWithDeepSeek(localListing.cleaned, infringementWords);
-            opt = res.data; tokens = res.tokens;
-          } else if (engine === 'qwen') {
-            const res = await optimizeListingWithQwen(localListing.cleaned, infringementWords);
-            opt = res.data; tokens = res.tokens;
-          } else {
-            const res = await optimizeListingWithAI(localListing.cleaned, infringementWords);
-            opt = res.data; tokens = res.tokens;
-          }
+          const res = await optimizeListingProxy(engine, localListing.cleaned, infringementWords);
+          const opt = res.data; 
+          const tokens = res.tokens;
 
           // 4. Deduct credits based on tokens
           await deductCreditsByTokens(localListing.user_id, tokens, engine, 'optimization');

@@ -82,7 +82,7 @@ const extractJSONObject = (text: string) => {
 };
 
 export const optimizeListingWithAI = async (cleanedData: CleanedData, infringementWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   try {
     const brandToKill = cleanedData.brand || "UNKNOWN_BRAND";
     const sourceCopy = { ...cleanedData };
@@ -95,7 +95,9 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData, infringeme
         temperature: 1.0 
       }
     });
-    const rawData = extractJSONObject(response.text || "{}");
+
+    const text = response.text;
+    const rawData = extractJSONObject(text || "{}");
     if (!rawData) throw new Error("Format error.");
     const tokens = response.usageMetadata?.totalTokenCount || 0;
     return { data: normalizeOptimizedData(rawData), tokens };
@@ -103,7 +105,7 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData, infringeme
 };
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const prompt = `Translate to "${targetLangName}". JSON ONLY. Use keys: optimized_title, optimized_features, optimized_description, search_keywords. NO brands. Data: ${JSON.stringify(sourceData)}`;
   try {
     const response = await ai.models.generateContent({
@@ -111,7 +113,8 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
       contents: prompt,
       config: { responseMimeType: "application/json" }
     });
-    const rawData = extractJSONObject(response.text || "{}");
+    const text = response.text;
+    const rawData = extractJSONObject(text || "{}");
     const tokens = response.usageMetadata?.totalTokenCount || 0;
     return { data: normalizeOptimizedData(rawData || {}), tokens };
   } catch (error: any) { throw new Error(`Gemini Translation Error: ${error.message}`); }

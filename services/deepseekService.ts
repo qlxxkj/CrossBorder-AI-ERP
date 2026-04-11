@@ -73,81 +73,76 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
 
 export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, infringementWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) throw new Error("DeepSeek Key missing.");
+  if (!apiKey) throw new Error("DeepSeek Key missing on server.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
   
   const brandToKill = cleanedData.brand || "ORIGINAL_BRAND";
   const sourceCopy = { ...cleanedData };
 
-  const allProxies = [null, CORS_PROXY, ...FALLBACK_PROXIES];
-  let lastError = null;
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json", 
+        "Authorization": `Bearer ${apiKey}` 
+      },
+      body: JSON.stringify({
+        model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+        messages: [
+          { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
+          { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
+        ],
+        temperature: 1.0,
+        response_format: { type: "json_object" }
+      })
+    });
 
-  for (const proxy of allProxies) {
-    try {
-      const finalUrl = (proxy && baseUrl.includes("deepseek.com")) 
-        ? `${proxy}${encodeURIComponent(endpoint)}` 
-        : endpoint;
-      
-      const response = await fetch(finalUrl, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json", 
-          "Authorization": `Bearer ${apiKey}` 
-        },
-        body: JSON.stringify({
-          model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
-          messages: [
-            { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
-            { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
-          ],
-          temperature: 1.0,
-          response_format: { type: "json_object" }
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`DeepSeek API Error (${response.status}): ${errorText || response.statusText}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (!content) throw new Error("DeepSeek returned an empty response.");
-      
-      const raw = JSON.parse(content);
-      const tokens = data.usage?.total_tokens || 0;
-      return { data: normalizeOptimizedData(raw), tokens };
-    } catch (err: any) {
-      console.warn(`Attempt with proxy [${proxy || 'Direct'}] failed:`, err.message);
-      lastError = err;
-      if (err.message && err.message.includes("API Error")) throw err;
-      continue;
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`DeepSeek API Error (${response.status}): ${errorText || response.statusText}`);
     }
-  }
 
-  throw lastError || new Error("All connection attempts failed.");
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error("DeepSeek returned an empty response.");
+    
+    const raw = JSON.parse(content);
+    const tokens = data.usage?.total_tokens || 0;
+    return { data: normalizeOptimizedData(raw), tokens };
+  } catch (err: any) {
+    console.error("DeepSeek Server Error:", err);
+    throw err;
+  }
 };
 
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) throw new Error("DeepSeek Key missing.");
+  if (!apiKey) throw new Error("DeepSeek Key missing on server.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
-  const prompt = `Translate to "${targetLangName}". UNIQUE Title<150, 5 UNIQUE Bullets<300, Keywords<200. FLAT JSON. Data: ${JSON.stringify(sourceData)}`;
   const endpoint = `${baseUrl}/chat/completions`;
-  const finalUrl = baseUrl.includes("deepseek.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
-  const response = await fetch(finalUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" }
-    })
-  });
-  const data = await response.json();
-  const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
-  const tokens = data.usage?.total_tokens || 0;
-  return { data: normalizeOptimizedData(raw), tokens };
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+        messages: [
+          { role: "system", content: "Professional Amazon translator. JSON only." },
+          { role: "user", content: `Translate to "${targetLangName}". JSON keys: optimized_title, optimized_features, optimized_description, search_keywords. NO brands. Data: ${JSON.stringify(sourceData)}` }
+        ],
+        response_format: { type: "json_object" }
+      })
+    });
+    
+    if (!response.ok) throw new Error(`DeepSeek Translation Error: ${response.status}`);
+    const data = await response.json();
+    const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
+    const tokens = data.usage?.total_tokens || 0;
+    return { data: normalizeOptimizedData(raw), tokens };
+  } catch (err: any) {
+    console.error("DeepSeek Translation Server Error:", err);
+    throw err;
+  }
 };

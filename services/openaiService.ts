@@ -81,35 +81,40 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
 
 export const optimizeListingWithOpenAI = async (cleanedData: CleanedData, infringementWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OpenAI Key missing.");
+  if (!apiKey) throw new Error("OpenAI Key missing on server.");
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
-  const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
   
-  const response = await fetch(finalUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-4o",
-      messages: [
-        { role: "system", content: "You are an Amazon SEO expert. You MUST return valid JSON with keys: optimized_title, optimized_features (array of 5), optimized_description, search_keywords." },
-        { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(cleanedData.brand || "BRAND", infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
-      ],
-      temperature: 0.8,
-      response_format: { type: "json_object" }
-    })
-  });
-  if (!response.ok) throw new Error(`OpenAI Status: ${response.status}`);
-  const data = await response.json();
-  const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
-  const tokens = data.usage?.total_tokens || 0;
-  return { data: normalizeOptimizedData(raw), tokens };
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-4o",
+        messages: [
+          { role: "system", content: "You are an Amazon SEO expert. You MUST return valid JSON with keys: optimized_title, optimized_features (array of 5), optimized_description, search_keywords." },
+          { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(cleanedData.brand || "BRAND", infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
+        ],
+        temperature: 0.8,
+        response_format: { type: "json_object" }
+      })
+    });
+    if (!response.ok) throw new Error(`OpenAI Status: ${response.status}`);
+    const data = await response.json();
+    const raw = data.choices?.[0]?.message?.content ? JSON.parse(data.choices[0].message.content) : {};
+    const tokens = data.usage?.total_tokens || 0;
+    return { data: normalizeOptimizedData(raw), tokens };
+  } catch (err: any) {
+    console.error("OpenAI Server Error:", err);
+    throw err;
+  }
 };
 
 export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OpenAI Key missing.");
+  if (!apiKey) throw new Error("OpenAI Key missing on server.");
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+  const endpoint = `${baseUrl}/chat/completions`;
   
   // High-intensity prompt to force field retention even for similar languages
   const prompt = `Translate the following Amazon product listing into "${targetLangName}". 
@@ -124,28 +129,30 @@ STRICT RULES:
 INPUT DATA:
 ${JSON.stringify(sourceData)}`;
 
-  const endpoint = `${baseUrl}/chat/completions`;
-  const finalUrl = baseUrl.includes("api.openai.com") ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
-
-  const response = await fetch(finalUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-4o",
-      messages: [
-        { role: "system", content: "You are a professional Amazon marketplace translator. Your output is used by an automated ERP. Any missing JSON keys will break the system. You must ALWAYS return all requested keys." },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.3,
-      response_format: { type: "json_object" }
-    })
-  });
-  
-  if (!response.ok) throw new Error(`OpenAI Translation Error: ${response.status}`);
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Empty AI response");
-  
-  const tokens = data.usage?.total_tokens || 0;
-  return { data: normalizeOptimizedData(JSON.parse(content)), tokens };
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-4o",
+        messages: [
+          { role: "system", content: "You are a professional Amazon marketplace translator. Your output is used by an automated ERP. Any missing JSON keys will break the system. You must ALWAYS return all requested keys." },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.3,
+        response_format: { type: "json_object" }
+      })
+    });
+    
+    if (!response.ok) throw new Error(`OpenAI Translation Error: ${response.status}`);
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error("Empty AI response");
+    
+    const tokens = data.usage?.total_tokens || 0;
+    return { data: normalizeOptimizedData(JSON.parse(content)), tokens };
+  } catch (err: any) {
+    console.error("OpenAI Translation Server Error:", err);
+    throw err;
+  }
 };
