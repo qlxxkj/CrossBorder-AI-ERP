@@ -8,7 +8,7 @@ import {
 import { UILanguage, Organization, UserProfile, Role, RolePermission } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { useTranslation } from '../lib/i18n';
-import { BrandWordManager } from './BrandWordManager';
+import { InfringementManager } from './InfringementManager';
 
 export interface SystemManagementProps {
   uiLang: UILanguage;
@@ -17,8 +17,8 @@ export interface SystemManagementProps {
   currentUserProfile: UserProfile | null;
   permissions: any[];
   onOrgUpdate: (org: Organization) => void;
-  activeSubTab?: 'users' | 'roles' | 'org' | 'brand_words';
-  onSubTabChange?: (tab: 'users' | 'roles' | 'org' | 'brand_words') => void;
+  activeSubTab?: 'users' | 'roles' | 'org' | 'infringement_words';
+  onSubTabChange?: (tab: 'users' | 'roles' | 'org' | 'infringement_words') => void;
 }
 
 const MENU_OPTIONS = [
@@ -30,7 +30,7 @@ const MENU_OPTIONS = [
   { id: 'system:org', label: 'orgMgmt', desc: 'Organization details' },
   { id: 'system:roles', label: 'roleMgmt', desc: 'RBAC permissions' },
   { id: 'system:users', label: 'userMgmt', desc: 'Member management' },
-  { id: 'system:brand_words', label: 'brandWords', desc: 'AI optimization filtering' },
+  { id: 'system:infringement_words', label: 'infringementMgmt', desc: 'AI optimization filtering' },
 ];
 
 export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, permissions, onOrgUpdate, activeSubTab = 'users', onSubTabChange }: SystemManagementProps) => {
@@ -60,7 +60,7 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
   const canSeeUsers = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:users');
   const canSeeRoles = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:roles');
   const canSeeOrg = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:org');
-  const canSeeBrandWords = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:brand_words');
+  const canSeeInfringement = isTenantAdmin || isSuper || permissions.some(p => p.menu_id === 'system:infringement_words');
 
   useEffect(() => {
     if (activeSubTab === 'users' && canSeeUsers) fetchMembers();
@@ -194,7 +194,7 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
           {canSeeUsers && <TabButton active={activeSubTab === 'users'} onClick={() => onSubTabChange?.('users')} icon={<Users size={16}/>} label={t('userMgmt')} />}
           {canSeeRoles && <TabButton active={activeSubTab === 'roles'} onClick={() => onSubTabChange?.('roles')} icon={<Shield size={16}/>} label={t('roleMgmt')} />}
           {canSeeOrg && <TabButton active={activeSubTab === 'org'} onClick={() => onSubTabChange?.('org')} icon={<Building size={16}/>} label={t('orgMgmt')} />}
-          {canSeeBrandWords && <TabButton active={activeSubTab === 'brand_words'} onClick={() => onSubTabChange?.('brand_words')} icon={<FileText size={16}/>} label={t('brandWords')} />}
+          {canSeeInfringement && <TabButton active={activeSubTab === 'infringement_words'} onClick={() => onSubTabChange?.('infringement_words')} icon={<FileText size={16}/>} label={t('infringementMgmt')} />}
         </div>
       </div>
 
@@ -351,8 +351,8 @@ export const SystemManagement = ({ uiLang, orgId, orgData, currentUserProfile, p
           </div>
         )}
 
-        {activeSubTab === 'brand_words' && (
-          <BrandWordManager orgId={orgId} uiLang={uiLang} />
+        {activeSubTab === 'infringement_words' && (
+          <InfringementManager orgId={orgId} uiLang={uiLang} />
         )}
       </div>
 

@@ -130,7 +130,7 @@ const translations: any = {
     email: 'Email',
     billingUnit: 'Unit Price',
     billingConsumption: 'Consumption',
-    brandWords: 'Brand Words'
+    infringementMgmt: 'Infringement Management'
   },
   zh: {
     back: '返回',
@@ -251,7 +251,7 @@ const translations: any = {
     email: '电子邮箱',
     billingUnit: '计费单价',
     billingConsumption: '计费消耗',
-    brandWords: '品牌词管理'
+    infringementMgmt: '侵权管理'
   },
   ja: {
     back: '戻る',

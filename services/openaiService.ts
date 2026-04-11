@@ -2,13 +2,13 @@
 import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
-const UNIFIED_OPTIMIZE_PROMPT = (brand: string, brandWords: string[], seed: number) => `
+const UNIFIED_OPTIMIZE_PROMPT = (brand: string, infringementWords: string[], seed: number) => `
 Act as a Senior Amazon Listing Expert. Optimize this listing. 
 [SEED: ${seed}]
 
 [STRICT BRAND PURGE]
 1. REMOVE BRAND: "${brand}" (including variants like "${brand.toUpperCase()}") MUST be deleted.
-${brandWords.length > 0 ? `2. REMOVE CUSTOM BRAND WORDS: ${brandWords.join(', ')}` : ''}
+2. REMOVE INFRINGEMENT WORDS: ${infringementWords.length > 0 ? infringementWords.join(', ') : 'None provided.'}
 3. REMOVE AUTOMOTIVE BRAND: All car/motorcycle brands (Toyota, Tesla, Mazda, etc.).
 4. Retain: Model names, model number, model codes,years,OEM/part numbers.
 
@@ -77,7 +77,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   return result as OptimizedData;
 };
 
-export const optimizeListingWithOpenAI = async (cleanedData: CleanedData, brandWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
+export const optimizeListingWithOpenAI = async (cleanedData: CleanedData, infringementWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OpenAI Key missing.");
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -91,7 +91,7 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData, brandW
       model: process.env.OPENAI_MODEL || "gpt-4o",
       messages: [
         { role: "system", content: "You are an Amazon SEO expert. You MUST return valid JSON with keys: optimized_title, optimized_features (array of 5), optimized_description, search_keywords." },
-        { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(cleanedData.brand || "BRAND", brandWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
+        { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(cleanedData.brand || "BRAND", infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(cleanedData)}` }
       ],
       temperature: 0.8,
       response_format: { type: "json_object" }

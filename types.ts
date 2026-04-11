@@ -147,7 +147,7 @@ export interface ExchangeRate {
   created_at: string;
 }
 
-export interface BrandWord {
+export interface InfringementWord {
   id: string;
   org_id: string;
   word: string;

@@ -86,26 +86,26 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             return;
           }
 
-          // 2. Fetch brand words
-          const { data: brandWordsData } = await supabase
-            .from('brand_words')
+          // 2. Fetch infringement words
+          const { data: infringementWordsData } = await supabase
+            .from('infringement_words')
             .select('word')
             .eq('org_id', localListing.org_id);
-          const brandWords = (brandWordsData || []).map(bw => bw.word);
+          const infringementWords = (infringementWordsData || []).map(bw => bw.word);
 
           // 3. Perform AI optimization
           let opt, tokens;
           if (engine === 'openai') {
-            const res = await optimizeListingWithOpenAI(localListing.cleaned, brandWords);
+            const res = await optimizeListingWithOpenAI(localListing.cleaned, infringementWords);
             opt = res.data; tokens = res.tokens;
           } else if (engine === 'deepseek') {
-            const res = await optimizeListingWithDeepSeek(localListing.cleaned, brandWords);
+            const res = await optimizeListingWithDeepSeek(localListing.cleaned, infringementWords);
             opt = res.data; tokens = res.tokens;
           } else if (engine === 'qwen') {
-            const res = await optimizeListingWithQwen(localListing.cleaned, brandWords);
+            const res = await optimizeListingWithQwen(localListing.cleaned, infringementWords);
             opt = res.data; tokens = res.tokens;
           } else {
-            const res = await optimizeListingWithAI(localListing.cleaned, brandWords);
+            const res = await optimizeListingWithAI(localListing.cleaned, infringementWords);
             opt = res.data; tokens = res.tokens;
           }
 

@@ -161,12 +161,12 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     const engine = (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini';
 
     try {
-      // Fetch brand words once for the batch
-      const { data: brandWordsData } = await supabase
-        .from('brand_words')
+      // Fetch infringement words once for the batch
+      const { data: infringementWordsData } = await supabase
+        .from('infringement_words')
         .select('word')
         .eq('org_id', userProfile.org_id);
-      const brandWords = (brandWordsData || []).map(bw => bw.word);
+      const infringementWords = (infringementWordsData || []).map(bw => bw.word);
 
       for (let i = 0; i < selectedListings.length; i++) {
         const listing = selectedListings[i];
@@ -183,16 +183,16 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
           // 2. Perform AI optimization
           let opt, tokens;
           if (engine === 'openai') {
-            const res = await optimizeListingWithOpenAI(listing.cleaned, brandWords);
+            const res = await optimizeListingWithOpenAI(listing.cleaned, infringementWords);
             opt = res.data; tokens = res.tokens;
           } else if (engine === 'deepseek') {
-            const res = await optimizeListingWithDeepSeek(listing.cleaned, brandWords);
+            const res = await optimizeListingWithDeepSeek(listing.cleaned, infringementWords);
             opt = res.data; tokens = res.tokens;
           } else if (engine === 'qwen') {
-            const res = await optimizeListingWithQwen(listing.cleaned, brandWords);
+            const res = await optimizeListingWithQwen(listing.cleaned, infringementWords);
             opt = res.data; tokens = res.tokens;
           } else {
-            const res = await optimizeListingWithAI(listing.cleaned, brandWords);
+            const res = await optimizeListingWithAI(listing.cleaned, infringementWords);
             opt = res.data; tokens = res.tokens;
           }
 

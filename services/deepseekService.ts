@@ -2,17 +2,17 @@
 import { CleanedData, OptimizedData } from "../types";
 const CORS_PROXY = 'https://corsproxy.io/?';
 
-const UNIFIED_OPTIMIZE_PROMPT = (brand: string, brandWords: string[], seed: number) => `
+const UNIFIED_OPTIMIZE_PROMPT = (brand: string, infringementWords: string[], seed: number) => `
 Senior Amazon Listing Expert. Optimize this listing.
 
 [SEED: ${seed}]
 [REMOVE BRAND: "${brand}"]
-${brandWords.length > 0 ? `[REMOVE CUSTOM BRAND WORDS: ${brandWords.join(', ')}]` : ''}
+${infringementWords.length > 0 ? `[REMOVE INFRINGEMENT WORDS: ${infringementWords.join(', ')}]` : ''}
 
 [RULES]
 1. DELETE: "${brand}",all variants,car/motorcycle brands (Toyota,Honda,Mazda,etc.)
-${brandWords.length > 0 ? `2. DELETE CUSTOM WORDS: ${brandWords.join(', ')}` : ''}
-3. KEEP: Vehicle model names,model numbers/ codes (XV50,E90),years,OEM/part numbers
+${infringementWords.length > 0 ? `2. DELETE INFRINGEMENT WORDS: ${infringementWords.join(', ')}` : ''}
+3. KEEP: Vehicle model names,model numbers/ codes (XV50,E90),years,OEM/part numbers.
 
 [TITLE]
 - Rephrase completely.Use synonyms.
@@ -79,7 +79,7 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
   return result as OptimizedData;
 };
 
-export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, brandWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
+export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, infringementWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DeepSeek Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
@@ -96,7 +96,7 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, bran
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [
         { role: "system", content: "Amazon SEO Master. Unique Titles. Remove all brands. Search Keywords max 200. JSON only." },
-        { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, brandWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
+        { role: "user", content: UNIFIED_OPTIMIZE_PROMPT(brandToKill, infringementWords, Date.now()) + `\n\n[SOURCE DATA]\n${JSON.stringify(sourceCopy)}` }
       ],
       temperature: 1.0,
       response_format: { type: "json_object" }
