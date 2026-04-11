@@ -18,8 +18,15 @@ export const optimizeListingProxy = async (
   });
 
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || `Backend Error: ${response.status}`);
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      const err = await response.json();
+      throw new Error(err.error || `Backend Error: ${response.status}`);
+    } else {
+      const text = await response.text();
+      console.error("Non-JSON Error Response (Optimize):", text);
+      throw new Error(`Server Error (${response.status}): ${text.slice(0, 100)}...`);
+    }
   }
 
   return await response.json();
@@ -42,8 +49,15 @@ export const translateListingProxy = async (
   });
 
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || `Backend Error: ${response.status}`);
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      const err = await response.json();
+      throw new Error(err.error || `Backend Error: ${response.status}`);
+    } else {
+      const text = await response.text();
+      console.error("Non-JSON Error Response (Translate):", text);
+      throw new Error(`Server Error (${response.status}): ${text.slice(0, 100)}...`);
+    }
   }
 
   return await response.json();
