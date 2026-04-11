@@ -1,39 +1,25 @@
 import { CleanedData, OptimizedData } from "../types";
 import { optimizeListingWithAI, translateListingWithAI } from "./geminiService";
+import { optimizeListingWithOpenAI, translateListingWithOpenAI } from "./openaiService";
+import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from "./deepseekService";
+import { optimizeListingWithQwen, translateListingWithQwen } from "./qwenService";
 
 export const optimizeListingProxy = async (
   engine: 'gemini' | 'openai' | 'deepseek' | 'qwen',
   cleanedData: CleanedData,
   infringementWords: string[] = []
 ): Promise<{ data: OptimizedData; tokens: number }> => {
-  if (engine === 'gemini') {
+  console.log(`🔥 [AI Proxy] Optimizing with ${engine} (Client-Side)`);
+  
+  if (engine === 'openai') {
+    return await optimizeListingWithOpenAI(cleanedData, infringementWords);
+  } else if (engine === 'deepseek') {
+    return await optimizeListingWithDeepSeek(cleanedData, infringementWords);
+  } else if (engine === 'qwen') {
+    return await optimizeListingWithQwen(cleanedData, infringementWords);
+  } else {
     return await optimizeListingWithAI(cleanedData, infringementWords);
   }
-
-  // Call backend for other engines to avoid CORS and hide keys
-  const apiUrl = "/api/ai/optimize";
-  const fullUrl = new URL(apiUrl, window.location.origin).href;
-  console.log(`🔥 [AI Proxy] Optimizing with ${engine}. Target URL: ${fullUrl}`);
-  
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ engine, cleanedData, infringementWords })
-  });
-
-  if (!response.ok) {
-    const contentType = response.headers.get("content-type");
-    if (contentType && contentType.includes("application/json")) {
-      const err = await response.json();
-      throw new Error(err.error || `Backend Error: ${response.status}`);
-    } else {
-      const text = await response.text();
-      console.error("Non-JSON Error Response (Optimize):", text);
-      throw new Error(`Server Error (${response.status}): ${text.slice(0, 100)}...`);
-    }
-  }
-
-  return await response.json();
 };
 
 export const translateListingProxy = async (
@@ -41,32 +27,15 @@ export const translateListingProxy = async (
   sourceData: OptimizedData,
   targetLangName: string
 ): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
-  if (engine === 'gemini') {
+  console.log(`🔥 [AI Proxy] Translating with ${engine} (Client-Side)`);
+  
+  if (engine === 'openai') {
+    return await translateListingWithOpenAI(sourceData, targetLangName);
+  } else if (engine === 'deepseek') {
+    return await translateListingWithDeepSeek(sourceData, targetLangName);
+  } else if (engine === 'qwen') {
+    return await translateListingWithQwen(sourceData, targetLangName);
+  } else {
     return await translateListingWithAI(sourceData, targetLangName);
   }
-
-  // Call backend for other engines
-  const apiUrl = "/api/ai/translate";
-  const fullUrl = new URL(apiUrl, window.location.origin).href;
-  console.log(`🔥 [AI Proxy] Translating with ${engine}. Target URL: ${fullUrl}`);
-  
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ engine, sourceData, targetLangName })
-  });
-
-  if (!response.ok) {
-    const contentType = response.headers.get("content-type");
-    if (contentType && contentType.includes("application/json")) {
-      const err = await response.json();
-      throw new Error(err.error || `Backend Error: ${response.status}`);
-    } else {
-      const text = await response.text();
-      console.error("Non-JSON Error Response (Translate):", text);
-      throw new Error(`Server Error (${response.status}): ${text.slice(0, 100)}...`);
-    }
-  }
-
-  return await response.json();
 };

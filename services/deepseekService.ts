@@ -73,15 +73,18 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
 
 export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, infringementWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) throw new Error("DeepSeek Key missing on server.");
+  if (!apiKey) throw new Error("DeepSeek Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
+  
+  // Use CORS proxy if on client
+  const finalUrl = typeof window !== 'undefined' ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
   
   const brandToKill = cleanedData.brand || "ORIGINAL_BRAND";
   const sourceCopy = { ...cleanedData };
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(finalUrl, {
       method: "POST",
       headers: { 
         "Content-Type": "application/json", 
@@ -118,12 +121,15 @@ export const optimizeListingWithDeepSeek = async (cleanedData: CleanedData, infr
 
 export const translateListingWithDeepSeek = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) throw new Error("DeepSeek Key missing on server.");
+  if (!apiKey) throw new Error("DeepSeek Key missing.");
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").replace(/\/$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
+  
+  // Use CORS proxy if on client
+  const finalUrl = typeof window !== 'undefined' ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(finalUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({

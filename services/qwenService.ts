@@ -73,15 +73,18 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
 
 export const optimizeListingWithQwen = async (cleanedData: CleanedData, infringementWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
   const apiKey = process.env.QWEN_API_KEY;
-  if (!apiKey) throw new Error("Qwen Key missing on server.");
+  if (!apiKey) throw new Error("Qwen Key missing.");
   const baseUrl = (process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1").replace(/\/$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
+  
+  // Use CORS proxy if on client
+  const finalUrl = typeof window !== 'undefined' ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
   
   const brandToKill = cleanedData.brand || "ORIGINAL_BRAND";
   const sourceCopy = { ...cleanedData };
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(finalUrl, {
       method: "POST",
       headers: { 
         "Content-Type": "application/json", 
@@ -118,12 +121,15 @@ export const optimizeListingWithQwen = async (cleanedData: CleanedData, infringe
 
 export const translateListingWithQwen = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
   const apiKey = process.env.QWEN_API_KEY;
-  if (!apiKey) throw new Error("Qwen Key missing on server.");
+  if (!apiKey) throw new Error("Qwen Key missing.");
   const baseUrl = (process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1").replace(/\/$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
+  
+  // Use CORS proxy if on client
+  const finalUrl = typeof window !== 'undefined' ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(finalUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({

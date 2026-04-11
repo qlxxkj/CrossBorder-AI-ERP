@@ -82,7 +82,9 @@ const extractJSONObject = (text: string) => {
 };
 
 export const optimizeListingWithAI = async (cleanedData: CleanedData, infringementWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Gemini API Key missing.");
+  const ai = new GoogleGenAI({ apiKey });
   try {
     const brandToKill = cleanedData.brand || "UNKNOWN_BRAND";
     const sourceCopy = { ...cleanedData };
@@ -105,7 +107,9 @@ export const optimizeListingWithAI = async (cleanedData: CleanedData, infringeme
 };
 
 export const translateListingWithAI = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Gemini API Key missing.");
+  const ai = new GoogleGenAI({ apiKey });
   const prompt = `Translate to "${targetLangName}". JSON ONLY. Use keys: optimized_title, optimized_features, optimized_description, search_keywords. NO brands. Data: ${JSON.stringify(sourceData)}`;
   try {
     const response = await ai.models.generateContent({
@@ -121,7 +125,9 @@ export const translateListingWithAI = async (sourceData: OptimizedData, targetLa
 };
 
 export const editImageWithAI = async (base64: string, prompt: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Gemini API Key missing.");
+  const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',

@@ -81,12 +81,15 @@ const normalizeOptimizedData = (raw: any): OptimizedData => {
 
 export const optimizeListingWithOpenAI = async (cleanedData: CleanedData, infringementWords: string[] = []): Promise<{ data: OptimizedData; tokens: number }> => {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OpenAI Key missing on server.");
+  if (!apiKey) throw new Error("OpenAI Key missing.");
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
   
+  // Use CORS proxy if on client
+  const finalUrl = typeof window !== 'undefined' ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
+  
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(finalUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -112,9 +115,12 @@ export const optimizeListingWithOpenAI = async (cleanedData: CleanedData, infrin
 
 export const translateListingWithOpenAI = async (sourceData: OptimizedData, targetLangName: string): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OpenAI Key missing on server.");
+  if (!apiKey) throw new Error("OpenAI Key missing.");
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
+  
+  // Use CORS proxy if on client
+  const finalUrl = typeof window !== 'undefined' ? `${CORS_PROXY}${encodeURIComponent(endpoint)}` : endpoint;
   
   // High-intensity prompt to force field retention even for similar languages
   const prompt = `Translate the following Amazon product listing into "${targetLangName}". 
@@ -130,7 +136,7 @@ INPUT DATA:
 ${JSON.stringify(sourceData)}`;
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(finalUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({
