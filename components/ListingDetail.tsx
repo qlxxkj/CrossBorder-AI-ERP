@@ -119,8 +119,9 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             cleaned.bullet_points = cleaned.bullet_points.map(bp => removeWords(bp));
           }
 
-          if (hasInfringement) {
+          if (hasInfringement || true) {
             // Update local state and DB before AI optimization to save tokens
+            cleaned.infringement_checked = true;
             const updatedListing = { ...localListing, cleaned };
             setLocalListing(updatedListing);
             await supabase.from('listings').update({ cleaned }).eq('id', localListing.id);

@@ -200,6 +200,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
           cleaned.bullet_points = cleaned.bullet_points.map(bp => removeWords(bp));
         }
 
+        // Mark as checked
+        cleaned.infringement_checked = true;
+
         if (optimized) {
           if (optimized.optimized_title) optimized.optimized_title = removeWords(optimized.optimized_title);
           if (optimized.optimized_description) optimized.optimized_description = removeWords(optimized.optimized_description);
@@ -221,7 +224,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
           });
         }
 
-        if (hasChanges) {
+        if (hasChanges || true) { // Always update to set infringement_checked
           await supabase.from('listings').update({
             cleaned,
             optimized,
@@ -287,7 +290,8 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
         if (cleaned.bullet_points && Array.isArray(cleaned.bullet_points)) {
           cleaned.bullet_points = cleaned.bullet_points.map(bp => removeWords(bp));
         }
-        return { ...listing, cleaned, hasChanges };
+        cleaned.infringement_checked = true;
+        return { ...listing, cleaned, hasChanges: true }; // Force update to set infringement_checked
       });
 
       for (let i = 0; i < preCheckListings.length; i++) {
@@ -680,7 +684,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                    
                    const catName = categories.find(c => c.id === listing.category_id)?.name || '-';
                    const mkt = MARKETPLACES.find(m => m.code === listing.marketplace);
-                   const sequenceNum = (currentPage - 1) * itemsPerPage + index + 1;
+                   const sequenceNum = index + 1;
                    const asinUrl = getAmazonUrl(listing.asin || '', listing.marketplace || 'US');
                    
                    return (
@@ -693,7 +697,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                       </td>
                       <td className="p-8">
                         <div className="w-14 h-14 rounded-xl bg-white border border-slate-100 overflow-hidden flex items-center justify-center p-1">
-                          <img src={listing.cleaned?.main_image || ''} className="max-w-full max-h-full object-contain" onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/100?text=No+Img')} />
+                          <img src={listing.optimized?.optimized_main_image || listing.cleaned?.main_image || ''} className="max-w-full max-h-full object-contain" onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/100?text=No+Img')} />
                         </div>
                       </td>
                       <td className="p-8">
@@ -702,6 +706,9 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
                             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-green-50 text-green-600 rounded-md text-[8px] font-black uppercase border border-green-100">Optimized</span>
                           ) : (
                             <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 text-slate-400 rounded-md text-[8px] font-black uppercase border border-slate-100">Collected</span>
+                          )}
+                          {listing.cleaned?.infringement_checked && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-600 rounded-md text-[8px] font-black uppercase border border-amber-100">Checked</span>
                           )}
                           {renderDistributionStatus(listing)}
                         </div>
