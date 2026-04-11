@@ -58,7 +58,8 @@ export const deductCreditsByTokens = async (
     .select('*');
   
   const tokenPerCreditConfig = billingItems?.find(p => p.category === 'credit_setting' && p.unit_type === 'token_per_credit');
-  const tokensPerCredit = tokenPerCreditConfig?.value || 1000; // Default 1000 tokens = 1 credit
+  const tokensPerCredit = tokenPerCreditConfig?.value || 1000; 
+  console.log(`💰 [CreditService] Rate: 1 Credit = ${tokensPerCredit} Tokens`);
 
   const prices = billingItems?.filter(p => p.category === 'unit_price') || [];
   
@@ -71,6 +72,7 @@ export const deductCreditsByTokens = async (
   
   // Credits = (Tokens / tokensPerCredit) * Coefficient
   const cost = Number(((tokens / tokensPerCredit) * coefficient).toFixed(4));
+  console.log(`💰 [CreditService] Deducting: (${tokens} / ${tokensPerCredit}) * ${coefficient.toFixed(4)} = ${cost} Credits`);
 
   // 2. Get current profile
   const { data: profile } = await supabase

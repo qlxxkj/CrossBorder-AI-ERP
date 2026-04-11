@@ -19,9 +19,7 @@ export const optimizeListingProxy = async (
   }
 
   const rawData = await response.json();
-  // We still use the normalization logic from the original services if needed, 
-  // but for now we'll assume the Edge function returns a clean object.
-  return { data: rawData as OptimizedData, tokens: 0 };
+  return { data: rawData.data as OptimizedData, tokens: rawData.tokens || 0 };
 };
 
 export const translateListingProxy = async (
@@ -43,5 +41,5 @@ export const translateListingProxy = async (
   }
 
   const rawData = await response.json();
-  return { data: rawData as Partial<OptimizedData>, tokens: 0 };
+  return { data: rawData.data as Partial<OptimizedData>, tokens: rawData.tokens || 0 };
 };

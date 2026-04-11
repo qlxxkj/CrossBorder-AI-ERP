@@ -23,7 +23,8 @@ export default async function handler(req: Request) {
       });
       const text = response.text || "";
       const jsonStr = text.match(/\{[\s\S]*\}/)?.[0] || "{}";
-      return new Response(jsonStr, { headers: { 'Content-Type': 'application/json' } });
+      const tokens = response.usageMetadata?.totalTokenCount || 0;
+      return new Response(JSON.stringify({ data: JSON.parse(jsonStr), tokens }), { headers: { 'Content-Type': 'application/json' } });
     }
 
     let apiKey, baseUrl, modelName;
@@ -59,7 +60,8 @@ export default async function handler(req: Request) {
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || "{}";
-    return new Response(content, { headers: { 'Content-Type': 'application/json' } });
+    const tokens = data.usage?.total_tokens || 0;
+    return new Response(JSON.stringify({ data: JSON.parse(content), tokens }), { headers: { 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
