@@ -52,21 +52,25 @@ export const deductCreditsByTokens = async (
   serviceName: string, 
   actionType: 'optimization' | 'translation'
 ): Promise<{ success: boolean; message?: string }> => {
-  // 1. Get unit prices for coefficient calculation
-  const { data: prices } = await supabase
+  // 1. Get token-per-credit rate and unit prices
+  const { data: billingItems } = await supabase
     .from('billing_management')
-    .select('service_name, price_usd')
-    .eq('category', 'unit_price');
+    .select('*');
   
-  // Base: DeepSeek (1000 tokens = 1 credit if price is same)
-  const deepseekPrice = prices?.find(p => p.service_name?.toLowerCase() === 'deepseek')?.price_usd || 0.001; // Fallback if not set
+  const tokenPerCreditConfig = billingItems?.find(p => p.category === 'credit_setting' && p.unit_type === 'token_per_credit');
+  const tokensPerCredit = tokenPerCreditConfig?.value || 1000; // Default 1000 tokens = 1 credit
+
+  const prices = billingItems?.filter(p => p.category === 'unit_price') || [];
+  
+  // Base: DeepSeek (or fallback)
+  const deepseekPrice = prices?.find(p => p.service_name?.toLowerCase() === 'deepseek')?.price_usd || 0.001; 
   const currentServicePrice = prices?.find(p => p.service_name?.toLowerCase() === serviceName.toLowerCase())?.price_usd || deepseekPrice;
 
   // Coefficient = Other AI Engine Price / DeepSeek Price
   const coefficient = currentServicePrice / deepseekPrice;
   
-  // Credits = (Tokens / 1000) * Coefficient
-  const cost = Number(((tokens / 1000) * coefficient).toFixed(4));
+  // Credits = (Tokens / tokensPerCredit) * Coefficient
+  const cost = Number(((tokens / tokensPerCredit) * coefficient).toFixed(4));
 
   // 2. Get current profile
   const { data: profile } = await supabase

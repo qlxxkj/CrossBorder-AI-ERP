@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Search, CheckCircle, Trash2, Download, Package, 
   Loader2, Globe, ChevronLeft, ChevronRight, 
-  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink, Edit3, DollarSign, Copy, Sparkles
+  ChevronsLeft, ChevronsRight, Languages, MoreHorizontal, Calendar, PackageOpen, RefreshCcw, Tags, ExternalLink, Edit3, DollarSign, Copy, Sparkles, Shield
 } from 'lucide-react';
 import { Listing, UILanguage, Category, UserProfile, OptimizedData } from '../types';
 import { useTranslation } from '../lib/i18n';
@@ -70,6 +70,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   const [isBatchUpdating, setIsBatchUpdating] = useState(false);
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
   const [isBatchAIProcessing, setIsBatchAIProcessing] = useState(false);
+  const [isBatchCheckingInfringement, setIsBatchCheckingInfringement] = useState(false);
   const [batchAIProgress, setBatchAIProgress] = useState({ current: 0, total: 0 });
   const [batchCategoryId, setBatchCategoryId] = useState('');
   const [rates, setRates] = useState<any[]>([]);
@@ -150,6 +151,68 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     }
   };
 
+  const handleBulkInfringementCheck = async () => {
+    if (selectedIds.size === 0 || !userProfile) return;
+    if (!window.confirm(lang === 'zh' ? `确定对选中的 ${selectedIds.size} 个产品进行侵权检查并自动删除侵权词？` : `Perform infringement check on ${selectedIds.size} listings?`)) return;
+
+    setIsBatchCheckingInfringement(true);
+    try {
+      // 1. Fetch infringement words
+      const { data: infringementWordsData } = await supabase
+        .from('infringement_words')
+        .select('word')
+        .eq('org_id', userProfile.org_id);
+      const infringementWords = (infringementWordsData || []).map(bw => bw.word.toLowerCase());
+
+      if (infringementWords.length === 0) {
+        alert(lang === 'zh' ? '未配置侵权词库' : 'No infringement words configured');
+        return;
+      }
+
+      const selectedListings = listings.filter(l => selectedIds.has(l.id));
+      let updatedCount = 0;
+
+      for (const listing of selectedListings) {
+        let hasChanges = false;
+        const cleaned = { ...listing.cleaned };
+
+        // Helper to remove words
+        const removeWords = (text: string) => {
+          if (!text) return text;
+          let newText = text;
+          infringementWords.forEach(word => {
+            const regex = new RegExp(`\\b${word}\\b`, 'gi');
+            if (regex.test(newText)) {
+              newText = newText.replace(regex, '').replace(/\s\s+/g, ' ').trim();
+              hasChanges = true;
+            }
+          });
+          return newText;
+        };
+
+        if (cleaned.title) cleaned.title = removeWords(cleaned.title);
+        if (cleaned.description) cleaned.description = removeWords(cleaned.description);
+        if (cleaned.bullet_points && Array.isArray(cleaned.bullet_points)) {
+          cleaned.bullet_points = cleaned.bullet_points.map(bp => removeWords(bp));
+        }
+
+        if (hasChanges) {
+          await supabase.from('listings').update({
+            cleaned,
+            updated_at: new Date().toISOString()
+          }).eq('id', listing.id);
+          updatedCount++;
+        }
+      }
+
+      alert(lang === 'zh' ? `检查完成，已更新 ${updatedCount} 个产品` : `Check complete, updated ${updatedCount} listings`);
+      refreshListings();
+      setSelectedIds(new Set());
+    } finally {
+      setIsBatchCheckingInfringement(false);
+    }
+  };
+
   const handleBulkOptimize = async () => {
     if (selectedIds.size === 0 || !userProfile) return;
     if (!window.confirm(lang === 'zh' ? `确定对选中的 ${selectedIds.size} 个产品进行 AI 优化？` : `Optimize ${selectedIds.size} listings with AI?`)) return;
@@ -168,11 +231,46 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
         .eq('org_id', userProfile.org_id);
       const infringementWords = (infringementWordsData || []).map(bw => bw.word);
 
-      for (let i = 0; i < selectedListings.length; i++) {
-        const listing = selectedListings[i];
-        setBatchAIProgress({ current: i + 1, total: selectedListings.length });
+      // 0. Perform Infringement Check first (Pre-optimization)
+      const selectedListings = listings.filter(l => selectedIds.has(l.id));
+      const infringementWordsLower = infringementWords.map(w => w.toLowerCase());
+      
+      const preCheckListings = selectedListings.map(listing => {
+        let hasChanges = false;
+        const cleaned = { ...listing.cleaned };
+        const removeWords = (text: string) => {
+          if (!text) return text;
+          let newText = text;
+          infringementWordsLower.forEach(word => {
+            const regex = new RegExp(`\\b${word}\\b`, 'gi');
+            if (regex.test(newText)) {
+              newText = newText.replace(regex, '').replace(/\s\s+/g, ' ').trim();
+              hasChanges = true;
+            }
+          });
+          return newText;
+        };
+        if (cleaned.title) cleaned.title = removeWords(cleaned.title);
+        if (cleaned.description) cleaned.description = removeWords(cleaned.description);
+        if (cleaned.bullet_points && Array.isArray(cleaned.bullet_points)) {
+          cleaned.bullet_points = cleaned.bullet_points.map(bp => removeWords(bp));
+        }
+        return { ...listing, cleaned, hasChanges };
+      });
+
+      for (let i = 0; i < preCheckListings.length; i++) {
+        const listing = preCheckListings[i];
+        setBatchAIProgress({ current: i + 1, total: preCheckListings.length });
 
         try {
+          // Update DB if infringement words were removed
+          if (listing.hasChanges) {
+            await supabase.from('listings').update({
+              cleaned: listing.cleaned,
+              updated_at: new Date().toISOString()
+            }).eq('id', listing.id);
+          }
+
           // 1. Pre-check credits
           const creditRes = await checkUserCredits(userProfile.id);
           if (!creditRes.success) {
@@ -396,7 +494,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
       
       <div className="flex flex-col xl:flex-row justify-between items-center gap-6">
         <div className="flex flex-1 flex-wrap gap-4 w-full">
-          <div className="relative flex-1 min-w-[300px] group">
+          <div className="relative flex-1 min-w-[150px] group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-500 transition-colors" size={20} />
             <input 
               type="text" 
@@ -440,6 +538,18 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
               </select>
               <div className="w-px h-4 bg-indigo-200 mx-2"></div>
               
+              <button 
+                onClick={handleBulkInfringementCheck} 
+                disabled={isBatchCheckingInfringement} 
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-[10px] font-black text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-sm disabled:opacity-50"
+                title="Infringement Check Selected"
+              >
+                {isBatchCheckingInfringement ? <Loader2 size={12} className="animate-spin" /> : <Shield size={12} />}
+                {lang === 'zh' ? '侵权检查' : 'Infringement Check'}
+              </button>
+
+              <div className="w-px h-4 bg-indigo-200 mx-2"></div>
+
               <button 
                 onClick={handleBulkOptimize} 
                 disabled={isBatchAIProcessing} 

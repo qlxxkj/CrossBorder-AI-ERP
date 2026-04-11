@@ -90,8 +90,39 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
             .eq('org_id', localListing.org_id);
           const infringementWords = (infringementWordsData || []).map(bw => bw.word);
 
+          // 2.5 Pre-optimization infringement check
+          let cleaned = { ...localListing.cleaned };
+          let hasInfringement = false;
+          const infringementWordsLower = infringementWords.map(w => w.toLowerCase());
+          
+          const removeWords = (text: string) => {
+            if (!text) return text;
+            let newText = text;
+            infringementWordsLower.forEach(word => {
+              const regex = new RegExp(`\\b${word}\\b`, 'gi');
+              if (regex.test(newText)) {
+                newText = newText.replace(regex, '').replace(/\s\s+/g, ' ').trim();
+                hasInfringement = true;
+              }
+            });
+            return newText;
+          };
+
+          if (cleaned.title) cleaned.title = removeWords(cleaned.title);
+          if (cleaned.description) cleaned.description = removeWords(cleaned.description);
+          if (cleaned.bullet_points && Array.isArray(cleaned.bullet_points)) {
+            cleaned.bullet_points = cleaned.bullet_points.map(bp => removeWords(bp));
+          }
+
+          if (hasInfringement) {
+            // Update local state and DB before AI optimization to save tokens
+            const updatedListing = { ...localListing, cleaned };
+            setLocalListing(updatedListing);
+            await supabase.from('listings').update({ cleaned }).eq('id', localListing.id);
+          }
+
           // 3. Perform AI optimization
-          const res = await optimizeListingProxy(engine, localListing.cleaned, infringementWords);
+          const res = await optimizeListingProxy(engine, cleaned, infringementWords);
           const opt = res.data; 
           const tokens = res.tokens;
 
