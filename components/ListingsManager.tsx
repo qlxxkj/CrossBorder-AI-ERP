@@ -175,20 +175,23 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
       for (const listing of selectedListings) {
         let hasChanges = false;
         const cleaned = { ...listing.cleaned };
+        const optimized = listing.optimized ? { ...listing.optimized } : null;
+        const translations = listing.translations ? { ...listing.translations } : null;
 
         // Helper to remove words
         const removeWords = (text: string) => {
-          if (!text) return text;
+          if (!text || typeof text !== 'string') return text;
           let newText = text;
           infringementWords.forEach(word => {
             const escapedWord = escapeRegExp(word);
             const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
-            if (regex.test(newText)) {
-              newText = newText.replace(regex, '').replace(/\s\s+/g, ' ').trim();
+            const before = newText;
+            newText = newText.replace(regex, ' ');
+            if (newText !== before) {
               hasChanges = true;
             }
           });
-          return newText;
+          return newText.replace(/\s\s+/g, ' ').trim();
         };
 
         if (cleaned.title) cleaned.title = removeWords(cleaned.title);
@@ -197,9 +200,32 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
           cleaned.bullet_points = cleaned.bullet_points.map(bp => removeWords(bp));
         }
 
+        if (optimized) {
+          if (optimized.optimized_title) optimized.optimized_title = removeWords(optimized.optimized_title);
+          if (optimized.optimized_description) optimized.optimized_description = removeWords(optimized.optimized_description);
+          if (optimized.optimized_features && Array.isArray(optimized.optimized_features)) {
+            optimized.optimized_features = optimized.optimized_features.map(f => removeWords(f));
+          }
+          if (optimized.search_keywords) optimized.search_keywords = removeWords(optimized.search_keywords);
+        }
+
+        if (translations) {
+          Object.keys(translations).forEach(langCode => {
+            const trans = translations[langCode];
+            if (trans.optimized_title) trans.optimized_title = removeWords(trans.optimized_title);
+            if (trans.optimized_description) trans.optimized_description = removeWords(trans.optimized_description);
+            if (trans.optimized_features && Array.isArray(trans.optimized_features)) {
+              trans.optimized_features = trans.optimized_features.map(f => removeWords(f));
+            }
+            if (trans.search_keywords) trans.search_keywords = removeWords(trans.search_keywords);
+          });
+        }
+
         if (hasChanges) {
           await supabase.from('listings').update({
             cleaned,
+            optimized,
+            translations,
             updated_at: new Date().toISOString()
           }).eq('id', listing.id);
           updatedCount++;
@@ -243,17 +269,18 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
         let hasChanges = false;
         const cleaned = { ...listing.cleaned };
         const removeWords = (text: string) => {
-          if (!text) return text;
+          if (!text || typeof text !== 'string') return text;
           let newText = text;
           infringementWords.forEach(word => {
             const escapedWord = escapeRegExp(word);
             const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
-            if (regex.test(newText)) {
-              newText = newText.replace(regex, '').replace(/\s\s+/g, ' ').trim();
+            const before = newText;
+            newText = newText.replace(regex, ' ');
+            if (newText !== before) {
               hasChanges = true;
             }
           });
-          return newText;
+          return newText.replace(/\s\s+/g, ' ').trim();
         };
         if (cleaned.title) cleaned.title = removeWords(cleaned.title);
         if (cleaned.description) cleaned.description = removeWords(cleaned.description);
@@ -285,8 +312,29 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
 
           // 2. Perform AI optimization via Proxy (which uses Edge functions)
           const res = await optimizeListingProxy(engine, listing.cleaned, infringementWords);
-          const opt = res.data; 
+          let opt = res.data; 
           const tokens = res.tokens;
+
+          // Post-optimization infringement check (Double check AI output)
+          const removeWords = (text: string) => {
+            if (!text || typeof text !== 'string') return text;
+            let newText = text;
+            infringementWords.forEach(word => {
+              const escapedWord = escapeRegExp(word);
+              const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
+              newText = newText.replace(regex, ' ');
+            });
+            return newText.replace(/\s\s+/g, ' ').trim();
+          };
+
+          if (opt) {
+            if (opt.optimized_title) opt.optimized_title = removeWords(opt.optimized_title);
+            if (opt.optimized_description) opt.optimized_description = removeWords(opt.optimized_description);
+            if (opt.optimized_features && Array.isArray(opt.optimized_features)) {
+              opt.optimized_features = opt.optimized_features.map(f => removeWords(f));
+            }
+            if (opt.search_keywords) opt.search_keywords = removeWords(opt.search_keywords);
+          }
 
           // 3. Deduct credits based on tokens
           await deductCreditsByTokens(userProfile.id, tokens, engine, 'optimization');

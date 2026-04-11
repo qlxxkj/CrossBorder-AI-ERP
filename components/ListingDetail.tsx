@@ -99,17 +99,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
           };
           
           const removeWords = (text: string) => {
-            if (!text) return text;
+            if (!text || typeof text !== 'string') return text;
             let newText = text;
             infringementWords.forEach(word => {
               const escapedWord = escapeRegExp(word);
               const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
-              if (regex.test(newText)) {
-                newText = newText.replace(regex, '').replace(/\s\s+/g, ' ').trim();
+              const before = newText;
+              newText = newText.replace(regex, ' ');
+              if (newText !== before) {
                 hasInfringement = true;
               }
             });
-            return newText;
+            return newText.replace(/\s\s+/g, ' ').trim();
           };
 
           if (cleaned.title) cleaned.title = removeWords(cleaned.title);
@@ -127,8 +128,18 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
 
           // 3. Perform AI optimization
           const res = await optimizeListingProxy(engine, cleaned, infringementWords);
-          const opt = res.data; 
+          let opt = res.data; 
           const tokens = res.tokens;
+
+          // Post-optimization infringement check (Double check AI output)
+          if (opt) {
+            if (opt.optimized_title) opt.optimized_title = removeWords(opt.optimized_title);
+            if (opt.optimized_description) opt.optimized_description = removeWords(opt.optimized_description);
+            if (opt.optimized_features && Array.isArray(opt.optimized_features)) {
+              opt.optimized_features = opt.optimized_features.map(f => removeWords(f));
+            }
+            if (opt.search_keywords) opt.search_keywords = removeWords(opt.search_keywords);
+          }
 
           // 4. Deduct credits based on tokens
           await deductCreditsByTokens(localListing.user_id, tokens, engine, 'optimization');
