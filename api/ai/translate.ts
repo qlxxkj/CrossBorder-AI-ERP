@@ -10,7 +10,7 @@ export default async function handler(req: Request) {
 
   try {
     const { engine, sourceData, targetLangName } = await req.json();
-    const prompt = `Translate to "${targetLangName}". JSON ONLY. Keys: optimized_title, optimized_features, optimized_description, search_keywords. NO brands. Data: ${JSON.stringify(sourceData)}`;
+    const prompt = `Translate to "${targetLangName}". JSON ONLY. Keys: optimized_title (MAX 75 characters per Amazon title policy), optimized_features, optimized_description, search_keywords. NO brands. Data: ${JSON.stringify(sourceData)}`;
 
     if (engine === 'gemini') {
       const apiKey = process.env.GEMINI_API_KEY;
@@ -40,6 +40,10 @@ export default async function handler(req: Request) {
       apiKey = process.env.QWEN_API_KEY;
       baseUrl = process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1";
       modelName = process.env.QWEN_MODEL || "qwen-plus";
+    } else if (engine === 'agnes') {
+      apiKey = process.env.AGNES_API_KEY;
+      baseUrl = process.env.AGNES_BASE_URL || "https://api.agnes-ai.com/v1";
+      modelName = process.env.AGNES_MODEL || "agnes-20-flash";
     }
 
     if (!apiKey) throw new Error(`${engine.toUpperCase()} API Key missing`);

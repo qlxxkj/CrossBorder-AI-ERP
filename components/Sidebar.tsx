@@ -60,6 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
     { id: 'system:roles', icon: <Shield size={16} />, label: t('roleMgmt') },
     { id: 'system:users', icon: <Users size={16} />, label: t('userMgmt') },
     { id: 'system:infringement_words', icon: <FileText size={16} />, label: t('infringementMgmt') },
+    { id: 'sp_api', icon: <Zap size={16} />, label: lang === 'zh' ? 'SP-API 私有对接' : 'SP-API Private' },
   ];
 
   const adminSubItems = [

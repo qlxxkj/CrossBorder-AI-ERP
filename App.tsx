@@ -16,9 +16,12 @@ import { AppView, Listing, UILanguage, UserProfile, Organization } from './types
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { Loader2, AlertCircle } from 'lucide-react';
 
+import { SpApiConfigModal } from './components/SpApiConfigModal';
+
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.LANDING);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isSpApiModalOpen, setIsSpApiModalOpen] = useState(false);
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -355,6 +358,10 @@ const App: React.FC = () => {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
+    if (tab === 'sp_api') {
+      setIsSpApiModalOpen(true);
+      return;
+    }
     if (tab.startsWith('system:')) {
       const sub = tab.split(':')[1] as any;
       setSystemSubTab(sub); setView(AppView.SYSTEM_MGMT); return;
@@ -507,6 +514,15 @@ const App: React.FC = () => {
            renderContent()}
         </div>
       </main>
+      
+      {isSpApiModalOpen && (
+        <SpApiConfigModal 
+          isOpen={isSpApiModalOpen} 
+          onClose={() => setIsSpApiModalOpen(false)} 
+          uiLang={lang} 
+          onListingsImported={() => userProfile?.org_id && fetchListings(userProfile.org_id, userProfile.id)} 
+        />
+      )}
     </div>
   );
 };

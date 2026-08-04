@@ -22,11 +22,14 @@ interface ListingDetailProps {
   onRefreshProfile?: () => void;
 }
 
+import { getStoredSpApiConfig, publishListingToSpApiProxy } from '../services/spApiService';
+
 export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, onUpdate, onDelete, onNext, uiLang, onRefreshProfile }) => {
   const [activeMarket, setActiveMarket] = useState('US');
-  const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek' | 'qwen'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
+  const [engine, setEngine] = useState<'gemini' | 'openai' | 'deepseek' | 'qwen' | 'agnes'>(() => (localStorage.getItem('amzbot_preferred_engine') as any) || 'gemini');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPublishingSpApi, setIsPublishingSpApi] = useState(false);
   const [showImageEditor, setShowImageEditor] = useState(false);
   const [editingImageUrl, setEditingImageUrl] = useState<string>(''); 
   const [showSourcingModal, setShowSourcingModal] = useState(false);
@@ -159,7 +162,47 @@ export const ListingDetail: React.FC<ListingDetailProps> = ({ listing, onBack, o
         } catch (err: any) {
           alert("Optimization failed: " + err.message);
         } finally { setIsOptimizing(false); }
-      }} isOptimizing={isOptimizing} onSave={() => syncToSupabase(localListing)} onDelete={() => onDelete(localListing.id)} isSaving={isSaving} onNext={onNext} uiLang={uiLang} />
+      }} 
+      isOptimizing={isOptimizing} 
+      onSave={() => syncToSupabase(localListing)} 
+      onDelete={() => onDelete(localListing.id)} 
+      isSaving={isSaving} 
+      onNext={onNext} 
+      uiLang={uiLang}
+      onPublishSpApi={async () => {
+        setIsPublishingSpApi(true);
+        try {
+          const spConfig = getStoredSpApiConfig();
+          if (!spConfig.lwa_client_id || !spConfig.refresh_token) {
+            alert(uiLang === 'zh' ? '请先在系统控制台配置亚马逊 SP-API 参数（LWA Client ID, Secret 及 Refresh Token）' : 'Please configure SP-API credentials first.');
+            return;
+          }
+          const title = localListing.optimized?.optimized_title || localListing.cleaned.title || '';
+          const brand = localListing.cleaned.brand || '';
+          const price = localListing.cleaned.price || 0;
+          const bullet_points = localListing.optimized?.optimized_features || localListing.cleaned.bullet_points || [];
+          const description = localListing.optimized?.optimized_description || localListing.cleaned.description || '';
+          const sku = localListing.cleaned.asin || `SKU-${localListing.id.slice(0, 8)}`;
+
+          const res = await publishListingToSpApiProxy(spConfig, {
+            sku,
+            asin: localListing.cleaned.asin,
+            title,
+            brand,
+            price,
+            bullet_points,
+            description
+          });
+
+          alert(res.message || (uiLang === 'zh' ? '发布至 SP-API 成功！' : 'Published Successfully!'));
+        } catch (err: any) {
+          alert(err.message || 'Publish to SP-API failed');
+        } finally {
+          setIsPublishingSpApi(false);
+        }
+      }}
+      isPublishingSpApi={isPublishingSpApi}
+      />
       
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pb-20">

@@ -14,7 +14,7 @@ interface ListingEditorAreaProps {
   setActiveMarket: (m: string) => void;
   updateListing: (updates: Partial<Listing>) => void;
   onSync: () => void;
-  engine: 'gemini' | 'openai' | 'deepseek' | 'qwen';
+  engine: 'gemini' | 'openai' | 'deepseek' | 'qwen' | 'agnes';
   uiLang: UILanguage;
   onRefreshProfile?: () => void;
 }
@@ -233,7 +233,7 @@ export const ListingEditorArea: React.FC<ListingEditorAreaProps> = ({
           uiLang={uiLang}
         />
 
-        <EditBlock label="Product Title" value={getVal('optimized_title', 'title')} onChange={(v: string) => handleFieldUpdate('optimized_title', v)} onBlur={onSync} limit={200} className="text-xl font-black" />
+        <EditBlock label="Product Title (Amazon Policy: Max 75 Chars)" value={getVal('optimized_title', 'title')} onChange={(v: string) => handleFieldUpdate('optimized_title', v)} onBlur={onSync} limit={75} className="text-xl font-black" />
 
         <div className="space-y-4">
           <div className="flex items-center justify-between">

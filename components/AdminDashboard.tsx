@@ -588,8 +588,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ uiLang, activeSu
                   <Plus size={14}/> {uiLang === 'zh' ? '新增单价配置' : 'Add Unit Price'}
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                {['openai', 'gemini', 'deepseek', 'qwen'].map(service => (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                {['openai', 'gemini', 'deepseek', 'qwen', 'agnes'].map(service => (
                   <div key={service} className="bg-slate-50 rounded-[2rem] p-8 border border-slate-100 space-y-6">
                     <div className="flex items-center gap-4">
                      <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">

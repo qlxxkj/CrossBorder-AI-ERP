@@ -15,6 +15,8 @@ import { checkUserCredits, deductCreditsByTokens } from '../lib/creditService';
 import { optimizeListingProxy, translateListingProxy } from '../services/aiProxyService';
 import { calculateMarketLogistics, calculateMarketPrice } from './LogisticsEditor';
 
+import { SpApiConfigModal } from './SpApiConfigModal';
+
 interface ListingsManagerProps {
   onSelectListing: (listing: Listing) => void;
   listings: Listing[];
@@ -34,6 +36,7 @@ interface ListingsManagerProps {
   itemsPerPage: number;
   setItemsPerPage: (val: number) => void;
   onRefreshProfile?: () => void;
+  onOpenSpApiModal?: () => void;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200];
@@ -62,6 +65,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   const [categories, setCategories] = useState<Category[]>([]);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isSpApiModalOpen, setIsSpApiModalOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBatchUpdating, setIsBatchUpdating] = useState(false);
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
@@ -524,6 +528,7 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
       {isManualModalOpen && <ManualListingModal uiLang={lang} orgId={userProfile?.org_id || ''} onClose={() => setIsManualModalOpen(false)} onSave={() => { setIsManualModalOpen(false); refreshListings(); }} />}
       {isExportModalOpen && <ExportModal uiLang={lang} selectedListings={listings.filter(l => selectedIds.has(l.id))} onClose={() => setIsExportModalOpen(false)} onExportSuccess={refreshListings} />}
+      {isSpApiModalOpen && <SpApiConfigModal isOpen={isSpApiModalOpen} onClose={() => setIsSpApiModalOpen(false)} uiLang={lang} onListingsImported={() => refreshListings()} />}
       
       <div className="flex flex-col gap-2">
         <h2 className="text-4xl font-black text-slate-900 tracking-tighter">{t('listings')}</h2>
@@ -626,6 +631,10 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
            
            <button onClick={() => setIsExportModalOpen(true)} disabled={selectedIds.size === 0} className={`px-8 py-4 bg-indigo-600 text-white rounded-3xl hover:bg-indigo-700 font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-indigo-100 ${selectedIds.size === 0 ? 'opacity-40' : ''}`}>
              <Download size={16} /> {t('export')}
+           </button>
+
+           <button onClick={() => setIsSpApiModalOpen(true)} className="px-6 py-4 bg-emerald-600 text-white rounded-3xl hover:bg-emerald-700 font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-emerald-100">
+            <Package size={16} /> {lang === 'zh' ? 'SP-API 私有对接' : 'Amazon SP-API'}
            </button>
            
            <button onClick={() => setIsManualModalOpen(true)} className="px-8 py-4 bg-slate-900 text-white rounded-3xl hover:bg-black font-black text-[10px] shadow-2xl transition-all uppercase tracking-widest">

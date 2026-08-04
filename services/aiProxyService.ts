@@ -1,7 +1,7 @@
 import { CleanedData, OptimizedData } from "../types";
 
 export const optimizeListingProxy = async (
-  engine: 'gemini' | 'openai' | 'deepseek' | 'qwen',
+  engine: 'gemini' | 'openai' | 'deepseek' | 'qwen' | 'agnes',
   cleanedData: CleanedData,
   infringementWords: string[] = []
 ): Promise<{ data: OptimizedData; tokens: number }> => {
@@ -23,7 +23,7 @@ export const optimizeListingProxy = async (
 };
 
 export const translateListingProxy = async (
-  engine: 'gemini' | 'openai' | 'deepseek' | 'qwen',
+  engine: 'gemini' | 'openai' | 'deepseek' | 'qwen' | 'agnes',
   sourceData: OptimizedData,
   targetLangName: string
 ): Promise<{ data: Partial<OptimizedData>; tokens: number }> => {

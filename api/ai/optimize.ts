@@ -17,7 +17,7 @@ Act as a Senior Amazon Listing Expert. Optimize this listing.
 5. YOU MAY retain: Specific model names (e.g., "CX-5"), model years, and OEM/Part numbers.
 
 [CONTENT SPECIFICATIONS]
-1. UNIQUE TITLE: Completely rephrase. MAX 150 characters.
+1. UNIQUE TITLE: Completely rephrase. MAX 75 characters. (Strict Amazon Title Policy: MUST BE 75 CHARACTERS OR FEWER).
 2. 5 DISTINCT BULLETS: Format "KEYWORD: Description". MAX 300 characters each.
 3. SEARCH KEYWORDS: Mandatory. MAX 200 characters. NO BRANDS.
 4. DESCRIPTION: 1200-1700 chars HTML.
@@ -61,6 +61,10 @@ export default async function handler(req: Request) {
       apiKey = process.env.QWEN_API_KEY;
       baseUrl = process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1";
       modelName = process.env.QWEN_MODEL || "qwen-plus";
+    } else if (engine === 'agnes') {
+      apiKey = process.env.AGNES_API_KEY;
+      baseUrl = process.env.AGNES_BASE_URL || "https://api.agnes-ai.com/v1";
+      modelName = process.env.AGNES_MODEL || "agnes-20-flash";
     }
 
     if (!apiKey) throw new Error(`${engine.toUpperCase()} API Key missing`);

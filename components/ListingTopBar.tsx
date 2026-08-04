@@ -6,7 +6,7 @@ import { useTranslation } from '../lib/i18n';
 
 interface ListingTopBarProps {
   onBack: () => void;
-  engine: 'gemini' | 'openai' | 'deepseek' | 'qwen';
+  engine: 'gemini' | 'openai' | 'deepseek' | 'qwen' | 'agnes';
   setEngine: (e: any) => void;
   onOptimize: () => void;
   isOptimizing: boolean;
@@ -16,10 +16,12 @@ interface ListingTopBarProps {
   isDeleting?: boolean;
   onNext: () => void;
   uiLang: UILanguage;
+  onPublishSpApi?: () => void;
+  isPublishingSpApi?: boolean;
 }
 
 export const ListingTopBar: React.FC<ListingTopBarProps> = ({
-  onBack, engine, setEngine, onOptimize, isOptimizing, onSave, onDelete, isSaving, isDeleting, onNext, uiLang
+  onBack, engine, setEngine, onOptimize, isOptimizing, onSave, onDelete, isSaving, isDeleting, onNext, uiLang, onPublishSpApi, isPublishingSpApi
 }) => {
   const t = useTranslation(uiLang);
   return (
@@ -30,9 +32,9 @@ export const ListingTopBar: React.FC<ListingTopBarProps> = ({
         </button> 
         <div className="h-6 w-px bg-slate-200"></div>
         <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
-           {(['gemini', 'openai', 'deepseek', 'qwen'] as const).map(e => (
+           {(['gemini', 'openai', 'deepseek', 'qwen', 'agnes'] as const).map(e => (
              <button key={e} onClick={() => setEngine(e)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all ${engine === e ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
-               {e === 'gemini' ? <Zap size={12}/> : e === 'openai' ? <Brain size={12}/> : e === 'deepseek' ? <Cpu size={12}/> : <Sparkles size={12}/>} {e}
+               {e === 'gemini' ? <Zap size={12}/> : e === 'openai' ? <Brain size={12}/> : e === 'deepseek' ? <Cpu size={12}/> : e === 'agnes' ? <Sparkles size={12} className="text-purple-600"/> : <Sparkles size={12}/>} {e === 'agnes' ? 'agnes-2.0' : e}
              </button>
            ))}
         </div>
@@ -52,6 +54,18 @@ export const ListingTopBar: React.FC<ListingTopBarProps> = ({
       </div>
 
       <div className="flex items-center gap-3">
+        {onPublishSpApi && (
+          <button 
+            onClick={onPublishSpApi} 
+            disabled={isPublishingSpApi} 
+            className="flex items-center gap-2 px-6 py-2.5 rounded-2xl font-black text-xs text-white bg-emerald-600 hover:bg-emerald-700 transition-all uppercase shadow-md disabled:opacity-50"
+            title="Publish / Update on Amazon SP-API"
+          >
+            {isPublishingSpApi ? <Loader2 className="animate-spin" size={16} /> : <Zap size={16} />}
+            <span>{uiLang === 'zh' ? '发布至 SP-API' : 'Push to SP-API'}</span>
+          </button>
+        )}
+
         <button onClick={onOptimize} disabled={isOptimizing} className="flex items-center gap-2 px-8 py-2.5 rounded-2xl font-black text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-all uppercase shadow-sm disabled:opacity-50">
           {isOptimizing ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} AI Optimize Master
         </button>
