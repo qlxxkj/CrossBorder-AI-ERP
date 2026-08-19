@@ -1,6 +1,4 @@
-export const config = {
-  runtime: 'edge',
-};
+import type { Request, Response } from 'express';
 
 const HOST_MAP: Record<string, string> = {
   'NA': 'https://sellingpartnerapi-na.amazon.com',
@@ -21,13 +19,9 @@ const MARKETPLACE_CURRENCY_MAP: Record<string, string> = {
   'A39IBJ37TRP1C6': 'AUD', // AU
 };
 
-export default async function handler(req: Request) {
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
-  }
-
+export async function handleSpApiListings(req: Request, res: Response) {
   try {
-    const body = await req.json();
+    const body = req.body || {};
     const { action, config: spConfig, payload } = body;
     const { 
       lwa_client_id, 
@@ -39,10 +33,10 @@ export default async function handler(req: Request) {
     } = spConfig || {};
 
     if (!lwa_client_id || !lwa_client_secret || !refresh_token) {
-      return new Response(JSON.stringify({
+      return res.status(400).json({
         success: false,
         error: 'SP-API 凭证缺失：请先配置 LWA Client ID、Client Secret 以及 Refresh Token（自授权密钥）。'
-      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      });
     }
 
     // 1. Exchange Refresh Token for Access Token via Amazon LWA
@@ -59,10 +53,10 @@ export default async function handler(req: Request) {
 
     const tokenData = await tokenResponse.json();
     if (!tokenResponse.ok || !tokenData.access_token) {
-      return new Response(JSON.stringify({
+      return res.status(401).json({
         success: false,
         error: `亚马逊 LWA 授权失败: ${tokenData.error_description || tokenData.error || '无法获取 Access Token，请核对 Client ID / Secret / Refresh Token'}`
-      }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+      });
     }
 
     const accessToken = tokenData.access_token;
@@ -120,7 +114,7 @@ export default async function handler(req: Request) {
                 status: totalQty > 0 ? 'Active' : 'Inactive',
                 fulfillment_channel: 'FBA',
                 condition: item.condition || 'New',
-                main_image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80',
+                main_image: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=600&q=80',
                 last_synced_at: new Date().toISOString(),
                 created_at: new Date().toISOString()
               });
@@ -140,8 +134,7 @@ export default async function handler(req: Request) {
       // Strategy 2: If Seller ID provided, try SP-API Listings Items or Catalog API
       if (fetchedItems.length === 0 && activeSellerId) {
         try {
-          logs.push(`[${new Date().toLocaleTimeString()}] 尝试查询店铺卖家记号 (${activeSellerId}) 目录与商品...`);
-          // Query catalog by seller / marketplace
+          logs.push(`[${new Date().toLocaleTimeString()}] 尝试查询店铺卖家记号 (${activeSellerId}) 目录商品...`);
           const catUrl = `${baseUrl}/catalog/2022-04-01/items?marketplaceIds=${encodeURIComponent(targetMarketplace)}&sellerId=${encodeURIComponent(activeSellerId)}&pageSize=20&includedData=summaries,attributes,images,productTypes`;
           
           const catRes = await fetch(catUrl, {
@@ -164,7 +157,7 @@ export default async function handler(req: Request) {
                 const sku = attributes.item_sku?.[0]?.value || `SKU-${asin || idx + 1}`;
                 const title = summary.itemName || attributes.item_name?.[0]?.value || `Amazon Listing ${asin}`;
                 const brand = summary.brand || attributes.brand?.[0]?.value || 'Seller Store';
-                const mainImage = summary.mainImage?.link || attributes.main_product_image_locator?.[0]?.media_location || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80';
+                const mainImage = summary.mainImage?.link || attributes.main_product_image_locator?.[0]?.media_location || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=600&q=80';
 
                 fetchedItems.push({
                   id: `amz-cat-${asin || sku}`,
@@ -173,7 +166,7 @@ export default async function handler(req: Request) {
                   title: title,
                   brand: brand,
                   marketplace: targetMarketplace,
-                  price: 19.99,
+                  price: 29.99,
                   currency: currency,
                   quantity: 50,
                   status: 'Active',
@@ -196,136 +189,112 @@ export default async function handler(req: Request) {
 
       // If we got real products from Amazon SP-API
       if (fetchedItems.length > 0) {
-        return new Response(JSON.stringify({
+        return res.json({
           success: true,
           count: fetchedItems.length,
           source: 'AMAZON_SP_API_LIVE',
           message: `成功从亚马逊 SP-API 实时抓取到 ${fetchedItems.length} 个属于您店铺的商品！`,
           items: fetchedItems,
           logs
-        }), { headers: { 'Content-Type': 'application/json' } });
+        });
       }
 
       // If SP-API successfully authenticated but Amazon returned 0 items for this specific marketplace / sellerId
-      return new Response(JSON.stringify({
+      return res.json({
         success: false,
         count: 0,
         source: 'AMAZON_SP_API_EMPTY',
-        error: `亚马逊 SP-API 授权验证成功，但在所选站点 [${targetMarketplace}] 与卖家账号下，暂未查询到在线商品。`,
+        error: `亚马逊 SP-API 鉴权成功，但在所选站点 [${targetMarketplace}] 下未检索到该店铺的在线商品。`,
         diagnostic: {
           region,
           marketplace_id: targetMarketplace,
           seller_id: activeSellerId || '未填写卖家记号',
           lastApiError,
           suggestions: [
-            '1. 请核对当前选择的站点是否与您店铺开通的站点一致（如：美国站 ATVPDKIKX0DER、欧洲站等）',
-            '2. 请在 SP-API 配置中填写准确的卖家记号 (Merchant ID / Seller ID)',
-            '3. 您也可以点击「导入卖家平台报告」直接上传亚马逊后台导出的 Active Listings Report 快速同步所有商品！'
+            '请检查 SP-API 配置中的【区域】与【默认站点 Marketplace ID】是否与您实际开通在售的站点一致（如美站 ATVPDKIKX0DER、日站 A1VC38T7YXB528、德站 A1PA6795UKMFR9 等）。',
+            '若您店铺的自发货(FBM)商品未录入 FBA，请在系统设置中填写【卖家记号 Seller ID】以激活目录同步。',
+            '请确认该自授权应用（LWA）拥有 Product Listing / Inventory 权限。'
           ]
         },
-        logs,
-        items: []
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        items: [],
+        logs
+      });
     }
 
     // ==========================================
-    // ACTION: PUBLISH / UPDATE LISTING VIA SP-API
+    // ACTION: PUSH / SUBMIT LISTING TO AMAZON
     // ==========================================
-    if (action === 'publish') {
-      const { sku, asin, title, brand, price, quantity = 10, bullet_points = [], description = '', fulfillment_channel = 'FBM' } = payload || {};
-
-      if (!sku) {
-        return new Response(JSON.stringify({ error: '发布失败：SKU 是亚马逊商品必填唯一标识。' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    if (action === 'push') {
+      if (!payload || !payload.sku) {
+        return res.status(400).json({ success: false, error: '缺少上架 SKU 或 Payload 信息' });
       }
 
-      if (!activeSellerId) {
-        return new Response(JSON.stringify({ 
-          error: '发布失败：未填写 Seller ID / Merchant ID（卖家记号）。请在 SP-API 配置中填写您的卖家记号。' 
-        }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-      }
+      const listingSku = payload.sku.trim();
+      const listingUrl = `${baseUrl}/listings/2021-08-01/items/${encodeURIComponent(activeSellerId || 'DEFAULT')}/${encodeURIComponent(listingSku)}?marketplaceIds=${encodeURIComponent(targetMarketplace)}`;
 
-      const finalTitle = (title || '').trim().slice(0, 75);
-      const finalBrand = (brand || 'Generic').trim();
-      const finalPrice = typeof price === 'number' ? price : parseFloat(price) || 9.99;
-
-      const spPayload = {
-        productType: 'PRODUCT',
-        requirements: 'LISTING',
-        attributes: {
-          item_name: [{ value: finalTitle, marketplace_id: targetMarketplace }],
-          brand: [{ value: finalBrand, marketplace_id: targetMarketplace }],
-          fulfillment_availability: [{
-            fulfillment_channel_code: fulfillment_channel === 'FBA' ? 'AMAZON_NA' : 'DEFAULT',
-            quantity: quantity
-          }],
-          purchasable_offer: [{
-            currency: currency,
-            our_price: [{
-              schedule: [{
-                value_with_tax: finalPrice
-              }]
-            }],
-            marketplace_id: targetMarketplace
-          }],
-          bullet_point: bullet_points.filter(Boolean).map((b: string) => ({
-            value: b.slice(0, 300),
-            marketplace_id: targetMarketplace
-          })),
-          product_description: description ? [{
-            value: description.slice(0, 2000),
-            marketplace_id: targetMarketplace
-          }] : undefined
-        }
-      };
-
-      const putUrl = `${baseUrl}/listings/2021-08-01/items/${encodeURIComponent(activeSellerId)}/${encodeURIComponent(sku)}?marketplaceIds=${targetMarketplace}&issueLocale=en_US`;
-      
       try {
-        const putRes = await fetch(putUrl, {
-          method: 'PUT',
+        const patchBody = {
+          productType: 'PRODUCT',
+          patches: [
+            {
+              op: 'replace',
+              path: '/attributes/item_name',
+              value: [{ value: payload.title, marketplace_id: targetMarketplace }]
+            },
+            {
+              op: 'replace',
+              path: '/attributes/purchasable_offer',
+              value: [{
+                currency: currency,
+                our_price: [{ schedule: [{ value_with_tax: payload.price || 29.99 }] }],
+                marketplace_id: targetMarketplace
+              }]
+            }
+          ]
+        };
+
+        const pushRes = await fetch(listingUrl, {
+          method: 'PATCH',
           headers: {
             'x-amz-access-token': accessToken,
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           },
-          body: JSON.stringify(spPayload)
+          body: JSON.stringify(patchBody)
         });
 
-        const putData = await putRes.json().catch(() => ({}));
+        const pushData = await pushRes.json().catch(() => ({}));
+        const submissionId = pushData.submissionId || `SUB-${Date.now()}`;
+        const isSuccess = pushRes.ok || pushRes.status === 200 || pushRes.status === 202;
 
-        if (putRes.ok) {
-          const submissionId = putData.submissionId || `sp-sub-${Date.now()}`;
-          return new Response(JSON.stringify({
-            success: true,
-            message: `成功通过 SP-API 提交商品 [${sku}] 至亚马逊！Submission ID: ${submissionId}`,
-            submission_id: submissionId,
-            status: putData.status || 'ACCEPTED',
-            issues: putData.issues || [],
-            marketplace_id: targetMarketplace
-          }), { headers: { 'Content-Type': 'application/json' } });
-        } else {
-          const amazonErrors = putData.errors || putData.issues || [];
-          let errorDetail = putData.message || (amazonErrors.length > 0 ? amazonErrors.map((e: any) => `[${e.code || e.severity || 'ERROR'}] ${e.message}`).join('; ') : `HTTP ${putRes.status}`);
-
-          return new Response(JSON.stringify({
-            success: false,
-            error: `亚马逊 SP-API 返回错误: ${errorDetail}`,
-            issues: amazonErrors,
-            raw_status: putRes.status,
-            submission_id: putData.submissionId || `err-${Date.now()}`
-          }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-        }
-      } catch (networkErr: any) {
-        return new Response(JSON.stringify({
+        return res.json({
+          success: isSuccess,
+          submission_id: submissionId,
+          status: isSuccess ? 'ACCEPTED' : 'REJECTED',
+          message: isSuccess ? `商品 [${listingSku}] 已成功推送至亚马逊 SP-API！` : (pushData.errors?.[0]?.message || 'SP-API 拒绝了推送请求'),
+          marketplace_id: targetMarketplace,
+          sku: listingSku,
+          raw_response: pushData
+        });
+      } catch (pushErr: any) {
+        return res.json({
           success: false,
-          error: `连接亚马逊 SP-API 网关超时或出错: ${networkErr.message}`
-        }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+          submission_id: `ERR-${Date.now()}`,
+          status: 'ERROR',
+          message: `推送至亚马逊异常: ${pushErr.message}`
+        });
       }
     }
 
-    return new Response(JSON.stringify({ error: '无效的操作请求 (Invalid action)' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    return res.status(400).json({ error: `Unsupported action: ${action}` });
 
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message || 'SP-API 后端处理异常' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    console.error('[SP-API Listings Error]:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || '内部服务错误：SP-API 操作异常'
+    });
   }
 }
+
+export default handleSpApiListings;

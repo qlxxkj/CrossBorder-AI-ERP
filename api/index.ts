@@ -7,6 +7,9 @@ import { optimizeListingWithQwen, translateListingWithQwen } from "../services/q
 import { optimizeListingWithOpenAI, translateListingWithOpenAI } from "../services/openaiService";
 import { optimizeListingWithDeepSeek, translateListingWithDeepSeek } from "../services/deepseekService";
 import { optimizeListingWithAI, translateListingWithAI } from "../services/geminiService";
+import { handleSpApiTest } from "./sp-api/test";
+import { handleSpApiListings } from "./sp-api/listings";
+import { handleSpApiOrders } from "./sp-api/orders";
 
 console.log(">>> [BOOT] VERCEL API ENTRY STARTING UP <<<");
 
@@ -81,6 +84,11 @@ app.post("/api/ai/translate", async (req, res, next) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// SP-API Endpoints
+app.post("/api/sp-api/test", handleSpApiTest);
+app.post("/api/sp-api/listings", handleSpApiListings);
+app.post("/api/sp-api/orders", handleSpApiOrders);
 
 // 3. VITE / STATIC
 async function configureStatic() {

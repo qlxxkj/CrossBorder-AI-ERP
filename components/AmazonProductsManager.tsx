@@ -430,29 +430,11 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
         <div className="flex items-center gap-3 flex-wrap">
           <button 
             onClick={handleResetToMyProducts}
-            title={isZh ? '清理非本店或测试商品，保留本人上架商品' : 'Clean foreign demo listings'}
+            title={isZh ? '清理非本店或历史测试缓存商品' : 'Purge demo/cached listings'}
             className="px-3.5 py-2.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 border border-slate-200/60"
           >
             <Trash2 size={14} className="text-slate-400 group-hover:text-rose-500" />
-            {isZh ? '清理非本店商品' : 'Purge Demo Items'}
-          </button>
-
-          <button 
-            onClick={() => setReportImportModalOpen(true)}
-            title={isZh ? '上传亚马逊后台导出的 Active Listings Report 快速同步' : 'Import Active Listings Report from Seller Central'}
-            className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shadow-sm"
-          >
-            <Upload size={14} className="text-emerald-600" />
-            {isZh ? '导入卖家平台库存报告' : 'Import Inventory Report'}
-          </button>
-
-          <button 
-            onClick={() => setQuickAddModalOpen(true)}
-            title={isZh ? '手动录入或批量粘贴店铺真实 SKU / ASIN' : 'Add/Paste Store Listings'}
-            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl text-xs font-black transition-all flex items-center gap-2"
-          >
-            <Plus size={14} />
-            {isZh ? '录入/批量录入商品' : 'Add Store Listings'}
+            {isZh ? '清理缓存' : 'Purge Cache'}
           </button>
 
           <button 
@@ -477,7 +459,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
             className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-2xl text-xs font-black shadow-lg shadow-amber-200 transition-all flex items-center gap-2 disabled:opacity-50"
           >
             <RefreshCw size={15} className={isSyncing ? 'animate-spin' : ''} />
-            {isSyncing ? (isZh ? '正在从亚马逊同步...' : 'Syncing...') : (isZh ? '从亚马逊同步商品' : 'Sync from Amazon')}
+            {isSyncing ? (isZh ? '正在从亚马逊 SP-API 实时同步...' : 'Syncing from SP-API...') : (isZh ? '从亚马逊 SP-API 同步商品' : 'Sync from Amazon SP-API')}
           </button>
         </div>
       </div>
@@ -1556,20 +1538,16 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                   setDiagnosticModalOpen(false);
                   if (onOpenSettings) onOpenSettings();
                 }}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold transition-all"
+                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black shadow-lg shadow-amber-200 transition-all flex items-center gap-1.5"
               >
-                {isZh ? '⚙️ 检查 SP-API 凭证与站点' : 'Settings'}
+                ⚙️ {isZh ? '打开系统设置 / 检查 SP-API 凭证与站点' : 'Open SP-API Settings'}
               </button>
 
               <button 
-                onClick={() => {
-                  setDiagnosticModalOpen(false);
-                  setReportImportModalOpen(true);
-                }}
-                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black shadow-lg shadow-amber-200 transition-all flex items-center gap-1.5"
+                onClick={() => setDiagnosticModalOpen(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold transition-all"
               >
-                <Upload size={14} />
-                {isZh ? '直接导入卖家中心库存报告' : 'Import Active Report'}
+                {isZh ? '知道了' : 'Close'}
               </button>
             </div>
           </div>

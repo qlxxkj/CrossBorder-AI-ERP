@@ -1,20 +1,15 @@
-export const config = {
-  runtime: 'edge',
-};
+import type { Request, Response } from 'express';
 
-export default async function handler(req: Request) {
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
-  }
-
+export async function handleSpApiTest(req: Request, res: Response) {
   try {
-    const config = await req.json();
-    const { lwa_client_id, lwa_client_secret, refresh_token, seller_id, region, marketplace_id } = config;
+    const config = req.body;
+    const { lwa_client_id, lwa_client_secret, refresh_token, seller_id, region = 'NA', marketplace_id } = config || {};
 
     if (!lwa_client_id || !lwa_client_secret || !refresh_token) {
-      return new Response(JSON.stringify({
-        error: 'Missing required credentials: LWA Client ID, LWA Client Secret, and Refresh Token are required.'
-      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      return res.status(400).json({
+        success: false,
+        error: 'SP-API 凭证缺失：请先填写 LWA Client ID、Client Secret 及 Refresh Token。'
+      });
     }
 
     // Call Amazon LWA endpoint to exchange refresh_token for access_token
@@ -23,19 +18,19 @@ export default async function handler(req: Request) {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
-        refresh_token: refresh_token,
-        client_id: lwa_client_id,
-        client_secret: lwa_client_secret,
+        refresh_token: refresh_token.trim(),
+        client_id: lwa_client_id.trim(),
+        client_secret: lwa_client_secret.trim(),
       }).toString(),
     });
 
     const tokenData = await tokenResponse.json();
 
     if (!tokenResponse.ok || !tokenData.access_token) {
-      return new Response(JSON.stringify({
+      return res.status(400).json({
         success: false,
-        error: tokenData.error_description || tokenData.error || 'Amazon LWA Authorization Failed. Please check Client ID, Secret, and Refresh Token.'
-      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        error: tokenData.error_description || tokenData.error || '亚马逊 LWA 授权失败，请核对 Client ID / Secret / Refresh Token 是否匹配。'
+      });
     }
 
     const hostMap: Record<string, string> = {
@@ -45,19 +40,22 @@ export default async function handler(req: Request) {
     };
     const targetHost = hostMap[region] || 'sellingpartnerapi-na.amazon.com';
 
-    return new Response(JSON.stringify({
+    return res.json({
       success: true,
-      message: `Successfully authenticated Private Application with Amazon SP-API (${region} - ${targetHost})!`,
-      seller_id: seller_id || 'Self-Authorized Private Seller',
+      message: `成功通过亚马逊 LWA 鉴权验证！(${region} 节点 - ${targetHost})`,
+      seller_id: seller_id || '自授权店铺',
       access_token_type: tokenData.token_type,
       expires_in: tokenData.expires_in,
       timestamp: new Date().toISOString()
-    }), { headers: { 'Content-Type': 'application/json' } });
+    });
 
   } catch (error: any) {
-    return new Response(JSON.stringify({
+    console.error('[SP-API Test Error]:', error);
+    return res.status(500).json({
       success: false,
-      error: error.message || 'Internal Server Error testing SP-API connection'
-    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      error: error.message || '内部服务错误：无法完成 SP-API 鉴权测试'
+    });
   }
 }
+
+export default handleSpApiTest;
