@@ -396,11 +396,16 @@ export const AmazonListingDetailModal: React.FC<AmazonListingDetailModalProps> =
                     onChange={(e) => handleFieldChange('marketplace', e.target.value)}
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-900 focus:bg-white"
                   >
-                    <option value="US">🇺🇸 美国 (US)</option>
-                    <option value="CA">🇨🇦 加拿大 (CA)</option>
-                    <option value="UK">🇬🇧 英国 (UK)</option>
-                    <option value="DE">🇩🇪 德国 (DE)</option>
-                    <option value="JP">🇯🇵 日本 (JP)</option>
+                    <option value="US">{isZh ? '美国' : 'United States'}</option>
+                    <option value="CA">{isZh ? '加拿大' : 'Canada'}</option>
+                    <option value="MX">{isZh ? '墨西哥' : 'Mexico'}</option>
+                    <option value="UK">{isZh ? '英国' : 'United Kingdom'}</option>
+                    <option value="DE">{isZh ? '德国' : 'Germany'}</option>
+                    <option value="FR">{isZh ? '法国' : 'France'}</option>
+                    <option value="IT">{isZh ? '意大利' : 'Italy'}</option>
+                    <option value="ES">{isZh ? '西班牙' : 'Spain'}</option>
+                    <option value="JP">{isZh ? '日本' : 'Japan'}</option>
+                    <option value="AU">{isZh ? '澳大利亚' : 'Australia'}</option>
                   </select>
                 </div>
               </div>

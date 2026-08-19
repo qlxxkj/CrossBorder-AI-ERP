@@ -651,16 +651,12 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
              <Download size={16} /> {t('export')}
            </button>
 
-           {selectedIds.size > 0 ? (
+           {selectedIds.size > 0 && (
              <button 
                onClick={() => setIsAmazonPublishModalOpen(true)} 
                className="px-6 py-4 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-3xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-amber-200 animate-in zoom-in-95"
              >
                <Package size={16} /> {lang === 'zh' ? `发布至亚马逊 (${selectedIds.size})` : `Publish to Amazon (${selectedIds.size})`}
-             </button>
-           ) : (
-             <button onClick={() => setIsSpApiModalOpen(true)} className="px-6 py-4 bg-emerald-600 text-white rounded-3xl hover:bg-emerald-700 font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-emerald-100">
-               <Package size={16} /> {lang === 'zh' ? 'SP-API 私有对接' : 'Amazon SP-API'}
              </button>
            )}
            

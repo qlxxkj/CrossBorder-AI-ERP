@@ -4,7 +4,7 @@ import {
   LayoutDashboard, List, Tags, Coins, Layout, ShieldCheck, 
   Settings, LogOut, ChevronRight, Crown, Zap, Package,
   CreditCard, ArrowUpRight, Mail, ChevronDown, Building, Users, Shield, FileText,
-  ShoppingBag, Store
+  ShoppingBag, Store, Clock
 } from 'lucide-react';
 import { UILanguage, UserProfile } from '../types';
 import { useTranslation } from '../lib/i18n';
@@ -58,6 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
   const amazonSubItems = [
     { id: 'amazon:listings', icon: <Package size={16} />, label: lang === 'zh' ? '商品管理' : 'Listings' },
     { id: 'amazon:orders', icon: <ShoppingBag size={16} />, label: lang === 'zh' ? '订单管理' : 'Orders' },
+    { id: 'amazon:logs', icon: <Clock size={16} />, label: lang === 'zh' ? '上传日志' : 'Upload Logs' },
   ];
 
   const systemSubItems = [

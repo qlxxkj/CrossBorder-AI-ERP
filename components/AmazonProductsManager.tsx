@@ -237,7 +237,20 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
         (p.size_name && p.size_name.toLowerCase().includes(q));
       
       const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
-      const matchesMarketplace = marketplaceFilter === 'ALL' || p.marketplace === marketplaceFilter;
+      const matchesMarketplace = marketplaceFilter === 'ALL' || (() => {
+        const norm = (p.marketplace || '').toUpperCase();
+        if (marketplaceFilter === 'US') return norm.includes('US') || norm.includes('ATVPDKIKX0DER');
+        if (marketplaceFilter === 'CA') return norm.includes('CA') || norm.includes('A2EUQ1WTGCTBG2');
+        if (marketplaceFilter === 'MX') return norm.includes('MX') || norm.includes('A1AM78C64UM0Y8');
+        if (marketplaceFilter === 'UK') return norm.includes('UK') || norm.includes('GB') || norm.includes('A1F83G8C2ARO7P');
+        if (marketplaceFilter === 'DE') return norm.includes('DE') || norm.includes('A1PA6795UKMFR9');
+        if (marketplaceFilter === 'FR') return norm.includes('FR') || norm.includes('A13V1IB3VIYZZH');
+        if (marketplaceFilter === 'IT') return norm.includes('IT') || norm.includes('APJ6JRA9NG5V4');
+        if (marketplaceFilter === 'ES') return norm.includes('ES') || norm.includes('A1RKKUPIHCS9HS');
+        if (marketplaceFilter === 'JP') return norm.includes('JP') || norm.includes('A1VC38T7YXB528');
+        if (marketplaceFilter === 'AU') return norm.includes('AU') || norm.includes('A39IBJ37TRP1C6');
+        return norm === marketplaceFilter.toUpperCase();
+      })();
       const matchesFulfillment = fulfillmentFilter === 'ALL' || p.fulfillment_channel === fulfillmentFilter;
       
       let matchesVariation = true;
@@ -393,6 +406,22 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
     return parentKeys.size;
   }, [products]);
 
+  const getMarketplaceDisplayName = (market?: string): string => {
+    if (!market) return isZh ? '美国' : 'United States';
+    const m = market.trim().toUpperCase();
+    if (m === 'ATVPDKIKX0DER' || m === 'US' || m === 'USA') return isZh ? '美国' : 'United States';
+    if (m === 'A2EUQ1WTGCTBG2' || m === 'CA') return isZh ? '加拿大' : 'Canada';
+    if (m === 'A1AM78C64UM0Y8' || m === 'MX') return isZh ? '墨西哥' : 'Mexico';
+    if (m === 'A1F83G8C2ARO7P' || m === 'UK' || m === 'GB') return isZh ? '英国' : 'United Kingdom';
+    if (m === 'A1PA6795UKMFR9' || m === 'DE') return isZh ? '德国' : 'Germany';
+    if (m === 'A13V1IB3VIYZZH' || m === 'FR') return isZh ? '法国' : 'France';
+    if (m === 'APJ6JRA9NG5V4' || m === 'IT') return isZh ? '意大利' : 'Italy';
+    if (m === 'A1RKKUPIHCS9HS' || m === 'ES') return isZh ? '西班牙' : 'Spain';
+    if (m === 'A1VC38T7YXB528' || m === 'JP') return isZh ? '日本' : 'Japan';
+    if (m === 'A39IBJ37TRP1C6' || m === 'AU') return isZh ? '澳大利亚' : 'Australia';
+    return market;
+  };
+
   const currencySymbol = (curr: string) => {
     switch (curr) {
       case 'EUR': return '€';
@@ -428,22 +457,6 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          <button 
-            onClick={handleResetToMyProducts}
-            title={isZh ? '清理非本店或历史测试缓存商品' : 'Purge demo/cached listings'}
-            className="px-3.5 py-2.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 border border-slate-200/60"
-          >
-            <Trash2 size={14} className="text-slate-400 group-hover:text-rose-500" />
-            {isZh ? '清理缓存' : 'Purge Cache'}
-          </button>
-
-          <button 
-            onClick={() => { setFeedLogs(getStoredFeedLogs()); setFeedLogsModalOpen(true); }}
-            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-black transition-all flex items-center gap-2"
-          >
-            <Clock size={14} /> {isZh ? '上传记录' : 'Logs'}
-          </button>
-
           {onOpenPublishModal && (
             <button 
               onClick={onOpenPublishModal}
@@ -597,12 +610,17 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
             onChange={(e) => { setMarketplaceFilter(e.target.value); setCurrentPage(1); }}
             className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none"
           >
-            <option value="ALL">{isZh ? '所有站点 (All Markets)' : 'All Marketplaces'}</option>
-            <option value="US">🇺🇸 美国 (US - ATVPDKIKX0DER)</option>
-            <option value="CA">🇨🇦 加拿大 (CA - A2EUQ1WTGCTBG2)</option>
-            <option value="UK">🇬🇧 英国 (UK - A1F83G8C2ARO7P)</option>
-            <option value="DE">🇩🇪 德国 (DE - A1PA6795UKMFR9)</option>
-            <option value="JP">🇯🇵 日本 (JP - A1VC38T7YXB528)</option>
+            <option value="ALL">{isZh ? '所有站点' : 'All Marketplaces'}</option>
+            <option value="US">{isZh ? '美国' : 'United States'}</option>
+            <option value="CA">{isZh ? '加拿大' : 'Canada'}</option>
+            <option value="MX">{isZh ? '墨西哥' : 'Mexico'}</option>
+            <option value="UK">{isZh ? '英国' : 'United Kingdom'}</option>
+            <option value="DE">{isZh ? '德国' : 'Germany'}</option>
+            <option value="FR">{isZh ? '法国' : 'France'}</option>
+            <option value="IT">{isZh ? '意大利' : 'Italy'}</option>
+            <option value="ES">{isZh ? '西班牙' : 'Spain'}</option>
+            <option value="JP">{isZh ? '日本' : 'Japan'}</option>
+            <option value="AU">{isZh ? '澳大利亚' : 'Australia'}</option>
           </select>
 
           <select 
@@ -788,7 +806,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
 
                         <td className="py-4 px-4">
                           <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px]">
-                            {group.marketplace}
+                            {getMarketplaceDisplayName(group.marketplace)}
                           </span>
                         </td>
 
@@ -970,7 +988,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
 
                             <td className="py-3 px-4">
                               <span className="text-[11px] text-slate-500 font-bold">
-                                {child.marketplace}
+                                {getMarketplaceDisplayName(child.marketplace)}
                               </span>
                             </td>
 
@@ -1099,7 +1117,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
 
                       <td className="py-4 px-4">
                         <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px]">
-                          {p.marketplace}
+                          {getMarketplaceDisplayName(p.marketplace)}
                         </span>
                       </td>
 

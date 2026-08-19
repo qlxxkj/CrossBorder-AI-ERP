@@ -14,6 +14,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { SystemManagement } from './components/SystemManagement';
 import { AmazonProductsManager } from './components/AmazonProductsManager';
 import { AmazonOrdersManager } from './components/AmazonOrdersManager';
+import { AmazonFeedLogsView } from './components/AmazonFeedLogsView';
 import { AmazonPublishModal } from './components/AmazonPublishModal';
 import { AppView, Listing, UILanguage, UserProfile, Organization } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
@@ -373,6 +374,10 @@ const App: React.FC = () => {
       setView(AppView.AMAZON_ORDERS);
       return;
     }
+    if (tab === 'amazon:logs') {
+      setView(AppView.AMAZON_LOGS);
+      return;
+    }
     if (tab.startsWith('system:')) {
       const sub = tab.split(':')[1] as any;
       setSystemSubTab(sub); setView(AppView.SYSTEM_MGMT); return;
@@ -466,6 +471,16 @@ const App: React.FC = () => {
             <AmazonOrdersManager 
               uiLang={lang} 
               onOpenSettings={() => setIsSpApiModalOpen(true)}
+            />
+          );
+        case AppView.AMAZON_LOGS:
+          return (
+            <AmazonFeedLogsView 
+              uiLang={lang} 
+              onNavigateToProducts={() => {
+                setActiveTab('amazon:listings');
+                setView(AppView.AMAZON_LISTINGS);
+              }}
             />
           );
         case AppView.LISTING_DETAIL:
