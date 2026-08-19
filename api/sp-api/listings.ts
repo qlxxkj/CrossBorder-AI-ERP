@@ -71,43 +71,137 @@ export default async function handler(req: Request) {
 
       if (activeSellerId) {
         try {
-          // Attempt 1: SP-API Listings Items API (2021-08-01)
-          const listingsUrl = `${baseUrl}/listings/2021-08-01/items/${encodeURIComponent(activeSellerId)}?marketplaceIds=${targetMarketplace}&includedData=summaries,attributes,offers,issues`;
-          const spRes = await fetch(listingsUrl, {
-            headers: {
-              'x-amz-access-token': accessToken,
-              'Accept': 'application/json'
-            }
-          });
+          // Attempt 1: SP-API Listings Items API (2021-08-01) with pagination and rich attributes
+          let nextToken: string | undefined = undefined;
+          let pageCount = 0;
+          const maxPages = 5; // Support up to 500 items
 
-          if (spRes.ok) {
-            const spData = await spRes.json();
-            if (Array.isArray(spData.items) && spData.items.length > 0) {
-              fetchedItems = spData.items.map((item: any, idx: number) => {
-                const summary = item.summaries?.[0] || {};
-                const attributes = item.attributes || {};
-                return {
-                  id: `amz-sp-${item.sku || idx}`,
-                  sku: item.sku || `SKU-${idx + 1}`,
-                  asin: summary.asin || item.asin || '',
-                  title: summary.itemName || attributes.item_name?.[0]?.value || 'Amazon Synced Product',
-                  brand: attributes.brand?.[0]?.value || 'Amazon Brand',
-                  marketplace: targetMarketplace,
-                  price: summary.offers?.[0]?.price?.amount || attributes.purchasable_offer?.[0]?.our_price?.[0]?.schedule?.[0]?.value_with_tax || 29.99,
-                  currency: summary.offers?.[0]?.price?.currency || currency,
-                  quantity: summary.fulfillmentAvailability?.[0]?.quantity || 50,
-                  status: summary.status?.[0] === 'DISCOVERABLE' ? 'Active' : 'Draft',
-                  fulfillment_channel: summary.fulfillmentChannel === 'AMAZON_NA' ? 'FBA' : 'FBM',
-                  main_image: summary.mainImage?.link || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80',
-                  last_synced_at: new Date().toISOString(),
-                  created_at: new Date().toISOString()
-                };
-              });
+          do {
+            pageCount++;
+            let listingsUrl = `${baseUrl}/listings/2021-08-01/items/${encodeURIComponent(activeSellerId)}?marketplaceIds=${targetMarketplace}&pageSize=100&includedData=summaries,attributes,offers,issues,relationships`;
+            if (nextToken) {
+              listingsUrl += `&pageToken=${encodeURIComponent(nextToken)}`;
             }
-          } else {
-            const errData = await spRes.json().catch(() => ({}));
-            apiErrorNotice = errData.errors?.[0]?.message || errData.message || `SP-API response code ${spRes.status}`;
-          }
+
+            const spRes = await fetch(listingsUrl, {
+              headers: {
+                'x-amz-access-token': accessToken,
+                'Accept': 'application/json'
+              }
+            });
+
+            if (spRes.ok) {
+              const spData = await spRes.json();
+              if (Array.isArray(spData.items) && spData.items.length > 0) {
+                const parsedPage = spData.items.map((item: any, idx: number) => {
+                  const summary = item.summaries?.[0] || {};
+                  const attributes = item.attributes || {};
+                  const relationships = item.relationships || [];
+                  const relationship = relationships[0] || {};
+
+                  // Extract Parent ASIN / SKU
+                  const parentAsin = summary.parentAsin || 
+                    relationship.parentAsin || 
+                    attributes.parent_asin?.[0]?.value || 
+                    attributes.child_parent_sku_relationship?.[0]?.parent_asin || 
+                    summary.variationParent?.asin || 
+                    summary.relationship?.parentAsin || 
+                    '';
+
+                  const parentSku = relationship.parentSku || 
+                    attributes.parent_sku?.[0]?.value || 
+                    attributes.child_parent_sku_relationship?.[0]?.parent_sku || 
+                    summary.variationParent?.sku || 
+                    '';
+
+                  // Variation attributes
+                  const colorName = attributes.color_name?.[0]?.value || attributes.color?.[0]?.value || '';
+                  const sizeName = attributes.size_name?.[0]?.value || attributes.size?.[0]?.value || '';
+                  const material = attributes.material?.[0]?.value || '';
+                  const style = attributes.style?.[0]?.value || '';
+                  
+                  let variationTheme = attributes.variation_theme?.[0]?.value || '';
+                  if (!variationTheme && (colorName || sizeName)) {
+                    variationTheme = colorName && sizeName ? 'Color-Size' : (colorName ? 'Color' : 'Size');
+                  }
+
+                  let variationName = '';
+                  if (colorName && sizeName) {
+                    variationName = `Color: ${colorName}, Size: ${sizeName}`;
+                  } else if (colorName) {
+                    variationName = `Color: ${colorName}`;
+                  } else if (sizeName) {
+                    variationName = `Size: ${sizeName}`;
+                  } else if (attributes.item_display_dimensions?.[0]?.value) {
+                    variationName = attributes.item_display_dimensions[0].value;
+                  }
+
+                  const variationValues: Record<string, string> = {};
+                  if (colorName) variationValues['Color'] = colorName;
+                  if (sizeName) variationValues['Size'] = sizeName;
+                  if (material) variationValues['Material'] = material;
+                  if (style) variationValues['Style'] = style;
+
+                  // Extract Status: BUYABLE / DISCOVERABLE / ACTIVE -> Active; INACTIVE / CLOSED -> Inactive
+                  const rawStatus = (summary.status?.[0] || attributes.status?.[0]?.value || summary.conditionType || '').toUpperCase();
+                  const isInactive = rawStatus === 'INACTIVE' || rawStatus === 'STOPPED' || rawStatus === 'CLOSED';
+                  const itemStatus: 'Active' | 'Inactive' | 'Draft' = isInactive ? 'Inactive' : 'Active';
+
+                  // Bullet Points
+                  const bulletPoints = attributes.bullet_point?.map((b: any) => b.value || b) || summary.bulletPoints || [];
+
+                  // Other Images
+                  const otherImages = [
+                    attributes.other_product_image_locator_1?.[0]?.media_location,
+                    attributes.other_product_image_locator_2?.[0]?.media_location,
+                    attributes.other_product_image_locator_3?.[0]?.media_location,
+                    attributes.other_product_image_locator_4?.[0]?.media_location
+                  ].filter(Boolean);
+
+                  return {
+                    id: `amz-sp-${item.sku || idx}`,
+                    sku: item.sku || `SKU-${idx + 1}`,
+                    asin: summary.asin || item.asin || '',
+                    parent_asin: parentAsin || undefined,
+                    parent_sku: parentSku || undefined,
+                    is_parent: !parentAsin && (summary.hasVariations || attributes.has_variations),
+                    variation_theme: variationTheme || undefined,
+                    variation_name: variationName || undefined,
+                    variation_values: Object.keys(variationValues).length > 0 ? variationValues : undefined,
+                    title: summary.itemName || attributes.item_name?.[0]?.value || 'Amazon Synced Product',
+                    brand: attributes.brand?.[0]?.value || summary.brand || 'Amazon Brand',
+                    manufacturer: attributes.manufacturer?.[0]?.value,
+                    model_number: attributes.model_number?.[0]?.value || attributes.part_number?.[0]?.value,
+                    country_of_origin: attributes.country_of_origin?.[0]?.value,
+                    search_terms: attributes.generic_keyword?.[0]?.value || attributes.search_terms?.[0]?.value,
+                    color_name: colorName || undefined,
+                    size_name: sizeName || undefined,
+                    material: material || undefined,
+                    style: style || undefined,
+                    marketplace: targetMarketplace,
+                    price: summary.offers?.[0]?.price?.amount || attributes.purchasable_offer?.[0]?.our_price?.[0]?.schedule?.[0]?.value_with_tax || 29.99,
+                    currency: summary.offers?.[0]?.price?.currency || currency,
+                    quantity: summary.fulfillmentAvailability?.[0]?.quantity !== undefined ? summary.fulfillmentAvailability[0].quantity : 50,
+                    status: itemStatus,
+                    fulfillment_channel: summary.fulfillmentChannel === 'AMAZON_NA' || summary.fulfillmentChannel === 'FBA' ? 'FBA' : 'FBM',
+                    main_image: summary.mainImage?.link || attributes.main_product_image_locator?.[0]?.media_location || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80',
+                    other_images: otherImages.length > 0 ? otherImages : undefined,
+                    bullet_points: bulletPoints.length > 0 ? bulletPoints : undefined,
+                    description: attributes.product_description?.[0]?.value || summary.description || '',
+                    last_synced_at: new Date().toISOString(),
+                    created_at: new Date().toISOString()
+                  };
+                });
+                fetchedItems = fetchedItems.concat(parsedPage);
+              }
+
+              nextToken = spData.pagination?.nextToken || spData.nextToken;
+            } else {
+              const errData = await spRes.json().catch(() => ({}));
+              apiErrorNotice = errData.errors?.[0]?.message || errData.message || `SP-API response code ${spRes.status}`;
+              break;
+            }
+          } while (nextToken && pageCount < maxPages);
         } catch (err: any) {
           apiErrorNotice = err.message;
         }

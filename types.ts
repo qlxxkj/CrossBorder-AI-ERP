@@ -238,6 +238,19 @@ export interface AmazonProduct {
   children?: AmazonProduct[];
   title: string;
   brand?: string;
+  manufacturer?: string;
+  model_number?: string;
+  item_type_keyword?: string;
+  condition?: string;
+  handling_time?: number;
+  max_order_quantity?: number;
+  search_terms?: string;
+  color_name?: string;
+  size_name?: string;
+  material?: string;
+  style?: string;
+  country_of_origin?: string;
+  list_price?: number;
   marketplace: string;
   price: number;
   currency: string;
@@ -245,6 +258,7 @@ export interface AmazonProduct {
   status: 'Active' | 'Inactive' | 'Draft' | 'Syncing' | 'Error';
   fulfillment_channel: 'FBA' | 'FBM' | 'DEFAULT' | 'AMAZON_NA' | 'AMAZON_EU';
   main_image?: string;
+  other_images?: string[];
   bullet_points?: string[];
   description?: string;
   feed_submission_id?: string;

@@ -4,7 +4,7 @@ import {
   CheckCircle2, AlertCircle, Clock, ArrowUpRight, Zap, Filter, 
   Layers, ShoppingBag, ShieldCheck, Download, Check, AlertTriangle, X,
   ChevronDown, ChevronRight, ChevronsUpDown, List, Grid, ChevronLeft,
-  ChevronsLeft, ChevronsRight, Tag, Boxes, ArrowUpDown, Eye
+  ChevronsLeft, ChevronsRight, Tag, Boxes, ArrowUpDown, Eye, Info
 } from 'lucide-react';
 import { AmazonProduct, AmazonFeedLog, UILanguage, Listing } from '../types';
 import { 
@@ -16,6 +16,7 @@ import {
   getStoredSpApiConfig,
   getStoredFeedLogs
 } from '../services/spApiService';
+import { AmazonListingDetailModal } from './AmazonListingDetailModal';
 
 interface AmazonProductsManagerProps {
   uiLang: UILanguage;
@@ -67,6 +68,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
   const [feedLogsModalOpen, setFeedLogsModalOpen] = useState(false);
   const [feedLogs, setFeedLogs] = useState<AmazonFeedLog[]>([]);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [batchDeleteModalOpen, setBatchDeleteModalOpen] = useState(false);
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -119,7 +121,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
 
       setSyncNotice(
         isZh 
-          ? `成功同步 ${res.count} 个亚马逊商品/变体！数据已按父子变体关系自动归类归并。` 
+          ? `成功同步 ${res.count} 个亚马逊商品/变体！数据已自动识别父子变体关系与真实在售 (Active) 状态。` 
           : `Successfully synced ${res.count} listings/variants from Amazon SP-API!`
       );
       setTimeout(() => setSyncNotice(null), 6000);
@@ -131,7 +133,6 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
   };
 
   const handleDelete = (id: string) => {
-    if (!confirm(isZh ? '确定从本地管理列表中移除该亚马逊商品/变体吗？（不会直接在亚马逊后台下架）' : 'Remove this product from local manager?')) return;
     const updated = deleteStoredAmazonProduct(id);
     setProducts(updated);
     setSelectedIds(prev => {
@@ -141,29 +142,14 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
     });
   };
 
-  const handleDeleteGroup = (group: ProductGroup) => {
-    const count = group.children.length;
-    if (!confirm(isZh ? `确定移除该产品族下的全部 ${count} 个变体吗？` : `Remove all ${count} variants in this family?`)) return;
-    const childIds = new Set(group.children.map(c => c.id));
-    const current = getStoredAmazonProducts();
-    const updated = current.filter(p => !childIds.has(p.id));
-    saveStoredAmazonProducts(updated);
-    setProducts(updated);
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      childIds.forEach(id => next.delete(id));
-      return next;
-    });
-  };
-
-  const handleBatchDelete = () => {
+  const handleConfirmBatchDelete = () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(isZh ? `确定移除选中的 ${selectedIds.size} 个商品吗？` : `Remove ${selectedIds.size} selected items?`)) return;
     const current = getStoredAmazonProducts();
     const updated = current.filter(p => !selectedIds.has(p.id));
     saveStoredAmazonProducts(updated);
     setProducts(updated);
     setSelectedIds(new Set());
+    setBatchDeleteModalOpen(false);
   };
 
   const handlePushSingle = async (p: AmazonProduct) => {
@@ -189,10 +175,9 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
     }
   };
 
-  const handleSaveEdit = () => {
-    if (!editingProduct) return;
+  const handleSaveListingFromModal = (updatedProduct: AmazonProduct) => {
     const current = getStoredAmazonProducts();
-    const updated = current.map(p => p.id === editingProduct.id ? editingProduct : p);
+    const updated = current.map(p => p.id === updatedProduct.id ? updatedProduct : p);
     saveStoredAmazonProducts(updated);
     setProducts(updated);
     setEditingProduct(null);
@@ -209,7 +194,9 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
         (p.parent_sku && p.parent_sku.toLowerCase().includes(q)) ||
         p.title.toLowerCase().includes(q) ||
         (p.brand && p.brand.toLowerCase().includes(q)) ||
-        (p.variation_name && p.variation_name.toLowerCase().includes(q));
+        (p.variation_name && p.variation_name.toLowerCase().includes(q)) ||
+        (p.color_name && p.color_name.toLowerCase().includes(q)) ||
+        (p.size_name && p.size_name.toLowerCase().includes(q));
       
       const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
       const matchesMarketplace = marketplaceFilter === 'ALL' || p.marketplace === marketplaceFilter;
@@ -233,13 +220,16 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
     filteredProducts.forEach(p => {
       const key = p.parent_asin || p.parent_sku || `single-${p.id}`;
       if (!groupMap.has(key)) {
+        // Strip trailing variation details from parent display title
+        const cleanTitle = p.title.replace(/\s*\([^)]*(?:Small|Medium|Large|XL|XS|Black|White|Blue|Red|Green|Navy|Inch|cm|\/)[^)]*\)\s*$/i, '').trim() || p.title;
+
         groupMap.set(key, {
           groupId: key,
           isFamily: Boolean(p.parent_asin || p.parent_sku),
           parentAsin: p.parent_asin,
           parentSku: p.parent_sku,
           variationTheme: p.variation_theme || (p.parent_asin ? 'Color-Size' : undefined),
-          title: p.title.replace(/\s*\([^)]*\)\s*$/, '').trim() || p.title,
+          title: cleanTitle,
           brand: p.brand,
           marketplace: p.marketplace,
           mainImage: p.main_image,
@@ -393,7 +383,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                 </span>
               </h1>
               <p className="text-xs font-semibold text-slate-500 mt-0.5">
-                {isZh ? '支持多品类父子变体层级管理、在线库存监控与 SP-API 一键同步' : 'Manage multi-variant parent-child catalog & stock via SP-API'}
+                {isZh ? '支持多品类父子变体层级管理、在线库存监控、全属性 Listing 编辑与 SP-API 一键同步' : 'Manage multi-variant parent-child catalog, full attributes editor & stock via SP-API'}
               </p>
             </div>
           </div>
@@ -574,8 +564,8 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
             className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none"
           >
             <option value="ALL">{isZh ? '全部状态 (All Status)' : 'All Status'}</option>
-            <option value="Active">{isZh ? '在售 (Active)' : 'Active'}</option>
-            <option value="Draft">{isZh ? '草稿/同步中 (Draft)' : 'Draft'}</option>
+            <option value="Active">{isZh ? '在售在线 (Active)' : 'Active'}</option>
+            <option value="Draft">{isZh ? '草稿/待同步 (Draft)' : 'Draft'}</option>
             <option value="Inactive">{isZh ? '下架 (Inactive)' : 'Inactive'}</option>
             <option value="Error">{isZh ? '异常 (Error)' : 'Error'}</option>
           </select>
@@ -592,10 +582,10 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
 
           {selectedIds.size > 0 && (
             <button 
-              onClick={handleBatchDelete}
-              className="ml-auto px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold transition-all flex items-center gap-1.5"
+              onClick={() => setBatchDeleteModalOpen(true)}
+              className="ml-auto px-3.5 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold transition-all flex items-center gap-1.5"
             >
-              <Trash2 size={13} /> {isZh ? `批量删除 (${selectedIds.size})` : `Delete (${selectedIds.size})`}
+              <Trash2 size={13} /> {isZh ? `从本地列表移除 (${selectedIds.size})` : `Remove (${selectedIds.size})`}
             </button>
           )}
         </div>
@@ -713,12 +703,12 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                                   {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                                   <span className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
                                     <Boxes size={11} />
-                                    {isZh ? `父体商品 (${group.children.length} 变体)` : `Parent (${group.children.length} Vars)`}
+                                    {isZh ? `父体商品 (${group.children.length} 个变体)` : `Parent (${group.children.length} Vars)`}
                                   </span>
                                 </button>
                               ) : (
                                 <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[10px] font-black uppercase">
-                                  {isZh ? '单品 (Single)' : 'Single Item'}
+                                  {isZh ? '单品 (Single Item)' : 'Single Item'}
                                 </span>
                               )}
 
@@ -795,7 +785,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                               group.hasActive ? 'bg-emerald-500' : 'bg-amber-500'
                             }`} />
                             <span className="font-bold text-xs">
-                              {group.hasActive ? 'Active' : 'Draft'}
+                              {group.hasActive ? 'Active (在售)' : 'Draft'}
                             </span>
                           </div>
                         </td>
@@ -803,13 +793,22 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                         <td className="py-4 px-5 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             {group.isFamily ? (
-                              <button 
-                                onClick={() => toggleGroupExpand(group.groupId)}
-                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
-                              >
-                                {isExpanded ? (isZh ? '收起变体' : 'Hide') : (isZh ? '展开变体' : 'View Vars')}
-                                {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                              </button>
+                              <div className="flex items-center gap-1">
+                                <button 
+                                  onClick={() => toggleGroupExpand(group.groupId)}
+                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
+                                >
+                                  {isExpanded ? (isZh ? '收起' : 'Hide') : (isZh ? `展开 (${group.children.length})` : 'View Vars')}
+                                  {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                                </button>
+                                <button 
+                                  onClick={() => setEditingProduct(group.children[0])}
+                                  title={isZh ? "编辑首个变体" : "Edit First Variant"}
+                                  className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                >
+                                  <Edit3 size={14} />
+                                </button>
+                              </div>
                             ) : (
                               <>
                                 <button 
@@ -821,14 +820,14 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                                 </button>
                                 <button 
                                   onClick={() => setEditingProduct(group.children[0])}
-                                  title={isZh ? "编辑商品" : "Edit"}
+                                  title={isZh ? "后台式全属性编辑商品" : "Edit Listing Attributes"}
                                   className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
                                 >
                                   <Edit3 size={14} />
                                 </button>
                                 <button 
                                   onClick={() => handleDelete(group.children[0].id)}
-                                  title={isZh ? "移除商品" : "Delete"}
+                                  title={isZh ? "从本地列表移除 (不影响亚马逊后台)" : "Remove from local list"}
                                   className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
                                 >
                                   <Trash2 size={14} />
@@ -953,7 +952,9 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                                 <span className={`w-1.5 h-1.5 rounded-full ${
                                   child.status === 'Active' ? 'bg-emerald-500' : 'bg-amber-500'
                                 }`} />
-                                <span className="text-xs font-semibold text-slate-700">{child.status}</span>
+                                <span className="text-xs font-semibold text-slate-700">
+                                  {child.status === 'Active' ? 'Active (在售)' : child.status}
+                                </span>
                               </div>
                             </td>
 
@@ -968,14 +969,14 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                                 </button>
                                 <button 
                                   onClick={() => setEditingProduct(child)}
-                                  title={isZh ? "编辑子变体" : "Edit Variant"}
+                                  title={isZh ? "后台式全属性编辑子变体" : "Edit Variant Attributes"}
                                   className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
                                 >
                                   <Edit3 size={13} />
                                 </button>
                                 <button 
                                   onClick={() => handleDelete(child.id)}
-                                  title={isZh ? "移除子变体" : "Remove Variant"}
+                                  title={isZh ? "从本地列表移除 (不影响亚马逊后台)" : "Remove from local list"}
                                   className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                                 >
                                   <Trash2 size={13} />
@@ -1080,7 +1081,9 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                           <span className={`w-2 h-2 rounded-full ${
                             p.status === 'Active' ? 'bg-emerald-500' : 'bg-amber-500'
                           }`} />
-                          <span className="font-bold text-xs">{p.status}</span>
+                          <span className="font-bold text-xs">
+                            {p.status === 'Active' ? 'Active (在售)' : p.status}
+                          </span>
                         </div>
                       </td>
 
@@ -1095,14 +1098,14 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                           </button>
                           <button 
                             onClick={() => setEditingProduct(p)}
-                            title={isZh ? "编辑商品" : "Edit"}
+                            title={isZh ? "后台式全属性编辑商品" : "Edit Listing Attributes"}
                             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
                           >
                             <Edit3 size={15} />
                           </button>
                           <button 
                             onClick={() => handleDelete(p.id)}
-                            title={isZh ? "移除商品" : "Delete"}
+                            title={isZh ? "从本地列表移除" : "Delete"}
                             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
                           >
                             <Trash2 size={15} />
@@ -1125,7 +1128,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
               {isZh ? (
                 <span>
                   共 <strong className="text-slate-900 font-black">{filteredProducts.length}</strong> 个商品/变体
-                  {viewMode === 'hierarchy' && ` (按 ${productGroups.length} 个商品族归纳)`}，
+                  {viewMode === 'hierarchy' && ` (归纳为 ${productGroups.length} 个商品族/系列)`}，
                   当前显示第 <strong className="text-slate-900 font-black">{(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, totalItemCount)}</strong> 项
                 </span>
               ) : (
@@ -1235,141 +1238,65 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
         )}
       </div>
 
-      {/* Edit Product Modal */}
+      {/* Full Amazon Seller Central Style Listing Editor Modal */}
       {editingProduct && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-xl shadow-2xl border border-slate-100 space-y-4 animate-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-black text-slate-900">
-                {isZh ? '编辑亚马逊商品/变体信息' : 'Edit Amazon Product'}
-              </h3>
-              <button onClick={() => setEditingProduct(null)} className="text-slate-400 hover:text-slate-700">
-                <X size={18} />
-              </button>
-            </div>
+        <AmazonListingDetailModal
+          product={editingProduct}
+          uiLang={uiLang}
+          onClose={() => setEditingProduct(null)}
+          onSave={handleSaveListingFromModal}
+          onDelete={handleDelete}
+        />
+      )}
 
-            <div className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">SKU</label>
-                  <input 
-                    type="text" 
-                    value={editingProduct.sku} 
-                    onChange={(e) => setEditingProduct({ ...editingProduct, sku: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">ASIN</label>
-                  <input 
-                    type="text" 
-                    value={editingProduct.asin} 
-                    onChange={(e) => setEditingProduct({ ...editingProduct, asin: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono"
-                  />
-                </div>
+      {/* Batch Delete / Remove from Local Cache Confirmation Modal */}
+      {batchDeleteModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/70 z-60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-3 bg-red-100 rounded-2xl">
+                <AlertTriangle size={24} />
               </div>
-
-              {(editingProduct.parent_asin || editingProduct.parent_sku) && (
-                <div className="grid grid-cols-2 gap-3 bg-amber-50/50 p-3 rounded-2xl border border-amber-100">
-                  <div>
-                    <label className="font-bold text-amber-900 block mb-1">父体 Parent ASIN</label>
-                    <input 
-                      type="text" 
-                      value={editingProduct.parent_asin || ''} 
-                      onChange={(e) => setEditingProduct({ ...editingProduct, parent_asin: e.target.value })}
-                      className="w-full p-2 bg-white border border-amber-200 rounded-xl font-mono text-amber-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-bold text-amber-900 block mb-1">变体描述/属性</label>
-                    <input 
-                      type="text" 
-                      value={editingProduct.variation_name || ''} 
-                      onChange={(e) => setEditingProduct({ ...editingProduct, variation_name: e.target.value })}
-                      placeholder="e.g. Color: Black, Size: L"
-                      className="w-full p-2 bg-white border border-amber-200 rounded-xl font-medium"
-                    />
-                  </div>
-                </div>
-              )}
-
               <div>
-                <label className="font-bold text-slate-700 block mb-1">
-                  {isZh ? '商品标题 (建议 <= 75 字符)' : 'Title (Max 75 chars recommended)'}
-                </label>
-                <input 
-                  type="text" 
-                  value={editingProduct.title} 
-                  onChange={(e) => setEditingProduct({ ...editingProduct, title: e.target.value })}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-medium"
-                />
-                <span className="text-[10px] text-slate-400 mt-1 block">
-                  {editingProduct.title.length} / 75 chars
+                <h3 className="font-black text-slate-900 text-base">
+                  {isZh ? `确认从本地列表移除 ${selectedIds.size} 个商品？` : `Remove ${selectedIds.size} items?`}
+                </h3>
+                <span className="text-[11px] font-bold text-slate-400">
+                  {isZh ? '本地 ERP 缓存清理确认' : 'Local ERP Cache Cleanup'}
                 </span>
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">{isZh ? '售价' : 'Price'}</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    value={editingProduct.price} 
-                    onChange={(e) => setEditingProduct({ ...editingProduct, price: parseFloat(e.target.value) || 0 })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-medium"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">{isZh ? '库存数量' : 'Quantity'}</label>
-                  <input 
-                    type="number" 
-                    value={editingProduct.quantity} 
-                    onChange={(e) => setEditingProduct({ ...editingProduct, quantity: parseInt(e.target.value) || 0 })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-medium"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">{isZh ? '状态' : 'Status'}</label>
-                  <select 
-                    value={editingProduct.status}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, status: e.target.value as any })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-medium"
-                  >
-                    <option value="Active">Active (在售)</option>
-                    <option value="Draft">Draft (草稿/同步中)</option>
-                    <option value="Inactive">Inactive (下架)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">{isZh ? '配送模式' : 'Fulfillment'}</label>
-                  <select 
-                    value={editingProduct.fulfillment_channel}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, fulfillment_channel: e.target.value as any })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-medium"
-                  >
-                    <option value="FBA">FBA (亚马逊配送)</option>
-                    <option value="FBM">FBM (卖家自发货)</option>
-                  </select>
-                </div>
-              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-              <button 
-                onClick={() => setEditingProduct(null)}
-                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-bold"
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-700 space-y-2.5">
+              <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                <ShieldCheck size={16} className="text-emerald-600" />
+                <span>{isZh ? '安全保障说明：' : 'Safety Guarantee:'}</span>
+              </div>
+              <p className="leading-relaxed">
+                {isZh 
+                  ? '【从本地列表移除】仅会从当前系统的管理列表中清理选中商品的缓存记录，' 
+                  : 'This will only clear the local cached listings in ERP.'}
+                <strong className="text-slate-900 font-black">
+                  {isZh ? '绝对不会在亚马逊卖家后台执行下架或删除操作。' : ' Your live Amazon store listings will NOT be deleted.'}
+                </strong>
+              </p>
+              <p className="text-slate-400 text-[11px]">
+                {isZh ? '如需重新查看这些商品，随时可以在右上角点击【从亚马逊同步商品】重新拉取。' : 'You can sync them back anytime.'}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => setBatchDeleteModalOpen(false)}
+                className="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold text-xs hover:bg-slate-200"
               >
                 {isZh ? '取消' : 'Cancel'}
               </button>
-              <button 
-                onClick={handleSaveEdit}
-                className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-black shadow-md"
+              <button
+                onClick={handleConfirmBatchDelete}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-xs shadow-md"
               >
-                {isZh ? '保存更改' : 'Save Changes'}
+                {isZh ? '确认从本地清除' : 'Confirm Clean'}
               </button>
             </div>
           </div>
