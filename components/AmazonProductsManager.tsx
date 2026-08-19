@@ -84,15 +84,38 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
 
   const loadProducts = () => {
     const list = getStoredAmazonProducts();
-    setProducts(list);
+    // Filter out any foreign demo items (e.g., EARBUDS, DOG-HARNESS, BOSCH, CHARGER, BOTTLE, MOUSE, DIFFUSER)
+    const demoKeywords = ['EARBUDS', 'NO-PULL-HARNESS', 'BOSCH-', 'WIRELESS-CHARGER', 'HYDRO-BOTTLE', 'ERGO-OPTICAL', 'AROMA-DIFFUSER'];
+    const cleaned = list.filter(p => !demoKeywords.some(kw => (p.sku && p.sku.includes(kw)) || (p.id && p.id.includes(kw))));
+    
+    if (cleaned.length !== list.length) {
+      saveStoredAmazonProducts(cleaned);
+      setProducts(cleaned);
+    } else {
+      setProducts(list);
+    }
+
     // Auto-expand all families by default for convenient browsing
     const initialGroups = new Set<string>();
-    list.forEach(p => {
+    (cleaned.length > 0 ? cleaned : list).forEach(p => {
       if (p.parent_asin || p.parent_sku) {
         initialGroups.add(p.parent_asin || p.parent_sku || '');
       }
     });
     setExpandedGroupIds(initialGroups);
+  };
+
+  const handleResetToMyProducts = () => {
+    if (confirm(isZh ? '确认清理所有非本店/演示商品，仅保留您自己上架的 12 个瑜伽裤单品变体？' : 'Reset and keep only your 12 authentic listings?')) {
+      const list = getStoredAmazonProducts();
+      const demoKeywords = ['EARBUDS', 'NO-PULL-HARNESS', 'BOSCH-', 'WIRELESS-CHARGER', 'HYDRO-BOTTLE', 'ERGO-OPTICAL', 'AROMA-DIFFUSER'];
+      const cleaned = list.filter(p => !demoKeywords.some(kw => (p.sku && p.sku.includes(kw)) || (p.id && p.id.includes(kw))));
+      saveStoredAmazonProducts(cleaned);
+      setProducts(cleaned);
+      setSelectedIds(new Set());
+      setSyncNotice(isZh ? '已成功清理非本店商品，当前仅保留您真实上架的商品！' : 'Successfully cleaned up demo items!');
+      setTimeout(() => setSyncNotice(null), 4000);
+    }
   };
 
   const handleSyncFromAmazon = async () => {
@@ -390,6 +413,15 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
+          <button 
+            onClick={handleResetToMyProducts}
+            title={isZh ? '清理非本店或测试商品，保留本人上架商品' : 'Clean foreign demo listings'}
+            className="px-3.5 py-2.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 border border-slate-200/60"
+          >
+            <Trash2 size={14} className="text-slate-400 group-hover:text-rose-500" />
+            {isZh ? '清理非本店商品' : 'Purge Demo Items'}
+          </button>
+
           <button 
             onClick={() => { setFeedLogs(getStoredFeedLogs()); setFeedLogsModalOpen(true); }}
             className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-black transition-all flex items-center gap-2"
