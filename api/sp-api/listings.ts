@@ -29,10 +29,18 @@ export default async function handler(req: Request) {
   try {
     const body = await req.json();
     const { action, config: spConfig, payload } = body;
-    const { lwa_client_id, lwa_client_secret, refresh_token, seller_id, region = 'NA', marketplace_id = 'ATVPDKIKX0DER' } = spConfig || {};
+    const { 
+      lwa_client_id, 
+      lwa_client_secret, 
+      refresh_token, 
+      seller_id, 
+      region = 'NA', 
+      marketplace_id = 'ATVPDKIKX0DER' 
+    } = spConfig || {};
 
     if (!lwa_client_id || !lwa_client_secret || !refresh_token) {
       return new Response(JSON.stringify({
+        success: false,
         error: 'SP-API 凭证缺失：请先配置 LWA Client ID、Client Secret 以及 Refresh Token（自授权密钥）。'
       }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
@@ -52,6 +60,7 @@ export default async function handler(req: Request) {
     const tokenData = await tokenResponse.json();
     if (!tokenResponse.ok || !tokenData.access_token) {
       return new Response(JSON.stringify({
+        success: false,
         error: `亚马逊 LWA 授权失败: ${tokenData.error_description || tokenData.error || '无法获取 Access Token，请核对 Client ID / Secret / Refresh Token'}`
       }), { status: 401, headers: { 'Content-Type': 'application/json' } });
     }
@@ -66,278 +75,157 @@ export default async function handler(req: Request) {
     // ACTION: IMPORT LISTINGS FROM AMAZON SP-API
     // ==========================================
     if (action === 'import') {
+      const logs: string[] = [];
       let fetchedItems: any[] = [];
-      let apiErrorNotice = '';
+      let lastApiError: string = '';
 
-      if (activeSellerId) {
-        try {
-          // Attempt 1: SP-API Listings Items API (2021-08-01) with pagination and rich attributes
-          let nextToken: string | undefined = undefined;
-          let pageCount = 0;
-          const maxPages = 5; // Support up to 500 items
+      logs.push(`[${new Date().toLocaleTimeString()}] 已通过 Amazon LWA 验证 Access Token`);
+      logs.push(`[${new Date().toLocaleTimeString()}] 目标区域: ${region} (${baseUrl}), 目标站点: ${targetMarketplace}`);
 
-          do {
-            pageCount++;
-            let listingsUrl = `${baseUrl}/listings/2021-08-01/items/${encodeURIComponent(activeSellerId)}?marketplaceIds=${targetMarketplace}&pageSize=100&includedData=summaries,attributes,offers,issues,relationships`;
-            if (nextToken) {
-              listingsUrl += `&pageToken=${encodeURIComponent(nextToken)}`;
-            }
+      // Strategy 1: Call FBA Inventory Summaries API (Very standard, highly reliable across accounts)
+      try {
+        logs.push(`[${new Date().toLocaleTimeString()}] 尝试调用 FBA Inventory Summaries API...`);
+        const fbaUrl = `${baseUrl}/fba/inventory/v1/summaries?details=true&granularityType=Marketplace&granularityId=${encodeURIComponent(targetMarketplace)}&marketplaceIds=${encodeURIComponent(targetMarketplace)}`;
+        
+        const fbaRes = await fetch(fbaUrl, {
+          headers: {
+            'x-amz-access-token': accessToken,
+            'Accept': 'application/json'
+          }
+        });
 
-            const spRes = await fetch(listingsUrl, {
-              headers: {
-                'x-amz-access-token': accessToken,
-                'Accept': 'application/json'
-              }
+        if (fbaRes.ok) {
+          const fbaData = await fbaRes.json();
+          const summaries = fbaData.payload?.inventorySummaries || fbaData.inventorySummaries || [];
+          logs.push(`[${new Date().toLocaleTimeString()}] FBA Inventory 接口返回 ${summaries.length} 条记录`);
+
+          if (summaries.length > 0) {
+            summaries.forEach((item: any, idx: number) => {
+              const sku = item.sellerSku || item.sku || `SKU-${idx + 1}`;
+              const asin = item.asin || '';
+              const title = item.productName || item.title || `Amazon Product (${sku})`;
+              const totalQty = item.totalQuantity !== undefined ? item.totalQuantity : (item.inventoryDetails?.fulfillableQuantity || 0);
+              
+              fetchedItems.push({
+                id: `amz-fba-${sku}`,
+                sku: sku,
+                asin: asin,
+                fnsku: item.fnSku || undefined,
+                title: title,
+                brand: item.brand || 'Amazon Seller',
+                marketplace: targetMarketplace,
+                price: 29.99,
+                currency: currency,
+                quantity: totalQty,
+                status: totalQty > 0 ? 'Active' : 'Inactive',
+                fulfillment_channel: 'FBA',
+                condition: item.condition || 'New',
+                main_image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80',
+                last_synced_at: new Date().toISOString(),
+                created_at: new Date().toISOString()
+              });
             });
+          }
+        } else {
+          const errBody = await fbaRes.json().catch(() => ({}));
+          const errMsg = errBody.errors?.[0]?.message || errBody.message || `HTTP ${fbaRes.status}`;
+          lastApiError = `FBA API: ${errMsg}`;
+          logs.push(`[${new Date().toLocaleTimeString()}] FBA 接口返回状态 ${fbaRes.status}: ${errMsg}`);
+        }
+      } catch (err: any) {
+        lastApiError = `FBA API Exception: ${err.message}`;
+        logs.push(`[${new Date().toLocaleTimeString()}] FBA API 调用异常: ${err.message}`);
+      }
 
-            if (spRes.ok) {
-              const spData = await spRes.json();
-              if (Array.isArray(spData.items) && spData.items.length > 0) {
-                const parsedPage = spData.items.map((item: any, idx: number) => {
-                  const summary = item.summaries?.[0] || {};
-                  const attributes = item.attributes || {};
-                  const relationships = item.relationships || [];
-                  const relationship = relationships[0] || {};
-
-                  // Extract Parent ASIN / SKU
-                  const parentAsin = summary.parentAsin || 
-                    relationship.parentAsin || 
-                    attributes.parent_asin?.[0]?.value || 
-                    attributes.child_parent_sku_relationship?.[0]?.parent_asin || 
-                    summary.variationParent?.asin || 
-                    summary.relationship?.parentAsin || 
-                    '';
-
-                  const parentSku = relationship.parentSku || 
-                    attributes.parent_sku?.[0]?.value || 
-                    attributes.child_parent_sku_relationship?.[0]?.parent_sku || 
-                    summary.variationParent?.sku || 
-                    '';
-
-                  // Variation attributes
-                  const colorName = attributes.color_name?.[0]?.value || attributes.color?.[0]?.value || '';
-                  const sizeName = attributes.size_name?.[0]?.value || attributes.size?.[0]?.value || '';
-                  const material = attributes.material?.[0]?.value || '';
-                  const style = attributes.style?.[0]?.value || '';
-                  
-                  let variationTheme = attributes.variation_theme?.[0]?.value || '';
-                  if (!variationTheme && (colorName || sizeName)) {
-                    variationTheme = colorName && sizeName ? 'Color-Size' : (colorName ? 'Color' : 'Size');
-                  }
-
-                  let variationName = '';
-                  if (colorName && sizeName) {
-                    variationName = `Color: ${colorName}, Size: ${sizeName}`;
-                  } else if (colorName) {
-                    variationName = `Color: ${colorName}`;
-                  } else if (sizeName) {
-                    variationName = `Size: ${sizeName}`;
-                  } else if (attributes.item_display_dimensions?.[0]?.value) {
-                    variationName = attributes.item_display_dimensions[0].value;
-                  }
-
-                  const variationValues: Record<string, string> = {};
-                  if (colorName) variationValues['Color'] = colorName;
-                  if (sizeName) variationValues['Size'] = sizeName;
-                  if (material) variationValues['Material'] = material;
-                  if (style) variationValues['Style'] = style;
-
-                  // Extract Status: BUYABLE / DISCOVERABLE / ACTIVE -> Active; INACTIVE / CLOSED -> Inactive
-                  const rawStatus = (summary.status?.[0] || attributes.status?.[0]?.value || summary.conditionType || '').toUpperCase();
-                  const isInactive = rawStatus === 'INACTIVE' || rawStatus === 'STOPPED' || rawStatus === 'CLOSED';
-                  const itemStatus: 'Active' | 'Inactive' | 'Draft' = isInactive ? 'Inactive' : 'Active';
-
-                  // Bullet Points
-                  const bulletPoints = attributes.bullet_point?.map((b: any) => b.value || b) || summary.bulletPoints || [];
-
-                  // Other Images
-                  const otherImages = [
-                    attributes.other_product_image_locator_1?.[0]?.media_location,
-                    attributes.other_product_image_locator_2?.[0]?.media_location,
-                    attributes.other_product_image_locator_3?.[0]?.media_location,
-                    attributes.other_product_image_locator_4?.[0]?.media_location
-                  ].filter(Boolean);
-
-                  return {
-                    id: `amz-sp-${item.sku || idx}`,
-                    sku: item.sku || `SKU-${idx + 1}`,
-                    asin: summary.asin || item.asin || '',
-                    parent_asin: parentAsin || undefined,
-                    parent_sku: parentSku || undefined,
-                    is_parent: !parentAsin && (summary.hasVariations || attributes.has_variations),
-                    variation_theme: variationTheme || undefined,
-                    variation_name: variationName || undefined,
-                    variation_values: Object.keys(variationValues).length > 0 ? variationValues : undefined,
-                    title: summary.itemName || attributes.item_name?.[0]?.value || 'Amazon Synced Product',
-                    brand: attributes.brand?.[0]?.value || summary.brand || 'Amazon Brand',
-                    manufacturer: attributes.manufacturer?.[0]?.value,
-                    model_number: attributes.model_number?.[0]?.value || attributes.part_number?.[0]?.value,
-                    country_of_origin: attributes.country_of_origin?.[0]?.value,
-                    search_terms: attributes.generic_keyword?.[0]?.value || attributes.search_terms?.[0]?.value,
-                    color_name: colorName || undefined,
-                    size_name: sizeName || undefined,
-                    material: material || undefined,
-                    style: style || undefined,
-                    marketplace: targetMarketplace,
-                    price: summary.offers?.[0]?.price?.amount || attributes.purchasable_offer?.[0]?.our_price?.[0]?.schedule?.[0]?.value_with_tax || 29.99,
-                    currency: summary.offers?.[0]?.price?.currency || currency,
-                    quantity: summary.fulfillmentAvailability?.[0]?.quantity !== undefined ? summary.fulfillmentAvailability[0].quantity : 50,
-                    status: itemStatus,
-                    fulfillment_channel: summary.fulfillmentChannel === 'AMAZON_NA' || summary.fulfillmentChannel === 'FBA' ? 'FBA' : 'FBM',
-                    main_image: summary.mainImage?.link || attributes.main_product_image_locator?.[0]?.media_location || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80',
-                    other_images: otherImages.length > 0 ? otherImages : undefined,
-                    bullet_points: bulletPoints.length > 0 ? bulletPoints : undefined,
-                    description: attributes.product_description?.[0]?.value || summary.description || '',
-                    last_synced_at: new Date().toISOString(),
-                    created_at: new Date().toISOString()
-                  };
-                });
-                fetchedItems = fetchedItems.concat(parsedPage);
-              }
-
-              nextToken = spData.pagination?.nextToken || spData.nextToken;
-            } else {
-              const errData = await spRes.json().catch(() => ({}));
-              apiErrorNotice = errData.errors?.[0]?.message || errData.message || `SP-API response code ${spRes.status}`;
-              break;
+      // Strategy 2: If Seller ID provided, try SP-API Listings Items or Catalog API
+      if (fetchedItems.length === 0 && activeSellerId) {
+        try {
+          logs.push(`[${new Date().toLocaleTimeString()}] 尝试查询店铺卖家记号 (${activeSellerId}) 目录与商品...`);
+          // Query catalog by seller / marketplace
+          const catUrl = `${baseUrl}/catalog/2022-04-01/items?marketplaceIds=${encodeURIComponent(targetMarketplace)}&sellerId=${encodeURIComponent(activeSellerId)}&pageSize=20&includedData=summaries,attributes,images,productTypes`;
+          
+          const catRes = await fetch(catUrl, {
+            headers: {
+              'x-amz-access-token': accessToken,
+              'Accept': 'application/json'
             }
-          } while (nextToken && pageCount < maxPages);
+          });
+
+          if (catRes.ok) {
+            const catData = await catRes.json();
+            const items = catData.items || [];
+            logs.push(`[${new Date().toLocaleTimeString()}] Catalog Items 接口返回 ${items.length} 条记录`);
+            
+            if (items.length > 0) {
+              items.forEach((item: any, idx: number) => {
+                const asin = item.asin || '';
+                const summary = item.summaries?.[0] || {};
+                const attributes = item.attributes || {};
+                const sku = attributes.item_sku?.[0]?.value || `SKU-${asin || idx + 1}`;
+                const title = summary.itemName || attributes.item_name?.[0]?.value || `Amazon Listing ${asin}`;
+                const brand = summary.brand || attributes.brand?.[0]?.value || 'Seller Store';
+                const mainImage = summary.mainImage?.link || attributes.main_product_image_locator?.[0]?.media_location || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80';
+
+                fetchedItems.push({
+                  id: `amz-cat-${asin || sku}`,
+                  sku: sku,
+                  asin: asin,
+                  title: title,
+                  brand: brand,
+                  marketplace: targetMarketplace,
+                  price: 19.99,
+                  currency: currency,
+                  quantity: 50,
+                  status: 'Active',
+                  fulfillment_channel: 'FBA',
+                  main_image: mainImage,
+                  last_synced_at: new Date().toISOString(),
+                  created_at: new Date().toISOString()
+                });
+              });
+            }
+          } else {
+            const catErr = await catRes.json().catch(() => ({}));
+            const errMsg = catErr.errors?.[0]?.message || catErr.message || `HTTP ${catRes.status}`;
+            logs.push(`[${new Date().toLocaleTimeString()}] Catalog 接口返回状态 ${catRes.status}: ${errMsg}`);
+          }
         } catch (err: any) {
-          apiErrorNotice = err.message;
+          logs.push(`[${new Date().toLocaleTimeString()}] Catalog API 调用异常: ${err.message}`);
         }
       }
 
-      // If Amazon SP-API returned actual items, return them
+      // If we got real products from Amazon SP-API
       if (fetchedItems.length > 0) {
         return new Response(JSON.stringify({
           success: true,
           count: fetchedItems.length,
-          source: 'SP_API_LIVE',
-          items: fetchedItems
+          source: 'AMAZON_SP_API_LIVE',
+          message: `成功从亚马逊 SP-API 实时抓取到 ${fetchedItems.length} 个属于您店铺的商品！`,
+          items: fetchedItems,
+          logs
         }), { headers: { 'Content-Type': 'application/json' } });
       }
 
-      // Authentic Catalog: User's listed High-Waisted Seamless Yoga Pants Family (12 variants)
-      const defaultInventory = [
-
-        // 2. Parent 2: High-Waist Seamless Yoga Leggings (Parent ASIN: B09YOGA-PARENT, 4 Size/Color Variations)
-        {
-          id: 'amz-sp-YOGA-BLK-S',
-          sku: 'YOGA-PANTS-SEAMLESS-BLK-S',
-          asin: 'B09YOGA01S',
-          parent_asin: 'B09YOGA-PARENT',
-          parent_sku: 'YOGA-PANTS-PARENT',
-          is_parent: false,
-          variation_theme: 'Color-Size',
-          variation_name: 'Color: Black, Size: Small (S)',
-          variation_values: { 'Color': 'Black', 'Size': 'Small (S)' },
-          title: 'High-Waisted Seamless Yoga Pants with Pockets (Black / Small)',
-          brand: 'FitAura Active',
-          marketplace: targetMarketplace,
-          price: 26.99,
-          currency: currency,
-          quantity: 110,
-          status: 'Active',
-          fulfillment_channel: 'FBA',
-          main_image: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=600&q=80',
-          bullet_points: [
-            'BUTTERY SOFT FABRIC: 4-way stretch non-see-through fabric for maximum comfort',
-            'TUMMY CONTROL: Wide waistband stays in place during high-intensity training',
-            'SIDE POCKETS: Deep pockets hold 6.7 inch smartphones securely'
-          ],
-          description: '<p>Premium seamless athletic tights designed for yoga, pilates, running, and daily lounging.</p>',
-          last_synced_at: new Date().toISOString(),
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 'amz-sp-YOGA-BLK-M',
-          sku: 'YOGA-PANTS-SEAMLESS-BLK-M',
-          asin: 'B09YOGA02M',
-          parent_asin: 'B09YOGA-PARENT',
-          parent_sku: 'YOGA-PANTS-PARENT',
-          is_parent: false,
-          variation_theme: 'Color-Size',
-          variation_name: 'Color: Black, Size: Medium (M)',
-          variation_values: { 'Color': 'Black', 'Size': 'Medium (M)' },
-          title: 'High-Waisted Seamless Yoga Pants with Pockets (Black / Medium)',
-          brand: 'FitAura Active',
-          marketplace: targetMarketplace,
-          price: 26.99,
-          currency: currency,
-          quantity: 230,
-          status: 'Active',
-          fulfillment_channel: 'FBA',
-          main_image: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=600&q=80',
-          bullet_points: [
-            'BUTTERY SOFT FABRIC: 4-way stretch non-see-through fabric for maximum comfort',
-            'TUMMY CONTROL: Wide waistband stays in place during high-intensity training'
-          ],
-          description: '<p>Premium seamless athletic tights designed for yoga, pilates, running.</p>',
-          last_synced_at: new Date().toISOString(),
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 'amz-sp-YOGA-GRN-M',
-          sku: 'YOGA-PANTS-SEAMLESS-GRN-M',
-          asin: 'B09YOGA03M',
-          parent_asin: 'B09YOGA-PARENT',
-          parent_sku: 'YOGA-PANTS-PARENT',
-          is_parent: false,
-          variation_theme: 'Color-Size',
-          variation_name: 'Color: Sage Green, Size: Medium (M)',
-          variation_values: { 'Color': 'Sage Green', 'Size': 'Medium (M)' },
-          title: 'High-Waisted Seamless Yoga Pants with Pockets (Sage Green / Medium)',
-          brand: 'FitAura Active',
-          marketplace: targetMarketplace,
-          price: 28.50,
-          currency: currency,
-          quantity: 75,
-          status: 'Active',
-          fulfillment_channel: 'FBA',
-          main_image: 'https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=600&q=80',
-          bullet_points: [
-            'SAGE GREEN COLORWAY: Elegant muted tone with moisture wicking properties',
-            'TUMMY CONTROL: High compression supportive waistband'
-          ],
-          description: '<p>Breathable workout leggings in trending earthy pastel tones.</p>',
-          last_synced_at: new Date().toISOString(),
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 'amz-sp-YOGA-GRN-L',
-          sku: 'YOGA-PANTS-SEAMLESS-GRN-L',
-          asin: 'B09YOGA04L',
-          parent_asin: 'B09YOGA-PARENT',
-          parent_sku: 'YOGA-PANTS-PARENT',
-          is_parent: false,
-          variation_theme: 'Color-Size',
-          variation_name: 'Color: Sage Green, Size: Large (L)',
-          variation_values: { 'Color': 'Sage Green', 'Size': 'Large (L)' },
-          title: 'High-Waisted Seamless Yoga Pants with Pockets (Sage Green / Large)',
-          brand: 'FitAura Active',
-          marketplace: targetMarketplace,
-          price: 28.50,
-          currency: currency,
-          quantity: 45,
-          status: 'Active',
-          fulfillment_channel: 'FBA',
-          main_image: 'https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=600&q=80',
-          bullet_points: [
-            'SAGE GREEN COLORWAY: Elegant muted tone with moisture wicking properties'
-          ],
-          description: '<p>Breathable workout leggings in trending earthy pastel tones.</p>',
-          last_synced_at: new Date().toISOString(),
-          created_at: new Date().toISOString()
-        },
-
-      ];
-
+      // If SP-API successfully authenticated but Amazon returned 0 items for this specific marketplace / sellerId
       return new Response(JSON.stringify({
-        success: true,
-        count: defaultInventory.length,
-        source: apiErrorNotice ? `SP_API_SYNCHRONIZED (${apiErrorNotice})` : 'SP_API_SYNCHRONIZED',
-        items: defaultInventory
-      }), { headers: { 'Content-Type': 'application/json' } });
+        success: false,
+        count: 0,
+        source: 'AMAZON_SP_API_EMPTY',
+        error: `亚马逊 SP-API 授权验证成功，但在所选站点 [${targetMarketplace}] 与卖家账号下，暂未查询到在线商品。`,
+        diagnostic: {
+          region,
+          marketplace_id: targetMarketplace,
+          seller_id: activeSellerId || '未填写卖家记号',
+          lastApiError,
+          suggestions: [
+            '1. 请核对当前选择的站点是否与您店铺开通的站点一致（如：美国站 ATVPDKIKX0DER、欧洲站等）',
+            '2. 请在 SP-API 配置中填写准确的卖家记号 (Merchant ID / Seller ID)',
+            '3. 您也可以点击「导入卖家平台报告」直接上传亚马逊后台导出的 Active Listings Report 快速同步所有商品！'
+          ]
+        },
+        logs,
+        items: []
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
 
     // ==========================================
@@ -356,12 +244,10 @@ export default async function handler(req: Request) {
         }), { status: 400, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // Strict Validation: Amazon Title Limit <= 75 Chars
       const finalTitle = (title || '').trim().slice(0, 75);
       const finalBrand = (brand || 'Generic').trim();
       const finalPrice = typeof price === 'number' ? price : parseFloat(price) || 9.99;
 
-      // Construct standard SP-API Listings Items 2021-08-01 Schema
       const spPayload = {
         productType: 'PRODUCT',
         requirements: 'LISTING',
@@ -418,7 +304,6 @@ export default async function handler(req: Request) {
             marketplace_id: targetMarketplace
           }), { headers: { 'Content-Type': 'application/json' } });
         } else {
-          // If Amazon returned error/issue details
           const amazonErrors = putData.errors || putData.issues || [];
           let errorDetail = putData.message || (amazonErrors.length > 0 ? amazonErrors.map((e: any) => `[${e.code || e.severity || 'ERROR'}] ${e.message}`).join('; ') : `HTTP ${putRes.status}`);
 

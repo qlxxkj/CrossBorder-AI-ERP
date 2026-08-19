@@ -4,7 +4,8 @@ import {
   CheckCircle2, AlertCircle, Clock, ArrowUpRight, Zap, Filter, 
   Layers, ShoppingBag, ShieldCheck, Download, Check, AlertTriangle, X,
   ChevronDown, ChevronRight, ChevronsUpDown, List, Grid, ChevronLeft,
-  ChevronsLeft, ChevronsRight, Tag, Boxes, ArrowUpDown, Eye, Info
+  ChevronsLeft, ChevronsRight, Tag, Boxes, ArrowUpDown, Eye, Info,
+  Upload, Sparkles, Terminal
 } from 'lucide-react';
 import { AmazonProduct, AmazonFeedLog, UILanguage, Listing } from '../types';
 import { 
@@ -14,9 +15,12 @@ import {
   importListingsFromSpApiProxy,
   publishListingToSpApiProxy,
   getStoredSpApiConfig,
-  getStoredFeedLogs
+  getStoredFeedLogs,
+  SpApiImportResult
 } from '../services/spApiService';
 import { AmazonListingDetailModal } from './AmazonListingDetailModal';
+import { AmazonReportImportModal } from './AmazonReportImportModal';
+import { AmazonQuickAddModal } from './AmazonQuickAddModal';
 
 interface AmazonProductsManagerProps {
   uiLang: UILanguage;
@@ -69,6 +73,10 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
   const [feedLogs, setFeedLogs] = useState<AmazonFeedLog[]>([]);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [batchDeleteModalOpen, setBatchDeleteModalOpen] = useState(false);
+  const [reportImportModalOpen, setReportImportModalOpen] = useState(false);
+  const [quickAddModalOpen, setQuickAddModalOpen] = useState(false);
+  const [diagnosticModalOpen, setDiagnosticModalOpen] = useState(false);
+  const [diagnosticResult, setDiagnosticResult] = useState<SpApiImportResult | null>(null);
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -130,24 +138,31 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
       }
 
       const res = await importListingsFromSpApiProxy(config);
-      setProducts(res.items);
       
-      // Auto-expand newly synced variation groups
-      const syncedGroups = new Set<string>();
-      res.items.forEach(p => {
-        if (p.parent_asin || p.parent_sku) {
-          syncedGroups.add(p.parent_asin || p.parent_sku || '');
-        }
-      });
-      setExpandedGroupIds(syncedGroups);
-      setCurrentPage(1);
+      if (res.items && res.items.length > 0) {
+        setProducts(res.items);
+        
+        // Auto-expand newly synced variation groups
+        const syncedGroups = new Set<string>();
+        res.items.forEach(p => {
+          if (p.parent_asin || p.parent_sku) {
+            syncedGroups.add(p.parent_asin || p.parent_sku || '');
+          }
+        });
+        setExpandedGroupIds(syncedGroups);
+        setCurrentPage(1);
 
-      setSyncNotice(
-        isZh 
-          ? `成功同步 ${res.count} 个亚马逊商品/变体！数据已自动识别父子变体关系与真实在售 (Active) 状态。` 
-          : `Successfully synced ${res.count} listings/variants from Amazon SP-API!`
-      );
-      setTimeout(() => setSyncNotice(null), 6000);
+        setSyncNotice(
+          isZh 
+            ? `成功从亚马逊 SP-API 同步 ${res.count} 个属于您店铺的商品/变体！数据已自动识别父子变体关系与真实在售状态。` 
+            : `Successfully synced ${res.count} listings/variants from Amazon SP-API!`
+        );
+        setTimeout(() => setSyncNotice(null), 6000);
+      } else {
+        // Amazon returned 0 items or diagnostic info
+        setDiagnosticResult(res);
+        setDiagnosticModalOpen(true);
+      }
     } catch (err: any) {
       alert(err.message || (isZh ? '同步商品失败' : 'Failed to sync listings'));
     } finally {
@@ -423,10 +438,28 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
           </button>
 
           <button 
+            onClick={() => setReportImportModalOpen(true)}
+            title={isZh ? '上传亚马逊后台导出的 Active Listings Report 快速同步' : 'Import Active Listings Report from Seller Central'}
+            className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shadow-sm"
+          >
+            <Upload size={14} className="text-emerald-600" />
+            {isZh ? '导入卖家平台库存报告' : 'Import Inventory Report'}
+          </button>
+
+          <button 
+            onClick={() => setQuickAddModalOpen(true)}
+            title={isZh ? '手动录入或批量粘贴店铺真实 SKU / ASIN' : 'Add/Paste Store Listings'}
+            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl text-xs font-black transition-all flex items-center gap-2"
+          >
+            <Plus size={14} />
+            {isZh ? '录入/批量录入商品' : 'Add Store Listings'}
+          </button>
+
+          <button 
             onClick={() => { setFeedLogs(getStoredFeedLogs()); setFeedLogsModalOpen(true); }}
             className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-black transition-all flex items-center gap-2"
           >
-            <Clock size={15} /> {isZh ? '上传记录与日志' : 'Submission Logs'}
+            <Clock size={14} /> {isZh ? '上传记录' : 'Logs'}
           </button>
 
           {onOpenPublishModal && (
@@ -434,7 +467,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
               onClick={onOpenPublishModal}
               className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black shadow-lg shadow-indigo-200 transition-all flex items-center gap-2"
             >
-              <Plus size={15} /> {isZh ? '从产品库发布' : 'Publish from ERP'}
+              <Plus size={14} /> {isZh ? '从产品库发布' : 'Publish from ERP'}
             </button>
           )}
 
@@ -1417,6 +1450,126 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                 className="px-5 py-2 bg-slate-900 text-white rounded-xl font-bold"
               >
                 {isZh ? '关闭' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Amazon Report Import Modal */}
+      <AmazonReportImportModal 
+        isOpen={reportImportModalOpen}
+        onClose={() => setReportImportModalOpen(false)}
+        uiLang={uiLang}
+        onImportComplete={(imported) => {
+          setProducts(imported);
+          loadProducts();
+          setCurrentPage(1);
+          setSyncNotice(isZh ? `成功导入 ${imported.length} 个属于您店铺的真实商品与变体！` : `Successfully imported ${imported.length} listings!`);
+          setTimeout(() => setSyncNotice(null), 5000);
+        }}
+      />
+
+      {/* Quick Add / Batch Add Store Listings Modal */}
+      <AmazonQuickAddModal 
+        isOpen={quickAddModalOpen}
+        onClose={() => setQuickAddModalOpen(false)}
+        uiLang={uiLang}
+        onProductAdded={(updated) => {
+          setProducts(updated);
+          loadProducts();
+          setCurrentPage(1);
+          setSyncNotice(isZh ? `已更新店铺商品列表，当前共 ${updated.length} 个 SKU！` : `Updated store listings (${updated.length} SKUs)!`);
+          setTimeout(() => setSyncNotice(null), 4000);
+        }}
+      />
+
+      {/* SP-API Sync Diagnostic Modal */}
+      {diagnosticModalOpen && diagnosticResult && (
+        <div className="fixed inset-0 z-[115] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl max-h-[85vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
+            <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center text-slate-950 font-black">
+                  <Terminal size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight">
+                    {isZh ? '亚马逊 SP-API 同步诊断' : 'Amazon SP-API Sync Diagnostic'}
+                  </h3>
+                  <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mt-0.5">
+                    {isZh ? '实时接口调用与店铺商品状态' : 'Live Gateway Diagnostics'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setDiagnosticModalOpen(false)} className="p-2 text-slate-400 hover:text-white rounded-full hover:bg-white/10 transition-all">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 flex-1 overflow-y-auto space-y-4 custom-scrollbar">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-amber-900 font-black text-xs">
+                  <AlertCircle size={16} className="text-amber-600 shrink-0" />
+                  <span>{diagnosticResult.error || (isZh ? 'SP-API 认证成功，但在当前站点下未检索到属于该店铺的在线商品。' : 'SP-API Authorized, but 0 listings found for this marketplace/sellerId.')}</span>
+                </div>
+                <p className="text-xs text-amber-800 font-medium leading-relaxed">
+                  {isZh 
+                    ? '系统已经为您过滤并排除了所有演示/外部示例品，确保只加载您店铺的真实商品。' 
+                    : 'All non-store demo products have been excluded.'}
+                </p>
+              </div>
+
+              {diagnosticResult.diagnostic?.suggestions && (
+                <div className="space-y-2">
+                  <span className="text-xs font-black text-slate-800 block">
+                    {isZh ? '💡 建议排查与快速同步方式：' : 'Recommendations:'}
+                  </span>
+                  <div className="space-y-1.5 text-xs text-slate-600 bg-slate-50 p-4 rounded-2xl border border-slate-100 font-medium">
+                    {diagnosticResult.diagnostic.suggestions.map((sug, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className="text-amber-600 font-bold">•</span>
+                        <span>{sug}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {diagnosticResult.logs && diagnosticResult.logs.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-xs font-black text-slate-800 block">
+                    {isZh ? '📋 实时网关调用日志：' : 'Gateway Trace Logs:'}
+                  </span>
+                  <div className="p-3 bg-slate-900 text-emerald-400 font-mono text-[11px] rounded-xl space-y-1 max-h-40 overflow-y-auto">
+                    {diagnosticResult.logs.map((log, i) => (
+                      <div key={i}>{log}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
+              <button 
+                onClick={() => {
+                  setDiagnosticModalOpen(false);
+                  if (onOpenSettings) onOpenSettings();
+                }}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold transition-all"
+              >
+                {isZh ? '⚙️ 检查 SP-API 凭证与站点' : 'Settings'}
+              </button>
+
+              <button 
+                onClick={() => {
+                  setDiagnosticModalOpen(false);
+                  setReportImportModalOpen(true);
+                }}
+                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black shadow-lg shadow-amber-200 transition-all flex items-center gap-1.5"
+              >
+                <Upload size={14} />
+                {isZh ? '直接导入卖家中心库存报告' : 'Import Active Report'}
               </button>
             </div>
           </div>

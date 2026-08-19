@@ -166,13 +166,25 @@ export const testSpApiConnectionProxy = async (config: SpApiConfig): Promise<{
   return resData;
 };
 
-export const importListingsFromSpApiProxy = async (config: SpApiConfig): Promise<{ 
-  success: boolean; 
-  count: number; 
+export interface SpApiImportResult {
+  success: boolean;
+  count: number;
   items: AmazonProduct[];
   source?: string;
+  message?: string;
+  error?: string;
+  diagnostic?: {
+    region: string;
+    marketplace_id: string;
+    seller_id: string;
+    lastApiError?: string;
+    suggestions?: string[];
+  };
+  logs?: string[];
   raw_response?: any;
-}> => {
+}
+
+export const importListingsFromSpApiProxy = async (config: SpApiConfig): Promise<SpApiImportResult> => {
   const response = await fetch('/api/sp-api/listings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -180,7 +192,7 @@ export const importListingsFromSpApiProxy = async (config: SpApiConfig): Promise
   });
 
   const resData = await response.json();
-  if (!response.ok) {
+  if (!response.ok && !resData.diagnostic) {
     throw new Error(resData.error || resData.message || 'Failed to import listings from Amazon SP-API');
   }
   
