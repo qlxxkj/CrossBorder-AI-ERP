@@ -16,6 +16,7 @@ import { optimizeListingProxy, translateListingProxy } from '../services/aiProxy
 import { calculateMarketLogistics, calculateMarketPrice } from './LogisticsEditor';
 
 import { SpApiConfigModal } from './SpApiConfigModal';
+import { AmazonPublishModal } from './AmazonPublishModal';
 
 interface ListingsManagerProps {
   onSelectListing: (listing: Listing) => void;
@@ -37,6 +38,7 @@ interface ListingsManagerProps {
   setItemsPerPage: (val: number) => void;
   onRefreshProfile?: () => void;
   onOpenSpApiModal?: () => void;
+  onNavigateToAmazonListings?: () => void;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200];
@@ -59,13 +61,16 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
   setCurrentPage,
   itemsPerPage,
   setItemsPerPage,
-  onRefreshProfile
+  onRefreshProfile,
+  onOpenSpApiModal,
+  onNavigateToAmazonListings
 }) => {
   const t = useTranslation(lang);
   const [categories, setCategories] = useState<Category[]>([]);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isSpApiModalOpen, setIsSpApiModalOpen] = useState(false);
+  const [isAmazonPublishModalOpen, setIsAmazonPublishModalOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBatchUpdating, setIsBatchUpdating] = useState(false);
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
@@ -529,6 +534,19 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
       {isManualModalOpen && <ManualListingModal uiLang={lang} orgId={userProfile?.org_id || ''} onClose={() => setIsManualModalOpen(false)} onSave={() => { setIsManualModalOpen(false); refreshListings(); }} />}
       {isExportModalOpen && <ExportModal uiLang={lang} selectedListings={listings.filter(l => selectedIds.has(l.id))} onClose={() => setIsExportModalOpen(false)} onExportSuccess={refreshListings} />}
       {isSpApiModalOpen && <SpApiConfigModal isOpen={isSpApiModalOpen} onClose={() => setIsSpApiModalOpen(false)} uiLang={lang} onListingsImported={() => refreshListings()} />}
+      {isAmazonPublishModalOpen && (
+        <AmazonPublishModal 
+          isOpen={isAmazonPublishModalOpen}
+          onClose={() => setIsAmazonPublishModalOpen(false)}
+          selectedListings={listings.filter(l => selectedIds.has(l.id))}
+          uiLang={lang}
+          onSuccess={() => {
+            setSelectedIds(new Set());
+            refreshListings();
+          }}
+          onNavigateToAmazonListings={onNavigateToAmazonListings}
+        />
+      )}
       
       <div className="flex flex-col gap-2">
         <h2 className="text-4xl font-black text-slate-900 tracking-tighter">{t('listings')}</h2>
@@ -633,9 +651,18 @@ export const ListingsManager: React.FC<ListingsManagerProps> = ({
              <Download size={16} /> {t('export')}
            </button>
 
-           <button onClick={() => setIsSpApiModalOpen(true)} className="px-6 py-4 bg-emerald-600 text-white rounded-3xl hover:bg-emerald-700 font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-emerald-100">
-            <Package size={16} /> {lang === 'zh' ? 'SP-API 私有对接' : 'Amazon SP-API'}
-           </button>
+           {selectedIds.size > 0 ? (
+             <button 
+               onClick={() => setIsAmazonPublishModalOpen(true)} 
+               className="px-6 py-4 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-3xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-amber-200 animate-in zoom-in-95"
+             >
+               <Package size={16} /> {lang === 'zh' ? `发布至亚马逊 (${selectedIds.size})` : `Publish to Amazon (${selectedIds.size})`}
+             </button>
+           ) : (
+             <button onClick={() => setIsSpApiModalOpen(true)} className="px-6 py-4 bg-emerald-600 text-white rounded-3xl hover:bg-emerald-700 font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-emerald-100">
+               <Package size={16} /> {lang === 'zh' ? 'SP-API 私有对接' : 'Amazon SP-API'}
+             </button>
+           )}
            
            <button onClick={() => setIsManualModalOpen(true)} className="px-8 py-4 bg-slate-900 text-white rounded-3xl hover:bg-black font-black text-[10px] shadow-2xl transition-all uppercase tracking-widest">
             <Plus size={16} /> {t('manualAdd')}

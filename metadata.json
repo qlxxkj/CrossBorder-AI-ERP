@@ -3,5 +3,8 @@
   "description": "Professional Amazon seller dashboard with 18-marketplace localization and advanced AI image studio.",
   "requestFramePermissions": [
     "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }

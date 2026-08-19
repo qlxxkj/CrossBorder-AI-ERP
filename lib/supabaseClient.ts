@@ -9,8 +9,8 @@ const getEnv = (key: string): string => {
   try {
     // 优先尝试直接访问（Vite 会在这里做字符串替换）
     // 如果没有被替换，回退到全局对象访问
-    if (key === 'SUPABASE_URL') return process.env.SUPABASE_URL || '';
-    if (key === 'SUPABASE_ANON_KEY') return process.env.SUPABASE_ANON_KEY || '';
+    if (key === 'SUPABASE_URL') return process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+    if (key === 'SUPABASE_ANON_KEY') return process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
     return '';
   } catch (e) {
     return '';

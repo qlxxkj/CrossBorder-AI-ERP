@@ -218,7 +218,80 @@ export enum AppView {
   PRICING = 'PRICING',
   BILLING = 'BILLING',
   ADMIN = 'ADMIN', 
-  SYSTEM_MGMT = 'SYSTEM_MGMT' 
+  SYSTEM_MGMT = 'SYSTEM_MGMT',
+  AMAZON_LISTINGS = 'AMAZON_LISTINGS',
+  AMAZON_ORDERS = 'AMAZON_ORDERS',
+  AMAZON_SETTINGS = 'AMAZON_SETTINGS'
+}
+
+export interface AmazonProduct {
+  id: string;
+  sku: string;
+  asin: string;
+  title: string;
+  brand?: string;
+  marketplace: string;
+  price: number;
+  currency: string;
+  quantity: number;
+  status: 'Active' | 'Inactive' | 'Draft' | 'Syncing' | 'Error';
+  fulfillment_channel: 'FBA' | 'FBM' | 'DEFAULT' | 'AMAZON_NA' | 'AMAZON_EU';
+  main_image?: string;
+  bullet_points?: string[];
+  description?: string;
+  feed_submission_id?: string;
+  submission_status?: 'SUBMITTED' | 'ACCEPTED' | 'IN_PROGRESS' | 'DONE' | 'FATAL' | 'ERROR';
+  submission_errors?: string[];
+  last_synced_at: string;
+  created_at: string;
+}
+
+export interface AmazonOrderItem {
+  asin: string;
+  sku: string;
+  title: string;
+  quantity_ordered: number;
+  quantity_shipped: number;
+  item_price?: { amount: number; currency: string };
+  image?: string;
+}
+
+export interface AmazonOrder {
+  id: string;
+  amazon_order_id: string;
+  purchase_date: string;
+  last_update_date?: string;
+  order_status: 'Pending' | 'Unshipped' | 'PartiallyShipped' | 'Shipped' | 'Canceled' | 'InvoiceUnconfirmed';
+  fulfillment_channel: 'AFN' | 'MFN'; // AFN = FBA, MFN = FBM
+  sales_channel?: string;
+  ship_service_level?: string;
+  order_total: { amount: number; currency: string };
+  number_of_items_shipped: number;
+  number_of_items_unshipped: number;
+  payment_method?: string;
+  marketplace_id: string;
+  buyer_info?: { buyer_email?: string; buyer_name?: string };
+  shipping_address?: {
+    name?: string;
+    city?: string;
+    state_or_region?: string;
+    postal_code?: string;
+    country_code?: string;
+    street?: string;
+  };
+  order_items?: AmazonOrderItem[];
+}
+
+export interface AmazonFeedLog {
+  id: string;
+  submission_id: string;
+  feed_type: string;
+  marketplace_id: string;
+  sku_list: string[];
+  status: 'SUBMITTED' | 'ACCEPTED' | 'IN_PROGRESS' | 'DONE' | 'FATAL' | 'ERROR';
+  error_details?: string[];
+  response_summary?: string;
+  created_at: string;
 }
 
 export type UILanguage = 'en' | 'zh' | 'ja' | 'de' | 'fr' | 'es';

@@ -12,6 +12,9 @@ import { PricingManager } from './components/PricingManager';
 import { BillingCenter } from './components/BillingCenter';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SystemManagement } from './components/SystemManagement';
+import { AmazonProductsManager } from './components/AmazonProductsManager';
+import { AmazonOrdersManager } from './components/AmazonOrdersManager';
+import { AmazonPublishModal } from './components/AmazonPublishModal';
 import { AppView, Listing, UILanguage, UserProfile, Organization } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -358,8 +361,16 @@ const App: React.FC = () => {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    if (tab === 'sp_api') {
+    if (tab === 'sp_api' || tab === 'amazon:settings') {
       setIsSpApiModalOpen(true);
+      return;
+    }
+    if (tab === 'amazon:listings') {
+      setView(AppView.AMAZON_LISTINGS);
+      return;
+    }
+    if (tab === 'amazon:orders') {
+      setView(AppView.AMAZON_ORDERS);
       return;
     }
     if (tab.startsWith('system:')) {
@@ -436,6 +447,25 @@ const App: React.FC = () => {
               itemsPerPage={listingsItemsPerPage}
               setItemsPerPage={setListingsItemsPerPage}
               onRefreshProfile={() => session?.user?.id && fetchIdentity(session.user.id, session)}
+              onNavigateToAmazonListings={() => {
+                setActiveTab('amazon:listings');
+                setView(AppView.AMAZON_LISTINGS);
+              }}
+            />
+          );
+        case AppView.AMAZON_LISTINGS:
+          return (
+            <AmazonProductsManager 
+              uiLang={lang} 
+              onOpenSettings={() => setIsSpApiModalOpen(true)}
+              erpListings={listings}
+            />
+          );
+        case AppView.AMAZON_ORDERS:
+          return (
+            <AmazonOrdersManager 
+              uiLang={lang} 
+              onOpenSettings={() => setIsSpApiModalOpen(true)}
             />
           );
         case AppView.LISTING_DETAIL:

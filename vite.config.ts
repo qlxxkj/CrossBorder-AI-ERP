@@ -27,8 +27,10 @@ export default defineConfig(({ mode }) => {
       'process.env.QWEN_API_KEY': JSON.stringify(env.QWEN_API_KEY),
       'process.env.QWEN_BASE_URL': JSON.stringify(env.QWEN_BASE_URL),
       'process.env.QWEN_MODEL': JSON.stringify(env.QWEN_MODEL),
-      'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL),
-      'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY),
+      'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL || env.VITE_SUPABASE_URL),
+      'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY),
+      'process.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || env.SUPABASE_URL),
+      'process.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY),
       'process.env.SOURCING_API_KEY': JSON.stringify(env.SOURCING_API_KEY),
       'process.env.SOURCING_API_URL': JSON.stringify(env.SOURCING_API_URL),
     }
