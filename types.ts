@@ -228,6 +228,14 @@ export interface AmazonProduct {
   id: string;
   sku: string;
   asin: string;
+  parent_asin?: string;
+  parent_sku?: string;
+  is_parent?: boolean;
+  variation_theme?: string;
+  variation_name?: string;
+  variation_values?: Record<string, string>;
+  children_count?: number;
+  children?: AmazonProduct[];
   title: string;
   brand?: string;
   marketplace: string;

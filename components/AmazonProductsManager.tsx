@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Package, Search, RefreshCw, Plus, ExternalLink, Trash2, Edit3, 
   CheckCircle2, AlertCircle, Clock, ArrowUpRight, Zap, Filter, 
-  Layers, ShoppingBag, ShieldCheck, Download, Check, AlertTriangle, X
+  Layers, ShoppingBag, ShieldCheck, Download, Check, AlertTriangle, X,
+  ChevronDown, ChevronRight, ChevronsUpDown, List, Grid, ChevronLeft,
+  ChevronsLeft, ChevronsRight, Tag, Boxes, ArrowUpDown, Eye
 } from 'lucide-react';
 import { AmazonProduct, AmazonFeedLog, UILanguage, Listing } from '../types';
 import { 
@@ -22,6 +24,29 @@ interface AmazonProductsManagerProps {
   erpListings?: Listing[];
 }
 
+interface ProductGroup {
+  groupId: string;
+  isFamily: boolean;
+  parentAsin?: string;
+  parentSku?: string;
+  variationTheme?: string;
+  title: string;
+  brand?: string;
+  marketplace: string;
+  mainImage?: string;
+  children: AmazonProduct[];
+  minPrice: number;
+  maxPrice: number;
+  totalQuantity: number;
+  currency: string;
+  allFba: boolean;
+  allFbm: boolean;
+  hasActive: boolean;
+  hasDraft: boolean;
+}
+
+const PAGE_SIZES = [10, 20, 50, 100];
+
 export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
   uiLang,
   onOpenPublishModal,
@@ -33,12 +58,20 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [marketplaceFilter, setMarketplaceFilter] = useState<string>('ALL');
   const [fulfillmentFilter, setFulfillmentFilter] = useState<string>('ALL');
+  const [variationFilter, setVariationFilter] = useState<string>('ALL'); // 'ALL' | 'PARENT' | 'SINGLE'
+  const [viewMode, setViewMode] = useState<'hierarchy' | 'flat'>('hierarchy');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const [isSyncing, setIsSyncing] = useState(false);
   const [editingProduct, setEditingProduct] = useState<AmazonProduct | null>(null);
   const [feedLogsModalOpen, setFeedLogsModalOpen] = useState(false);
   const [feedLogs, setFeedLogs] = useState<AmazonFeedLog[]>([]);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [jumpPageInput, setJumpPageInput] = useState('');
 
   const isZh = uiLang === 'zh';
 
@@ -50,6 +83,14 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
   const loadProducts = () => {
     const list = getStoredAmazonProducts();
     setProducts(list);
+    // Auto-expand all families by default for convenient browsing
+    const initialGroups = new Set<string>();
+    list.forEach(p => {
+      if (p.parent_asin || p.parent_sku) {
+        initialGroups.add(p.parent_asin || p.parent_sku || '');
+      }
+    });
+    setExpandedGroupIds(initialGroups);
   };
 
   const handleSyncFromAmazon = async () => {
@@ -65,10 +106,21 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
 
       const res = await importListingsFromSpApiProxy(config);
       setProducts(res.items);
+      
+      // Auto-expand newly synced variation groups
+      const syncedGroups = new Set<string>();
+      res.items.forEach(p => {
+        if (p.parent_asin || p.parent_sku) {
+          syncedGroups.add(p.parent_asin || p.parent_sku || '');
+        }
+      });
+      setExpandedGroupIds(syncedGroups);
+      setCurrentPage(1);
+
       setSyncNotice(
         isZh 
-          ? `成功同步 ${res.count} 个亚马逊商品！数据来源：${res.source || 'SP-API'}` 
-          : `Successfully synced ${res.count} listings from Amazon SP-API!`
+          ? `成功同步 ${res.count} 个亚马逊商品/变体！数据已按父子变体关系自动归类归并。` 
+          : `Successfully synced ${res.count} listings/variants from Amazon SP-API!`
       );
       setTimeout(() => setSyncNotice(null), 6000);
     } catch (err: any) {
@@ -79,12 +131,27 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
   };
 
   const handleDelete = (id: string) => {
-    if (!confirm(isZh ? '确定从本地管理列表中移除该亚马逊商品吗？（不会直接在亚马逊后台下架）' : 'Remove this product from local manager?')) return;
+    if (!confirm(isZh ? '确定从本地管理列表中移除该亚马逊商品/变体吗？（不会直接在亚马逊后台下架）' : 'Remove this product from local manager?')) return;
     const updated = deleteStoredAmazonProduct(id);
     setProducts(updated);
     setSelectedIds(prev => {
       const next = new Set(prev);
       next.delete(id);
+      return next;
+    });
+  };
+
+  const handleDeleteGroup = (group: ProductGroup) => {
+    const count = group.children.length;
+    if (!confirm(isZh ? `确定移除该产品族下的全部 ${count} 个变体吗？` : `Remove all ${count} variants in this family?`)) return;
+    const childIds = new Set(group.children.map(c => c.id));
+    const current = getStoredAmazonProducts();
+    const updated = current.filter(p => !childIds.has(p.id));
+    saveStoredAmazonProducts(updated);
+    setProducts(updated);
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      childIds.forEach(id => next.delete(id));
       return next;
     });
   };
@@ -131,21 +198,183 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
     setEditingProduct(null);
   };
 
-  const filteredProducts = products.filter(p => {
-    const matchesSearch = 
-      p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.asin.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.brand && p.brand.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
-    const matchesMarketplace = marketplaceFilter === 'ALL' || p.marketplace === marketplaceFilter;
-    const matchesFulfillment = fulfillmentFilter === 'ALL' || p.fulfillment_channel === fulfillmentFilter;
-    return matchesSearch && matchesStatus && matchesMarketplace && matchesFulfillment;
-  });
+  // Filter products based on search & filters
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const q = searchTerm.toLowerCase().trim();
+      const matchesSearch = !q || 
+        p.sku.toLowerCase().includes(q) ||
+        p.asin.toLowerCase().includes(q) ||
+        (p.parent_asin && p.parent_asin.toLowerCase().includes(q)) ||
+        (p.parent_sku && p.parent_sku.toLowerCase().includes(q)) ||
+        p.title.toLowerCase().includes(q) ||
+        (p.brand && p.brand.toLowerCase().includes(q)) ||
+        (p.variation_name && p.variation_name.toLowerCase().includes(q));
+      
+      const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
+      const matchesMarketplace = marketplaceFilter === 'ALL' || p.marketplace === marketplaceFilter;
+      const matchesFulfillment = fulfillmentFilter === 'ALL' || p.fulfillment_channel === fulfillmentFilter;
+      
+      let matchesVariation = true;
+      if (variationFilter === 'PARENT') {
+        matchesVariation = Boolean(p.parent_asin || p.parent_sku);
+      } else if (variationFilter === 'SINGLE') {
+        matchesVariation = !p.parent_asin && !p.parent_sku;
+      }
 
+      return matchesSearch && matchesStatus && matchesMarketplace && matchesFulfillment && matchesVariation;
+    });
+  }, [products, searchTerm, statusFilter, marketplaceFilter, fulfillmentFilter, variationFilter]);
+
+  // Group filtered products into Parent Families vs Single Items
+  const productGroups = useMemo<ProductGroup[]>(() => {
+    const groupMap = new Map<string, ProductGroup>();
+
+    filteredProducts.forEach(p => {
+      const key = p.parent_asin || p.parent_sku || `single-${p.id}`;
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          groupId: key,
+          isFamily: Boolean(p.parent_asin || p.parent_sku),
+          parentAsin: p.parent_asin,
+          parentSku: p.parent_sku,
+          variationTheme: p.variation_theme || (p.parent_asin ? 'Color-Size' : undefined),
+          title: p.title.replace(/\s*\([^)]*\)\s*$/, '').trim() || p.title,
+          brand: p.brand,
+          marketplace: p.marketplace,
+          mainImage: p.main_image,
+          children: [],
+          minPrice: p.price,
+          maxPrice: p.price,
+          totalQuantity: 0,
+          currency: p.currency || 'USD',
+          allFba: true,
+          allFbm: true,
+          hasActive: false,
+          hasDraft: false
+        });
+      }
+
+      const group = groupMap.get(key)!;
+      group.children.push(p);
+      group.minPrice = Math.min(group.minPrice, p.price);
+      group.maxPrice = Math.max(group.maxPrice, p.price);
+      group.totalQuantity += (p.quantity || 0);
+      if (p.fulfillment_channel !== 'FBA') group.allFba = false;
+      if (p.fulfillment_channel !== 'FBM') group.allFbm = false;
+      if (p.status === 'Active') group.hasActive = true;
+      if (p.status === 'Draft' || p.status === 'Syncing') group.hasDraft = true;
+      if (!group.mainImage && p.main_image) group.mainImage = p.main_image;
+    });
+
+    return Array.from(groupMap.values());
+  }, [filteredProducts]);
+
+  // Pagination calculation
+  const totalItemCount = viewMode === 'hierarchy' ? productGroups.length : filteredProducts.length;
+  const totalPages = Math.max(1, Math.ceil(totalItemCount / pageSize));
+
+  // Auto adjust page when out of bounds
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const pagedGroups = useMemo(() => {
+    if (viewMode !== 'hierarchy') return [];
+    const start = (currentPage - 1) * pageSize;
+    return productGroups.slice(start, start + pageSize);
+  }, [productGroups, currentPage, pageSize, viewMode]);
+
+  const pagedFlatProducts = useMemo(() => {
+    if (viewMode !== 'flat') return [];
+    const start = (currentPage - 1) * pageSize;
+    return filteredProducts.slice(start, start + pageSize);
+  }, [filteredProducts, currentPage, pageSize, viewMode]);
+
+  // Expand / Collapse group toggles
+  const toggleGroupExpand = (groupId: string) => {
+    setExpandedGroupIds(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  };
+
+  const handleExpandAll = () => {
+    const all = new Set<string>(productGroups.map(g => g.groupId));
+    setExpandedGroupIds(all);
+  };
+
+  const handleCollapseAll = () => {
+    setExpandedGroupIds(new Set());
+  };
+
+  // Group selection toggle
+  const toggleGroupSelection = (group: ProductGroup, checked: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      group.children.forEach(c => {
+        if (checked) next.add(c.id);
+        else next.delete(c.id);
+      });
+      return next;
+    });
+  };
+
+  const isGroupSelected = (group: ProductGroup) => {
+    if (group.children.length === 0) return false;
+    return group.children.every(c => selectedIds.has(c.id));
+  };
+
+  const isGroupPartiallySelected = (group: ProductGroup) => {
+    const selectedChildCount = group.children.filter(c => selectedIds.has(c.id)).length;
+    return selectedChildCount > 0 && selectedChildCount < group.children.length;
+  };
+
+  const handleSelectAllOnCurrentPage = (checked: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      const itemsToToggle = viewMode === 'hierarchy' 
+        ? pagedGroups.flatMap(g => g.children) 
+        : pagedFlatProducts;
+      
+      itemsToToggle.forEach(p => {
+        if (checked) next.add(p.id);
+        else next.delete(p.id);
+      });
+      return next;
+    });
+  };
+
+  // Metrics
   const activeCount = products.filter(p => p.status === 'Active').length;
   const fbaCount = products.filter(p => p.fulfillment_channel === 'FBA').length;
-  const draftCount = products.filter(p => p.status === 'Draft' || p.status === 'Syncing').length;
+  const variationFamiliesCount = useMemo(() => {
+    const parentKeys = new Set<string>();
+    products.forEach(p => {
+      if (p.parent_asin || p.parent_sku) {
+        parentKeys.add(p.parent_asin || p.parent_sku || '');
+      }
+    });
+    return parentKeys.size;
+  }, [products]);
+
+  const currencySymbol = (curr: string) => {
+    switch (curr) {
+      case 'EUR': return '€';
+      case 'GBP': return '£';
+      case 'JPY': return '¥';
+      case 'CAD': return 'CA$';
+      case 'AUD': return 'AU$';
+      default: return '$';
+    }
+  };
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-300">
@@ -160,11 +389,11 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
               <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
                 {isZh ? '亚马逊商品管理' : 'Amazon Listings Management'}
                 <span className="text-xs px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-bold uppercase">
-                  SP-API Private
+                  SP-API
                 </span>
               </h1>
               <p className="text-xs font-semibold text-slate-500 mt-0.5">
-                {isZh ? '管理从 SP-API 同步或由系统上传发布的全部亚马逊商品与库存' : 'Manage synchronized and published listings via Amazon SP-API'}
+                {isZh ? '支持多品类父子变体层级管理、在线库存监控与 SP-API 一键同步' : 'Manage multi-variant parent-child catalog & stock via SP-API'}
               </p>
             </div>
           </div>
@@ -202,7 +431,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
       {syncNotice && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-bold flex items-center justify-between animate-in slide-in-from-top-2">
           <div className="flex items-center gap-2">
-            <CheckCircle2 size={16} className="text-emerald-600" />
+            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
             <span>{syncNotice}</span>
           </div>
           <button onClick={() => setSyncNotice(null)} className="text-emerald-600 hover:text-emerald-900">
@@ -214,10 +443,18 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
       {/* Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-2">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{isZh ? '全部商品总量' : 'Total Listings'}</span>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{isZh ? '商品/变体总数' : 'Total Variants'}</span>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-black text-slate-900">{products.length}</span>
-            <span className="text-xs font-bold text-slate-400">{isZh ? 'SKU' : 'items'}</span>
+            <span className="text-xs font-bold text-slate-400">{isZh ? '个 SKU' : 'SKUs'}</span>
+          </div>
+        </div>
+
+        <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-2">
+          <span className="text-[10px] font-black text-amber-600 uppercase tracking-wider">{isZh ? '父体商品族数' : 'Parent Families'}</span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-2xl font-black text-amber-600">{variationFamiliesCount}</span>
+            <Boxes size={18} className="text-amber-500" />
           </div>
         </div>
 
@@ -230,40 +467,98 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
         </div>
 
         <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-2">
-          <span className="text-[10px] font-black text-indigo-600 uppercase tracking-wider">{isZh ? '亚马逊配送 (FBA)' : 'FBA Fulfilled'}</span>
+          <span className="text-[10px] font-black text-indigo-600 uppercase tracking-wider">{isZh ? 'FBA 亚马逊配送' : 'FBA Fulfilled'}</span>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-black text-indigo-600">{fbaCount}</span>
             <Zap size={18} className="text-indigo-500" />
           </div>
         </div>
-
-        <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-2">
-          <span className="text-[10px] font-black text-amber-600 uppercase tracking-wider">{isZh ? '草稿/同步中 (Draft/Sync)' : 'Draft / Syncing'}</span>
-          <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-amber-600">{draftCount}</span>
-            <Clock size={18} className="text-amber-500" />
-          </div>
-        </div>
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="relative w-full md:w-80">
-          <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input 
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder={isZh ? "搜索 SKU、ASIN、标题、品牌..." : "Search SKU, ASIN, Title..."}
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
-          />
+      <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-4">
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+          <div className="relative w-full lg:w-96">
+            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input 
+              type="text"
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+              placeholder={isZh ? "搜索 SKU、ASIN、父体 ASIN、标题、品牌、颜色尺码..." : "Search SKU, ASIN, Parent ASIN, Title, Brand..."}
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-2.5 w-full lg:w-auto flex-wrap justify-end">
+            {/* View Mode Toggle */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200">
+              <button
+                onClick={() => setViewMode('hierarchy')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                  viewMode === 'hierarchy' 
+                    ? 'bg-white text-slate-900 shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Layers size={13} />
+                {isZh ? '父子层级视图' : 'Hierarchy View'}
+              </button>
+              <button
+                onClick={() => setViewMode('flat')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                  viewMode === 'flat' 
+                    ? 'bg-white text-slate-900 shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <List size={13} />
+                {isZh ? '平铺明细视图' : 'Flat List'}
+              </button>
+            </div>
+
+            {/* Expand / Collapse Buttons for Hierarchy Mode */}
+            {viewMode === 'hierarchy' && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleExpandAll}
+                  title={isZh ? "展开所有父体变体" : "Expand All"}
+                  className="px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 transition-all"
+                >
+                  {isZh ? '全部展开' : 'Expand All'}
+                </button>
+                <button
+                  onClick={handleCollapseAll}
+                  title={isZh ? "折叠所有父体变体" : "Collapse All"}
+                  className="px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 transition-all"
+                >
+                  {isZh ? '全部折叠' : 'Collapse All'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full md:w-auto flex-wrap justify-end">
+        {/* Filter Selectors */}
+        <div className="flex items-center gap-3 flex-wrap pt-2 border-t border-slate-100 text-xs">
+          <div className="flex items-center gap-1.5 text-slate-400 font-bold">
+            <Filter size={13} />
+            <span>{isZh ? '筛选:' : 'Filter:'}</span>
+          </div>
+
+          <select 
+            value={variationFilter}
+            onChange={(e) => { setVariationFilter(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none"
+          >
+            <option value="ALL">{isZh ? '商品属性: 全部商品' : 'All Product Types'}</option>
+            <option value="PARENT">{isZh ? '仅变体商品族 (Parent/Child)' : 'Variation Families Only'}</option>
+            <option value="SINGLE">{isZh ? '仅单品无变体 (Single)' : 'Single Items Only'}</option>
+          </select>
+
           <select 
             value={marketplaceFilter}
-            onChange={(e) => setMarketplaceFilter(e.target.value)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+            onChange={(e) => { setMarketplaceFilter(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none"
           >
             <option value="ALL">{isZh ? '所有站点 (All Markets)' : 'All Marketplaces'}</option>
             <option value="US">🇺🇸 美国 (US - ATVPDKIKX0DER)</option>
@@ -275,20 +570,20 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
 
           <select 
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+            onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none"
           >
             <option value="ALL">{isZh ? '全部状态 (All Status)' : 'All Status'}</option>
             <option value="Active">{isZh ? '在售 (Active)' : 'Active'}</option>
-            <option value="Draft">{isZh ? '草稿 (Draft)' : 'Draft'}</option>
+            <option value="Draft">{isZh ? '草稿/同步中 (Draft)' : 'Draft'}</option>
             <option value="Inactive">{isZh ? '下架 (Inactive)' : 'Inactive'}</option>
             <option value="Error">{isZh ? '异常 (Error)' : 'Error'}</option>
           </select>
 
           <select 
             value={fulfillmentFilter}
-            onChange={(e) => setFulfillmentFilter(e.target.value)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+            onChange={(e) => { setFulfillmentFilter(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none"
           >
             <option value="ALL">{isZh ? '全部配送方式' : 'All Fulfillment'}</option>
             <option value="FBA">FBA (亚马逊配送)</option>
@@ -298,9 +593,9 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
           {selectedIds.size > 0 && (
             <button 
               onClick={handleBatchDelete}
-              className="px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              className="ml-auto px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold transition-all flex items-center gap-1.5"
             >
-              <Trash2 size={13} /> {isZh ? `删除 (${selectedIds.size})` : `Delete (${selectedIds.size})`}
+              <Trash2 size={13} /> {isZh ? `批量删除 (${selectedIds.size})` : `Delete (${selectedIds.size})`}
             </button>
           )}
         </div>
@@ -321,7 +616,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
               </h3>
               <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
                 {products.length === 0 
-                  ? (isZh ? '点击右上角【从亚马逊同步商品】快速载入现有库存，或点击【从产品库发布】将优化好的商品推送到亚马逊。' : 'Click "Sync from Amazon" to import current catalog or "Publish from ERP" to push new listings.')
+                  ? (isZh ? '点击右上角【从亚马逊同步商品】快速载入多变体库存，或点击【从产品库发布】将优化好的商品推送到亚马逊。' : 'Click "Sync from Amazon" to import multi-variant catalog.')
                   : (isZh ? '请尝试重置搜索词或筛选条件。' : 'Try clearing search keyword or filters.')}
               </p>
             </div>
@@ -342,33 +637,360 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                <tr className="border-b border-slate-100 bg-slate-50/70 text-[10px] font-black uppercase text-slate-400 tracking-wider">
                   <th className="py-4 px-5 w-12 text-center">
                     <input 
                       type="checkbox"
-                      checked={selectedIds.size === filteredProducts.length && filteredProducts.length > 0}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedIds(new Set(filteredProducts.map(p => p.id)));
-                        } else {
-                          setSelectedIds(new Set());
-                        }
-                      }}
+                      checked={
+                        viewMode === 'hierarchy'
+                          ? pagedGroups.length > 0 && pagedGroups.every(g => isGroupSelected(g))
+                          : pagedFlatProducts.length > 0 && pagedFlatProducts.every(p => selectedIds.has(p.id))
+                      }
+                      onChange={(e) => handleSelectAllOnCurrentPage(e.target.checked)}
                       className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
                     />
                   </th>
-                  <th className="py-4 px-4 w-16">{isZh ? '图片' : 'Image'}</th>
-                  <th className="py-4 px-4">{isZh ? '商品信息 (SKU / ASIN / 标题)' : 'Product Details'}</th>
+                  <th className="py-4 px-3 w-16">{isZh ? '主图' : 'Image'}</th>
+                  <th className="py-4 px-4">{isZh ? '商品信息 (父体 / SKU / ASIN / 标题)' : 'Product Details'}</th>
                   <th className="py-4 px-4">{isZh ? '站点' : 'Market'}</th>
-                  <th className="py-4 px-4">{isZh ? '售价' : 'Price'}</th>
+                  <th className="py-4 px-4">{isZh ? '售价区间' : 'Price'}</th>
                   <th className="py-4 px-4">{isZh ? '库存' : 'Stock'}</th>
-                  <th className="py-4 px-4">{isZh ? '配送方式' : 'Fulfillment'}</th>
+                  <th className="py-4 px-4">{isZh ? '配送' : 'Fulfillment'}</th>
                   <th className="py-4 px-4">{isZh ? '状态' : 'Status'}</th>
                   <th className="py-4 px-5 text-right">{isZh ? '操作' : 'Actions'}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50 text-xs font-medium text-slate-700">
-                {filteredProducts.map(p => {
+              <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
+                {/* 1. HIERARCHY VIEW: PARENT & CHILD TREE */}
+                {viewMode === 'hierarchy' && pagedGroups.map((group) => {
+                  const isExpanded = expandedGroupIds.has(group.groupId);
+                  const isSelected = isGroupSelected(group);
+                  const isPartially = isGroupPartiallySelected(group);
+
+                  return (
+                    <React.Fragment key={group.groupId}>
+                      {/* Parent / Summary Row */}
+                      <tr className={`border-b border-slate-100 transition-colors ${
+                        group.isFamily 
+                          ? (isExpanded ? 'bg-amber-50/20' : 'bg-white hover:bg-slate-50/70') 
+                          : 'bg-white hover:bg-slate-50/70'
+                      }`}>
+                        <td className="py-4 px-5 text-center">
+                          <input 
+                            type="checkbox"
+                            checked={isSelected}
+                            ref={input => {
+                              if (input) input.indeterminate = isPartially;
+                            }}
+                            onChange={(e) => toggleGroupSelection(group, e.target.checked)}
+                            className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
+                          />
+                        </td>
+
+                        <td className="py-4 px-3">
+                          <div className="relative w-12 h-12 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 flex items-center justify-center shadow-xs">
+                            {group.mainImage ? (
+                              <img src={group.mainImage} alt={group.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <Package size={20} className="text-slate-300" />
+                            )}
+                            {group.isFamily && (
+                              <span className="absolute bottom-0 right-0 bg-slate-900/80 text-white text-[9px] font-black px-1 rounded-tl-md">
+                                {group.children.length}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="py-4 px-4 max-w-md">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              {group.isFamily ? (
+                                <button 
+                                  onClick={() => toggleGroupExpand(group.groupId)}
+                                  className="flex items-center gap-1 text-amber-600 hover:text-amber-700 font-black text-xs group/btn"
+                                >
+                                  {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                  <span className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                                    <Boxes size={11} />
+                                    {isZh ? `父体商品 (${group.children.length} 变体)` : `Parent (${group.children.length} Vars)`}
+                                  </span>
+                                </button>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[10px] font-black uppercase">
+                                  {isZh ? '单品 (Single)' : 'Single Item'}
+                                </span>
+                              )}
+
+                              {group.variationTheme && (
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[10px] font-bold">
+                                  {group.variationTheme}
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="font-bold text-slate-900 line-clamp-1 text-sm" title={group.title}>
+                              {group.title}
+                            </p>
+
+                            <div className="flex items-center gap-2.5 text-[11px] text-slate-400 flex-wrap">
+                              {group.parentAsin && (
+                                <span className="font-mono text-amber-600 font-bold bg-amber-50 px-1.5 py-0.5 rounded">
+                                  Parent ASIN: {group.parentAsin}
+                                </span>
+                              )}
+                              {group.parentSku && (
+                                <span className="font-mono text-slate-600 font-bold bg-slate-100 px-1.5 py-0.5 rounded">
+                                  Parent SKU: {group.parentSku}
+                                </span>
+                              )}
+                              {group.brand && <span>{group.brand}</span>}
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="py-4 px-4">
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px]">
+                            {group.marketplace}
+                          </span>
+                        </td>
+
+                        <td className="py-4 px-4">
+                          <span className="font-black text-slate-900 text-sm">
+                            {currencySymbol(group.currency)}
+                            {group.minPrice === group.maxPrice 
+                              ? group.minPrice.toFixed(2) 
+                              : `${group.minPrice.toFixed(2)} - ${group.maxPrice.toFixed(2)}`}
+                          </span>
+                        </td>
+
+                        <td className="py-4 px-4">
+                          <div className="space-y-0.5">
+                            <span className="font-bold text-slate-800 text-sm">
+                              {group.totalQuantity}
+                            </span>
+                            {group.isFamily && (
+                              <span className="text-[10px] text-slate-400 block font-semibold">
+                                {isZh ? '汇总总库存' : 'Total stock'}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="py-4 px-4">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                            group.allFba 
+                              ? 'bg-indigo-50 text-indigo-700' 
+                              : group.allFbm 
+                              ? 'bg-slate-100 text-slate-600' 
+                              : 'bg-amber-50 text-amber-700'
+                          }`}>
+                            {group.allFba ? 'FBA' : group.allFbm ? 'FBM' : 'FBA+FBM'}
+                          </span>
+                        </td>
+
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-2 h-2 rounded-full ${
+                              group.hasActive ? 'bg-emerald-500' : 'bg-amber-500'
+                            }`} />
+                            <span className="font-bold text-xs">
+                              {group.hasActive ? 'Active' : 'Draft'}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className="py-4 px-5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {group.isFamily ? (
+                              <button 
+                                onClick={() => toggleGroupExpand(group.groupId)}
+                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
+                              >
+                                {isExpanded ? (isZh ? '收起变体' : 'Hide') : (isZh ? '展开变体' : 'View Vars')}
+                                {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                              </button>
+                            ) : (
+                              <>
+                                <button 
+                                  onClick={() => handlePushSingle(group.children[0])}
+                                  title={isZh ? "通过 SP-API 推送/更新至亚马逊" : "Push to Amazon"}
+                                  className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all"
+                                >
+                                  <Zap size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => setEditingProduct(group.children[0])}
+                                  title={isZh ? "编辑商品" : "Edit"}
+                                  className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                                >
+                                  <Edit3 size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDelete(group.children[0].id)}
+                                  title={isZh ? "移除商品" : "Delete"}
+                                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Child Variation Rows (Nested under Parent) */}
+                      {group.isFamily && isExpanded && group.children.map((child, idx) => {
+                        const isChildSelected = selectedIds.has(child.id);
+                        const isLastChild = idx === group.children.length - 1;
+
+                        return (
+                          <tr 
+                            key={child.id} 
+                            className={`bg-slate-50/40 hover:bg-amber-50/40 transition-colors border-b border-slate-100/60 ${
+                              isChildSelected ? 'bg-amber-50/50' : ''
+                            }`}
+                          >
+                            <td className="py-3 px-5 text-center">
+                              <input 
+                                type="checkbox"
+                                checked={isChildSelected}
+                                onChange={(e) => {
+                                  setSelectedIds(prev => {
+                                    const next = new Set(prev);
+                                    if (e.target.checked) next.add(child.id);
+                                    else next.delete(child.id);
+                                    return next;
+                                  });
+                                }}
+                                className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
+                              />
+                            </td>
+
+                            <td className="py-3 px-3">
+                              <div className="w-9 h-9 ml-3 bg-white rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">
+                                {child.main_image ? (
+                                  <img src={child.main_image} alt={child.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <Package size={16} className="text-slate-300" />
+                                )}
+                              </div>
+                            </td>
+
+                            <td className="py-3 px-4 max-w-md">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-slate-300 font-mono text-xs select-none">
+                                    {isLastChild ? '└──' : '├──'}
+                                  </span>
+
+                                  {child.variation_name ? (
+                                    <span className="px-2 py-0.5 bg-amber-100/80 text-amber-900 rounded-md font-black text-[11px]">
+                                      {child.variation_name}
+                                    </span>
+                                  ) : child.variation_values ? (
+                                    Object.entries(child.variation_values).map(([k, v]) => (
+                                      <span key={k} className="px-2 py-0.5 bg-amber-100/80 text-amber-900 rounded-md font-black text-[11px]">
+                                        {k}: {v}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded-md font-bold text-[10px]">
+                                      {isZh ? `子变体 #${idx + 1}` : `Var #${idx + 1}`}
+                                    </span>
+                                  )}
+
+                                  <span className="font-mono font-bold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200 text-[10px]">
+                                    SKU: {child.sku}
+                                  </span>
+
+                                  {child.asin && (
+                                    <a 
+                                      href={`https://www.amazon.com/dp/${child.asin}`} 
+                                      target="_blank" 
+                                      rel="noreferrer"
+                                      className="font-mono text-amber-600 hover:text-amber-700 flex items-center gap-0.5 hover:underline text-[10px]"
+                                    >
+                                      ASIN: {child.asin} <ExternalLink size={9} />
+                                    </a>
+                                  )}
+                                </div>
+
+                                <p className="text-slate-600 font-medium text-xs line-clamp-1 pl-6" title={child.title}>
+                                  {child.title}
+                                </p>
+                              </div>
+                            </td>
+
+                            <td className="py-3 px-4">
+                              <span className="text-[11px] text-slate-500 font-bold">
+                                {child.marketplace}
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-4">
+                              <span className="font-black text-slate-900 text-xs">
+                                {currencySymbol(child.currency)}{child.price.toFixed(2)}
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-4">
+                              <span className={`font-bold text-xs ${child.quantity <= 5 ? 'text-red-500' : 'text-slate-700'}`}>
+                                {child.quantity}
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-4">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                                child.fulfillment_channel === 'FBA' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {child.fulfillment_channel}
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`w-1.5 h-1.5 rounded-full ${
+                                  child.status === 'Active' ? 'bg-emerald-500' : 'bg-amber-500'
+                                }`} />
+                                <span className="text-xs font-semibold text-slate-700">{child.status}</span>
+                              </div>
+                            </td>
+
+                            <td className="py-3 px-5 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button 
+                                  onClick={() => handlePushSingle(child)}
+                                  title={isZh ? "通过 SP-API 推送/更新子变体" : "Push Variant"}
+                                  className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                                >
+                                  <Zap size={13} />
+                                </button>
+                                <button 
+                                  onClick={() => setEditingProduct(child)}
+                                  title={isZh ? "编辑子变体" : "Edit Variant"}
+                                  className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                >
+                                  <Edit3 size={13} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDelete(child.id)}
+                                  title={isZh ? "移除子变体" : "Remove Variant"}
+                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })}
+
+                {/* 2. FLAT VIEW: EVERY LISTING INDIVIDUALLY */}
+                {viewMode === 'flat' && pagedFlatProducts.map(p => {
                   const isSelected = selectedIds.has(p.id);
                   return (
                     <tr key={p.id} className={`hover:bg-slate-50/80 transition-colors ${isSelected ? 'bg-amber-50/30' : ''}`}>
@@ -377,16 +999,18 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                           type="checkbox"
                           checked={isSelected}
                           onChange={(e) => {
-                            const next = new Set(selectedIds);
-                            if (e.target.checked) next.add(p.id);
-                            else next.delete(p.id);
-                            setSelectedIds(next);
+                            setSelectedIds(prev => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(p.id);
+                              else next.delete(p.id);
+                              return next;
+                            });
                           }}
                           className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
                         />
                       </td>
 
-                      <td className="py-4 px-4">
+                      <td className="py-4 px-3">
                         <div className="w-12 h-12 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 flex items-center justify-center">
                           {p.main_image ? (
                             <img src={p.main_image} alt={p.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -401,7 +1025,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                           <p className="font-bold text-slate-900 line-clamp-2" title={p.title}>
                             {p.title}
                           </p>
-                          <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                          <div className="flex items-center gap-2.5 text-[11px] text-slate-400 flex-wrap">
                             <span className="font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
                               SKU: {p.sku}
                             </span>
@@ -414,6 +1038,11 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                               >
                                 ASIN: {p.asin} <ExternalLink size={10} />
                               </a>
+                            )}
+                            {p.variation_name && (
+                              <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md">
+                                {p.variation_name}
+                              </span>
                             )}
                             {p.brand && <span>{p.brand}</span>}
                           </div>
@@ -428,7 +1057,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
 
                       <td className="py-4 px-4">
                         <span className="font-black text-slate-900 text-sm">
-                          {p.currency === 'USD' ? '$' : p.currency === 'EUR' ? '€' : p.currency === 'GBP' ? '£' : '¥'}{p.price.toFixed(2)}
+                          {currencySymbol(p.currency)}{p.price.toFixed(2)}
                         </span>
                       </td>
 
@@ -449,17 +1078,17 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-1.5">
                           <span className={`w-2 h-2 rounded-full ${
-                            p.status === 'Active' ? 'bg-emerald-500' : p.status === 'Draft' ? 'bg-amber-500' : 'bg-slate-300'
+                            p.status === 'Active' ? 'bg-emerald-500' : 'bg-amber-500'
                           }`} />
                           <span className="font-bold text-xs">{p.status}</span>
                         </div>
                       </td>
 
                       <td className="py-4 px-5 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button 
                             onClick={() => handlePushSingle(p)}
-                            title={isZh ? "通过 SP-API 推送/更新至亚马逊" : "Push to Amazon via SP-API"}
+                            title={isZh ? "通过 SP-API 推送/更新" : "Push"}
                             className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all"
                           >
                             <Zap size={15} />
@@ -473,7 +1102,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                           </button>
                           <button 
                             onClick={() => handleDelete(p.id)}
-                            title={isZh ? "从本地列表移除" : "Remove"}
+                            title={isZh ? "移除商品" : "Delete"}
                             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
                           >
                             <Trash2 size={15} />
@@ -487,6 +1116,123 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
             </table>
           </div>
         )}
+
+        {/* Complete Pagination Controls Bar */}
+        {filteredProducts.length > 0 && (
+          <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+            {/* Left: Summary Info */}
+            <div className="text-slate-500 font-medium">
+              {isZh ? (
+                <span>
+                  共 <strong className="text-slate-900 font-black">{filteredProducts.length}</strong> 个商品/变体
+                  {viewMode === 'hierarchy' && ` (按 ${productGroups.length} 个商品族归纳)`}，
+                  当前显示第 <strong className="text-slate-900 font-black">{(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, totalItemCount)}</strong> 项
+                </span>
+              ) : (
+                <span>
+                  Showing <strong>{(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, totalItemCount)}</strong> of <strong>{totalItemCount}</strong> items
+                </span>
+              )}
+            </div>
+
+            {/* Right: Page Nav & Page Size Selector */}
+            <div className="flex items-center gap-3 flex-wrap justify-end">
+              {/* Page size dropdown */}
+              <div className="flex items-center gap-1.5 text-slate-600 font-bold">
+                <span>{isZh ? '每页显示:' : 'Page size:'}</span>
+                <select 
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2.5 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                >
+                  {PAGE_SIZES.map(s => (
+                    <option key={s} value={s}>{s} {isZh ? '条/页' : '/ page'}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Navigation buttons */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  title={isZh ? "首页" : "First Page"}
+                  className="p-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-600 disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <ChevronsLeft size={14} />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  title={isZh ? "上一页" : "Previous Page"}
+                  className="p-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-600 disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+
+                <span className="px-3 py-1 bg-white border border-slate-200 rounded-lg font-bold text-slate-800 text-xs">
+                  {currentPage} / {totalPages}
+                </span>
+
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  title={isZh ? "下一页" : "Next Page"}
+                  className="p-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-600 disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <ChevronRight size={14} />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  title={isZh ? "末页" : "Last Page"}
+                  className="p-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-600 disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <ChevronsRight size={14} />
+                </button>
+              </div>
+
+              {/* Jump to page */}
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <input 
+                    type="number" 
+                    min={1} 
+                    max={totalPages}
+                    value={jumpPageInput}
+                    onChange={(e) => setJumpPageInput(e.target.value)}
+                    placeholder={String(currentPage)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const target = parseInt(jumpPageInput);
+                        if (target >= 1 && target <= totalPages) {
+                          setCurrentPage(target);
+                          setJumpPageInput('');
+                        }
+                      }
+                    }}
+                    className="w-12 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs text-center font-bold focus:outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      const target = parseInt(jumpPageInput);
+                      if (target >= 1 && target <= totalPages) {
+                        setCurrentPage(target);
+                        setJumpPageInput('');
+                      }
+                    }}
+                    className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-bold text-xs"
+                  >
+                    {isZh ? '跳转' : 'Go'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Edit Product Modal */}
@@ -495,7 +1241,7 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
           <div className="bg-white rounded-3xl p-6 w-full max-w-xl shadow-2xl border border-slate-100 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-black text-slate-900">
-                {isZh ? '编辑亚马逊商品信息' : 'Edit Amazon Product'}
+                {isZh ? '编辑亚马逊商品/变体信息' : 'Edit Amazon Product'}
               </h3>
               <button onClick={() => setEditingProduct(null)} className="text-slate-400 hover:text-slate-700">
                 <X size={18} />
@@ -503,25 +1249,50 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
             </div>
 
             <div className="space-y-3 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">SKU</label>
-                <input 
-                  type="text" 
-                  value={editingProduct.sku} 
-                  onChange={(e) => setEditingProduct({ ...editingProduct, sku: e.target.value })}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">SKU</label>
+                  <input 
+                    type="text" 
+                    value={editingProduct.sku} 
+                    onChange={(e) => setEditingProduct({ ...editingProduct, sku: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">ASIN</label>
+                  <input 
+                    type="text" 
+                    value={editingProduct.asin} 
+                    onChange={(e) => setEditingProduct({ ...editingProduct, asin: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">ASIN</label>
-                <input 
-                  type="text" 
-                  value={editingProduct.asin} 
-                  onChange={(e) => setEditingProduct({ ...editingProduct, asin: e.target.value })}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono"
-                />
-              </div>
+              {(editingProduct.parent_asin || editingProduct.parent_sku) && (
+                <div className="grid grid-cols-2 gap-3 bg-amber-50/50 p-3 rounded-2xl border border-amber-100">
+                  <div>
+                    <label className="font-bold text-amber-900 block mb-1">父体 Parent ASIN</label>
+                    <input 
+                      type="text" 
+                      value={editingProduct.parent_asin || ''} 
+                      onChange={(e) => setEditingProduct({ ...editingProduct, parent_asin: e.target.value })}
+                      className="w-full p-2 bg-white border border-amber-200 rounded-xl font-mono text-amber-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-amber-900 block mb-1">变体描述/属性</label>
+                    <input 
+                      type="text" 
+                      value={editingProduct.variation_name || ''} 
+                      onChange={(e) => setEditingProduct({ ...editingProduct, variation_name: e.target.value })}
+                      placeholder="e.g. Color: Black, Size: L"
+                      className="w-full p-2 bg-white border border-amber-200 rounded-xl font-medium"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="font-bold text-slate-700 block mb-1">
@@ -568,9 +1339,9 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                     onChange={(e) => setEditingProduct({ ...editingProduct, status: e.target.value as any })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-medium"
                   >
-                    <option value="Active">Active</option>
-                    <option value="Draft">Draft</option>
-                    <option value="Inactive">Inactive</option>
+                    <option value="Active">Active (在售)</option>
+                    <option value="Draft">Draft (草稿/同步中)</option>
+                    <option value="Inactive">Inactive (下架)</option>
                   </select>
                 </div>
                 <div>
@@ -580,8 +1351,8 @@ export const AmazonProductsManager: React.FC<AmazonProductsManagerProps> = ({
                     onChange={(e) => setEditingProduct({ ...editingProduct, fulfillment_channel: e.target.value as any })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-medium"
                   >
-                    <option value="FBM">FBM (卖家自发货)</option>
                     <option value="FBA">FBA (亚马逊配送)</option>
+                    <option value="FBM">FBM (卖家自发货)</option>
                   </select>
                 </div>
               </div>

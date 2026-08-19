@@ -49,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
 
   const navItems = [
     { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: t('dashboard') },
-    { id: 'listings', icon: <List size={18} />, label: lang === 'zh' ? '产品列表(采集库)' : t('listings') },
+    { id: 'listings', icon: <List size={18} />, label: lang === 'zh' ? '产品列表' : t('listings') },
     { id: 'categories', icon: <Tags size={18} />, label: t('categoryMgmt') },
     { id: 'pricing', icon: <Coins size={18} />, label: t('pricing') },
     { id: 'templates', icon: <Layout size={18} />, label: t('templateManager') },
@@ -58,7 +58,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
   const amazonSubItems = [
     { id: 'amazon:listings', icon: <Package size={16} />, label: lang === 'zh' ? '商品管理' : 'Listings' },
     { id: 'amazon:orders', icon: <ShoppingBag size={16} />, label: lang === 'zh' ? '订单管理' : 'Orders' },
-    { id: 'amazon:settings', icon: <Zap size={16} />, label: lang === 'zh' ? 'SP-API 配置与状态' : 'SP-API Settings' },
   ];
 
   const systemSubItems = [
@@ -113,7 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, lang,
           >
             <div className="flex items-center gap-3">
               <Store size={18} className={activeTab.startsWith('amazon') ? 'text-slate-950' : 'text-amber-400'} /> 
-              <span className="text-sm font-bold">{lang === 'zh' ? '亚马逊 (Amazon)' : 'Amazon'}</span>
+              <span className="text-sm font-bold">{lang === 'zh' ? '亚马逊' : 'Amazon'}</span>
             </div>
             <ChevronDown size={14} className={`transition-transform duration-300 ${isAmazonExpanded ? 'rotate-180' : ''}`} />
           </button>
